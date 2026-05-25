@@ -102,6 +102,10 @@ The check value for the custom parameters is computed automatically (`_generic_c
 
 64+ algorithms covering everything from CRC-8 (ATM, AUTOSAR, Bluetooth, Maxim 1-Wire) through CRC-16 (Modbus, XMODEM, CCITT, IBM SDLC) through CRC-32 (Ethernet, bzip2, iSCSI, AUTOSAR) to CRC-64 (XZ, ECMA-182, NVMe, Redis).  Browse with `crcglot list`.
 
+## Example output
+
+See [EXAMPLES.md](EXAMPLES.md) for the actual generated source for `crc32` across all 9 language × implementation combinations (C / Rust / Python / VHDL crossed with bit-by-bit, table-driven, and slice-by-8 where supported).  Every block is reproducible with one CLI command.
+
 ## Acknowledgments
 
 CRC catalogue data is derived from Greg Cook's [reveng project](https://reveng.sourceforge.io/) — the canonical source for CRC algorithm parameters since 1999.
