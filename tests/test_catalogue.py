@@ -1,24 +1,29 @@
-"""Tests for the custom CRC + symbol-override generator API in crcglot.
+"""Cross-cutting tests that span multiple target languages.
 
-The generators accept two invocation shapes:
+Tests in this file are organized by API surface rather than by target
+language:
 
-* **Catalogue lookup** -- ``generate_<lang>(name, ...)`` looks ``name``
-  up in ``CRC_CATALOGUE``; ``symbol=`` overrides the function name.
+* ``TestGenerators`` -- the ``GENERATORS`` dispatch table itself
+  (every language present, reflected and normal algorithms accepted).
 
-* **Custom CRC** -- ``generate_<lang>_from_entry(name, entry, ...)``
-  builds source from a synthetic catalogue-shaped entry dict (raw
-  Rocksoft/Williams parameters: width, poly, init, refin, refout,
-  xorout, check).
+* ``TestCustomCrcChainAgainstRevengTruth`` -- the custom-params path
+  (``generate_<lang>_from_entry(name, entry, ...)``) verified against
+  HARDCODED reveng check values rather than engine-derived ones, so a
+  regression in either the engine OR the generators surfaces.
 
-These tests exercise:
+* ``TestSymbolOverride`` -- the ``symbol=`` keyword renames the emitted
+  function across header / declarations / definitions.
 
-- The custom-params path produces functions that compute the same CRC
-  as the corresponding bundled catalogue entry (when the params match).
-- The symbol override (explicit ``symbol=``) renames the function.
-- The slice-by-8 generator parameter behaves correctly (emits 8
-  tables, rejects narrow widths, isn't exposed in Python/VHDL).
+* ``TestGenerateFromEntryAcceptsSyntheticEntry`` -- the
+  custom-params path accepts entries for algorithms not in any
+  catalogue.
 
-Pure crcglot tests -- zero termapy imports.
+* ``TestSliceBy8GeneratorAPI`` -- structural surface of the slice8
+  parameter (emits 8 tables, rejects narrow widths, not exposed in
+  Python / VHDL).  Execution-correctness lives in test_c_gen.py and
+  test_rust_gen.py.
+
+Pure crcglot tests -- zero termapy imports, zero toolchain calls.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from __future__ import annotations
 import pytest
 
 from crcglot import (
+    GENERATORS,
     generate_c,
     generate_c_from_entry,
     generate_python,
@@ -58,6 +64,40 @@ _REVENG_CHECK_VALUES = {
     "crc64-xz":      (64, 0x42F0E1EBA9EA3693, 0xFFFFFFFFFFFFFFFF,
                       True, True, 0xFFFFFFFFFFFFFFFF, 0x995DC9BBDF1939FA),
 }
+
+
+class TestGenerators:
+    """The GENERATORS dispatch table itself -- one entry per target
+    language, every generator accepts both reflected (refin=True) and
+    normal (refin=False) algorithms."""
+
+    def test_all_languages_present(self):
+        # Assert
+        assert set(GENERATORS.keys()) == {"c", "python", "rust", "vhdl"}, (
+            "expected c, python, rust, vhdl generators"
+        )
+
+    @pytest.mark.parametrize("lang", ["c", "python", "rust", "vhdl"])
+    def test_reflected_algorithm(self, lang):
+        """Verify reflected algorithms (refin=True) generate code."""
+        # Act - crc16-modbus is reflected
+        result = GENERATORS[lang]("crc16-modbus")
+
+        # Assert -- C returns a (header, source) pair; others return a string.
+        assert result is not None, f"{lang} generator returned None for reflected algorithm"
+        body = "".join(result) if isinstance(result, tuple) else result
+        assert len(body) > 100, "non-trivial output"
+
+    @pytest.mark.parametrize("lang", ["c", "python", "rust", "vhdl"])
+    def test_normal_algorithm(self, lang):
+        """Verify normal algorithms (refin=False) generate code."""
+        # Act - crc16-xmodem is normal
+        result = GENERATORS[lang]("crc16-xmodem")
+
+        # Assert -- C returns a (header, source) pair; others return a string.
+        assert result is not None, f"{lang} generator returned None for normal algorithm"
+        body = "".join(result) if isinstance(result, tuple) else result
+        assert len(body) > 100, "non-trivial output"
 
 
 class TestCustomCrcChainAgainstRevengTruth:
@@ -233,10 +273,11 @@ class TestGenerateFromEntryAcceptsSyntheticEntry:
 class TestSliceBy8GeneratorAPI:
     """Structural tests for the slice8 generator parameter.
 
-    Execution-correctness tests live in test_crcglot_exec.py
-    (TestGeneratedCSliceBy8Executes / TestGeneratedRustSliceBy8Executes).
-    These tests verify the API surface: returns aren't None, output
-    contains the right markers, and out-of-range widths raise cleanly.
+    Execution-correctness tests live in test_c_gen.py and
+    test_rust_gen.py (TestGeneratedCSliceBy8Executes /
+    TestGeneratedRustSliceBy8Executes).  These tests verify the API
+    surface: returns aren't None, output contains the right markers,
+    and out-of-range widths raise cleanly.
     """
 
     def test_c_slice8_emits_8_tables(self):
