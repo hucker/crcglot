@@ -1,0 +1,60 @@
+[project]
+name = "crcglot"
+version = "0.1.0"
+description = "Verified CRC source-code for C, Rust, VHDL, Python — catalogue-driven, self-test embedded."
+license = "MIT"
+requires-python = ">=3.11"
+readme = "README.md"
+authors = [{name = "Chuck Bass", email = "chuck@acrocad.net"}]
+keywords = ["crc", "checksum", "code-generation", "embedded", "reveng", "rocksoft", "williams"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Embedded Systems",
+]
+dependencies = []  # pure stdlib
+
+[project.scripts]
+crcglot = "crcglot.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/hucker/crcglot"
+Repository = "https://github.com/hucker/crcglot"
+Issues = "https://github.com/hucker/crcglot/issues"
+
+[build-system]
+requires = ["uv_build"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=crcglot --cov-report=term-missing -n auto"
+markers = [
+    "slow: subprocess-spawning test (compiles + runs generated code via gcc / rustc / ghdl).  Skip with -m 'not slow' for fast iteration.",
+]
+
+[tool.coverage.run]
+source = ["src/crcglot"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "if __name__",
+    "pragma: no cover",
+]
+show_missing = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=7.0",
+    "pytest-xdist>=3.8",
+]
