@@ -23,7 +23,7 @@ language:
   Python / VHDL).  Execution-correctness lives in test_c_gen.py and
   test_rust_gen.py.
 
-Pure crcglot tests -- zero termapy imports, zero toolchain calls.
+Zero toolchain calls -- all assertions run in-process.
 """
 
 from __future__ import annotations
@@ -318,9 +318,11 @@ class TestSliceBy8GeneratorAPI:
         """generate_python intentionally has no slice8 parameter: Python's
         per-int overhead eats the speedup, so emitting slice-by-8 in
         Python would add code without any throughput benefit."""
-        # Act + Assert -- passing slice8= must raise TypeError.
+        # Act + Assert -- passing slice8= must raise TypeError.  The
+        # call is deliberately wrong-typed; suppression markers cover
+        # mypy/pyright (call-arg) and ty (unknown-argument).
         with pytest.raises(TypeError):
-            generate_python("crc32", slice8=True)  # type: ignore[call-arg]
+            generate_python("crc32", slice8=True)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
 
     def test_vhdl_generate_has_no_slice8_kwarg(self):
         """Same rationale for VHDL: the generator is simulator-focused
@@ -328,4 +330,4 @@ class TestSliceBy8GeneratorAPI:
         throughput optimization would matter."""
         # Act + Assert
         with pytest.raises(TypeError):
-            generate_vhdl("crc32", slice8=True)  # type: ignore[call-arg]
+            generate_vhdl("crc32", slice8=True)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]

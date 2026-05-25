@@ -1,0 +1,556 @@
+"""Tests for the crcglot CLI.
+
+Strategy: call ``crcglot.cli.main(argv)`` directly with an explicit
+argv list -- no subprocess.  ``capsys`` captures stdout/stderr;
+``monkeypatch.chdir(tmp_path)`` isolates filesystem writes for the
+``file=STEM`` output path.
+
+Coverage targets the public surface (subcommands, options, error
+paths, both output modes) plus the small helpers (_parse_int,
+_parse_bool, _symbol_from_stem, _parse_kv_tokens) which are unit-tested
+directly because their behavior is the contract for every codegen
+invocation.
+
+All tests are fast (no toolchain calls); the CRC generators are
+already execution-verified in test_{c,rust,vhdl,python}_gen.py.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from crcglot.cli import (
+    _parse_bool,
+    _parse_int,
+    _parse_kv_tokens,
+    _symbol_from_stem,
+    build_parser,
+    main,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Helper functions -- unit tested directly.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestParseInt:
+    """``_parse_int`` accepts hex (0x...) or decimal; case-insensitive on prefix."""
+
+    @pytest.mark.parametrize("value,expected", [
+        ("0", 0),
+        ("42", 42),
+        ("0xFF", 255),
+        ("0xff", 255),
+        ("0X10", 16),
+        ("  0x1234  ", 0x1234),
+        ("65535", 65535),
+    ])
+    def test_valid(self, value, expected):
+        assert _parse_int(value) == expected
+
+    @pytest.mark.parametrize("value", ["", "abc", "0xZZ", "12.5", "0x"])
+    def test_invalid_raises(self, value):
+        with pytest.raises(ValueError):
+            _parse_int(value)
+
+
+class TestParseBool:
+    """``_parse_bool`` is permissive: true/false/1/0/yes/no/on/off, any case."""
+
+    @pytest.mark.parametrize("value", [
+        "true", "True", "TRUE", "1", "yes", "YES", "on", "ON", "  true  ",
+    ])
+    def test_truthy(self, value):
+        assert _parse_bool(value) is True
+
+    @pytest.mark.parametrize("value", [
+        "false", "False", "FALSE", "0", "no", "NO", "off", "OFF", "  false  ",
+    ])
+    def test_falsy(self, value):
+        assert _parse_bool(value) is False
+
+    @pytest.mark.parametrize("value", ["maybe", "", "2", "y", "n"])
+    def test_invalid_raises(self, value):
+        with pytest.raises(ValueError, match="expected true/false"):
+            _parse_bool(value)
+
+
+class TestSymbolFromStem:
+    """``_symbol_from_stem`` produces valid C/Rust/Python identifiers
+    from arbitrary file paths/stems by replacing - and . with _."""
+
+    @pytest.mark.parametrize("stem,expected", [
+        ("mycrc", "mycrc"),
+        ("my-crc", "my_crc"),
+        ("crc16.modbus", "crc16_modbus"),
+        ("path/to/my-file", "my_file"),
+        ("a-b.c-d", "a_b_c_d"),
+    ])
+    def test_basenames_and_substitutions(self, stem, expected):
+        assert _symbol_from_stem(stem) == expected
+
+
+class TestParseKvTokens:
+    """``_parse_kv_tokens`` splits CLI tokens into recognized key=value
+    pairs vs bare positional tokens.  Only keys in the allowlist
+    (width/poly/init/refin/refout/xorout/name/desc/file/symbol) are
+    captured as kv; everything else stays bare."""
+
+    def test_only_known_keys_are_kv(self):
+        kv, bare = _parse_kv_tokens(
+            ["width=16", "poly=0x8005", "crc32", "unknown=val"],
+        )
+        assert kv == {"width": "16", "poly": "0x8005"}
+        assert bare == ["crc32", "unknown=val"]
+
+    def test_file_and_symbol_are_kv(self):
+        kv, bare = _parse_kv_tokens(["file=out", "symbol=my_func", "crc32"])
+        assert kv == {"file": "out", "symbol": "my_func"}
+        assert bare == ["crc32"]
+
+    def test_empty_tokens_yields_empty(self):
+        kv, bare = _parse_kv_tokens([])
+        assert kv == {}
+        assert bare == []
+
+    def test_value_can_contain_equals(self):
+        # desc=foo=bar -- split on first '='
+        kv, bare = _parse_kv_tokens(["desc=foo=bar"])
+        assert kv == {"desc": "foo=bar"}
+        assert bare == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# `crcglot list`
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestListCommand:
+    def test_list_all(self, capsys):
+        rc = main(["list"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        # At least crc32 and crc16-modbus should appear.
+        assert "crc32" in out
+        assert "crc16-modbus" in out
+        assert "width=" in out
+
+    def test_list_with_glob(self, capsys):
+        rc = main(["list", "crc16-*"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc16-modbus" in out
+        assert "crc16-xmodem" in out
+        # crc32 should NOT match crc16-*
+        for line in out.splitlines():
+            algo = line.strip().split()[0] if line.strip() else ""
+            if algo:
+                assert algo.startswith("crc16-"), (
+                    f"glob 'crc16-*' leaked non-matching {algo!r}"
+                )
+
+    def test_list_no_match_returns_1(self, capsys):
+        rc = main(["list", "nonexistent-*"])
+        _out, err = capsys.readouterr()
+        assert rc == 1
+        assert "No algorithms match" in err
+
+
+# ─────────────────────────────────────────────────────────────────────
+# `crcglot info`
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestInfoCommand:
+    def test_info_known_algorithm(self, capsys):
+        rc = main(["info", "crc32"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc32" in out
+        assert "width:" in out
+        assert "poly:" in out
+        assert "0x04C11DB7" in out
+        assert "check:" in out
+
+    def test_info_includes_desc_when_present(self, capsys):
+        # crc16-modbus has a desc in the catalogue.
+        rc = main(["info", "crc16-modbus"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "desc:" in out
+
+    def test_info_unknown_algorithm_returns_1(self, capsys):
+        rc = main(["info", "totally-fake-crc"])
+        _out, err = capsys.readouterr()
+        assert rc == 1
+        assert "Unknown algorithm" in err
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Codegen -- stdout path.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCodegenStdout:
+    """Without file=STEM, generator output goes to stdout.  C emits
+    header + source separated by a blank line; the rest emit a single
+    body."""
+
+    def test_python_stdout(self, capsys):
+        rc = main(["python", "crc16-modbus"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "def crc16_modbus(" in out
+
+    def test_rust_stdout(self, capsys):
+        rc = main(["rust", "crc16-modbus"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "fn crc16_modbus" in out
+        assert "u16" in out
+
+    def test_vhdl_stdout(self, capsys):
+        rc = main(["vhdl", "crc16-modbus"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "package crc16_modbus_pkg" in out
+
+    def test_c_stdout_emits_header_and_source(self, capsys):
+        rc = main(["c", "crc16-modbus"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        # Both header bits (extern "C") and source bits (#include) present.
+        assert "extern \"C\"" in out
+        assert "#include \"crc16_modbus.h\"" in out
+
+    def test_algorithm_name_is_case_insensitive(self, capsys):
+        """The codegen path lowercases the algorithm name before lookup."""
+        rc = main(["python", "CRC32"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "def crc32(" in out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Codegen -- file= output path.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCodegenFile:
+    """With file=STEM, generators write files (relative to cwd) and
+    print 'Wrote <path>' for each.  C writes .h + .c; others one file."""
+
+    def test_python_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        rc = main(["python", "crc16-modbus", "file=mycrc"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert (tmp_path / "mycrc.py").exists()
+        # file=mycrc derives symbol from stem -> def mycrc(...).
+        assert "def mycrc(" in (tmp_path / "mycrc.py").read_text()
+        assert "Wrote" in out and "mycrc.py" in out
+
+    def test_rust_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        rc = main(["rust", "crc16-modbus", "file=mycrc"])
+        assert rc == 0
+        assert (tmp_path / "mycrc.rs").exists()
+        out, _err = capsys.readouterr()
+        assert "mycrc.rs" in out
+
+    def test_vhdl_file(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        rc = main(["vhdl", "crc16-modbus", "file=mycrc"])
+        assert rc == 0
+        assert (tmp_path / "mycrc.vhd").exists()
+
+    def test_c_file_writes_both_h_and_c(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        rc = main(["c", "crc16-modbus", "file=mycrc"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert (tmp_path / "mycrc.h").exists()
+        assert (tmp_path / "mycrc.c").exists()
+        # Wrote line appears for each file.
+        assert out.count("Wrote") == 2
+
+    def test_file_with_dash_in_stem(self, tmp_path, monkeypatch):
+        """file= preserves dashes in the path but symbol is sanitized
+        from the stem (- and . become _)."""
+        monkeypatch.chdir(tmp_path)
+        rc = main(["python", "crc16-modbus", "file=my-crc"])
+        assert rc == 0
+        body = (tmp_path / "my-crc.py").read_text()
+        # Symbol derived from stem: my-crc -> my_crc
+        assert "def my_crc(" in body
+
+    def test_empty_file_value_returns_2(self, capsys):
+        rc = main(["python", "crc16-modbus", "file="])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "file= requires a value" in err
+
+    def test_empty_symbol_value_returns_2(self, capsys):
+        rc = main(["python", "crc16-modbus", "symbol="])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "symbol= requires a value" in err
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Codegen -- options (--table, --slice8, mutual exclusion, fallbacks).
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCodegenOptions:
+    def test_table_python(self, capsys):
+        rc = main(["python", "crc16-modbus", "--table"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        # Table-driven Python embeds a module-level _TABLE constant.
+        assert "_TABLE = (" in out
+
+    def test_table_c(self, capsys):
+        rc = main(["c", "crc16-modbus", "--table"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc_table[256]" in out
+
+    def test_slice8_c_crc32(self, capsys):
+        rc = main(["c", "crc32", "--slice8"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc_slice_tables[8][256]" in out
+
+    def test_slice8_rust_crc32(self, capsys):
+        rc = main(["rust", "crc32", "--slice8"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "CRC_SLICE_TABLES: [[u32; 256]; 8]" in out
+
+    def test_slice8_and_table_mutually_exclusive(self, capsys):
+        rc = main(["c", "crc32", "--slice8", "--table"])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "mutually exclusive" in err
+
+    def test_slice8_python_falls_back_to_table(self, capsys):
+        """Python's slice8 is slower in CPython, so the CLI silently
+        downgrades it to --table and warns on stderr."""
+        rc = main(["python", "crc32", "--slice8"])
+        out, err = capsys.readouterr()
+        assert rc == 0
+        assert "slower than --table" in err
+        # Table-driven output emitted (module-level _TABLE constant).
+        assert "_TABLE = (" in out
+
+    def test_slice8_narrow_width_returns_2(self, capsys):
+        """generate_c('crc8', slice8=True) raises ValueError; CLI
+        catches and converts to exit code 2."""
+        rc = main(["c", "crc8", "--slice8"])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "slice8=True requires width" in err
+
+
+class TestCodegenSymbolOverride:
+    def test_symbol_overrides_function_name(self, capsys):
+        rc = main(["python", "crc16-modbus", "symbol=my_check"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "def my_check(" in out
+        assert "def crc16_modbus(" not in out
+
+    def test_symbol_default_from_file_stem(self, tmp_path, monkeypatch):
+        """When file= is given and symbol= is not, symbol is derived
+        from the file stem."""
+        monkeypatch.chdir(tmp_path)
+        rc = main(["python", "crc16-modbus", "file=renamed"])
+        assert rc == 0
+        body = (tmp_path / "renamed.py").read_text()
+        assert "def renamed(" in body
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Codegen -- catalogue lookup errors.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCodegenCatalogueErrors:
+    def test_missing_algorithm_name_returns_2(self, capsys):
+        rc = main(["python"])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "usage:" in err
+
+    def test_unknown_algorithm_returns_2(self, capsys):
+        rc = main(["python", "totally-fake-crc"])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "unknown algorithm" in err
+        assert "crcglot list" in err
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Codegen -- --custom Rocksoft/Williams parameters.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCodegenCustom:
+    """The --custom path takes raw Rocksoft/Williams params instead of
+    looking up a name in the catalogue.  Required: width=, poly=.
+    Optional: init=, refin=, refout=, xorout=, name=, desc=."""
+
+    def test_custom_python_minimal(self, capsys):
+        # Minimal valid invocation -- defaults init=0, refin/refout=false,
+        # xorout=0, name=crc_custom.
+        rc = main([
+            "python", "--custom",
+            "width=16", "poly=0x8005",
+        ])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        # Default name when no name= and no file=.
+        assert "def crc_custom(" in out
+
+    def test_custom_python_with_all_params(self, tmp_path, monkeypatch, capsys):
+        """Mirror crc16-modbus via --custom -- the generated code should
+        compute the canonical 0x4B37 check on b'123456789'."""
+        monkeypatch.chdir(tmp_path)
+        rc = main([
+            "python", "--custom",
+            "width=16", "poly=0x8005", "init=0xFFFF",
+            "refin=true", "refout=true", "xorout=0x0000",
+            "name=mymodbus", "desc=mirror of crc16-modbus",
+            "file=mymodbus",
+        ])
+        assert rc == 0
+        body = (tmp_path / "mymodbus.py").read_text()
+        ns: dict = {}
+        exec(body, ns)
+        # mymodbus stem -> mymodbus symbol (no - or . to sanitize).
+        assert ns["mymodbus"](b"123456789") == 0x4B37
+
+    def test_custom_c_writes_header_and_source(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        rc = main([
+            "c", "--custom",
+            "width=32", "poly=0x04C11DB7", "init=0xFFFFFFFF",
+            "refin=true", "refout=true", "xorout=0xFFFFFFFF",
+            "file=mycrc",
+        ])
+        assert rc == 0
+        assert (tmp_path / "mycrc.h").exists()
+        assert (tmp_path / "mycrc.c").exists()
+
+    def test_custom_missing_width_returns_2(self, capsys):
+        rc = main(["c", "--custom", "poly=0x8005"])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "width=N and poly=X" in err
+
+    def test_custom_missing_poly_returns_2(self, capsys):
+        rc = main(["c", "--custom", "width=16"])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "width=N and poly=X" in err
+
+    def test_custom_bad_int_returns_2(self, capsys):
+        rc = main(["c", "--custom", "width=notanumber", "poly=0x8005"])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "custom CRC param" in err
+
+    def test_custom_bad_bool_returns_2(self, capsys):
+        rc = main([
+            "c", "--custom",
+            "width=16", "poly=0x8005", "refin=maybe",
+        ])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "custom CRC param" in err
+
+    def test_custom_unsupported_width_returns_2(self, capsys):
+        rc = main([
+            "c", "--custom",
+            "width=12", "poly=0x8005",
+        ])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "width must be 8, 16, 32, or 64" in err
+
+    def test_custom_slice8_narrow_width_returns_2(self, capsys):
+        """Slice-by-8 on a width-16 custom CRC should bubble up the
+        generator's ValueError as exit code 2."""
+        rc = main([
+            "c", "--custom", "--slice8",
+            "width=16", "poly=0x8005",
+        ])
+        _out, err = capsys.readouterr()
+        assert rc == 2
+        assert "slice8=True requires width" in err
+
+    def test_custom_symbol_priority_over_file_and_name(self, tmp_path, monkeypatch):
+        """When symbol= is given, it wins over file=STEM-derived and
+        name= derivations."""
+        monkeypatch.chdir(tmp_path)
+        rc = main([
+            "python", "--custom",
+            "width=16", "poly=0x8005",
+            "name=mycrc", "file=outname", "symbol=explicit_sym",
+        ])
+        assert rc == 0
+        body = (tmp_path / "outname.py").read_text()
+        assert "def explicit_sym(" in body
+
+    def test_custom_symbol_from_file_when_no_explicit(self, tmp_path, monkeypatch):
+        """When symbol= is absent but file= is given, symbol comes from
+        the file stem (not name=)."""
+        monkeypatch.chdir(tmp_path)
+        rc = main([
+            "python", "--custom",
+            "width=16", "poly=0x8005",
+            "name=catalogue_name", "file=from_file",
+        ])
+        assert rc == 0
+        body = (tmp_path / "from_file.py").read_text()
+        assert "def from_file(" in body
+
+    def test_custom_symbol_from_name_when_no_file(self, capsys):
+        """No file= and no symbol=: symbol falls back to the custom name=."""
+        rc = main([
+            "python", "--custom",
+            "width=16", "poly=0x8005",
+            "name=from_name",
+        ])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "def from_name(" in out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Top-level main() -- argparse-driven error paths.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestMain:
+    def test_no_args_exits_via_argparse(self, capsys):
+        """argparse with required=True on subparsers SystemExits 2 on
+        missing command -- main() never returns in that case."""
+        with pytest.raises(SystemExit) as exc:
+            main([])
+        assert exc.value.code == 2
+
+    def test_unknown_subcommand_exits_via_argparse(self):
+        """Unknown subcommand -> argparse SystemExit 2."""
+        with pytest.raises(SystemExit) as exc:
+            main(["bogus-command"])
+        assert exc.value.code == 2
+
+    def test_build_parser_returns_parser(self):
+        """``build_parser`` is the public seam for embedding the CLI;
+        verify it returns something argparse-shaped."""
+        parser = build_parser()
+        assert hasattr(parser, "parse_args")
+        assert parser.prog == "crcglot"

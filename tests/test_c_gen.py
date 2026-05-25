@@ -25,7 +25,7 @@ import subprocess
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_c
+from crcglot import CRC_CATALOGUE, generate_c, generate_c_from_entry
 
 
 HAS_GCC = shutil.which("gcc") is not None
@@ -107,6 +107,162 @@ class TestGenerateC:
         assert result is not None, "generator returned a pair"
         _header, source = result
         assert "uint32_t" in source, "CRC-32 should use uint32_t"
+
+    def test_crc64_uses_uint64(self):
+        # Act -- exercises the w > 32 type-selection branch.
+        result = generate_c("crc64-xz")
+
+        # Assert
+        assert result is not None, "generator returned a pair"
+        header, source = result
+        assert "uint64_t" in source, "CRC-64 should use uint64_t"
+        assert "uint64_t crc64_xz(" in header, "header declares u64-return func"
+
+
+class TestGenerateCTableVariants:
+    """Table-driven update-loop variants emit different inner loops:
+
+    * refin=True: ``crc_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8)``
+    * refin=False: ``crc_table[((crc >> {w-8}) ^ data[i]) & 0xFF] ^
+      ((crc << 8) & {mask})`` -- fully parenthesized so gcc's
+      ``-Wparentheses`` (in ``-Wall``) doesn't complain about
+      ``a ^ b & c`` precedence ambiguity.
+
+    Reflected (refin=True) is already exercised by the CLI test
+    ``test_table_c`` (crc16-modbus); this class adds the non-reflected
+    branch and pins both inner loops structurally.  Runtime correctness
+    is the slow exec tests' job.
+
+    Unlike Rust, C has no w=8 simplified branch -- C's implicit integer
+    promotion to int silently handles ``uint8_t << 8`` so the generic
+    shift form compiles fine for all widths.
+    """
+
+    def test_table_reflected_uses_right_shift(self):
+        # Act -- crc16-modbus is refin=True.
+        result = generate_c("crc16-modbus", table=True)
+        assert result is not None
+        _header, source = result
+
+        # Assert
+        assert (
+            "crc = crc_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);" in source
+        ), "reflected table loop right-shifts and uses simple xor index"
+
+    def test_table_normal_uses_left_shift(self):
+        # Act -- crc16-xmodem is refin=False; covers c.py:244.
+        result = generate_c("crc16-xmodem", table=True)
+        assert result is not None
+        _header, source = result
+
+        # Assert -- fully parenthesized for -Wall -Werror survival.
+        assert (
+            "crc = crc_table[((crc >> 8) ^ data[i]) & 0xFF]"
+            " ^ ((crc << 8) & 0xFFFF);" in source
+        ), "non-reflected w=16 table loop is the fully-parenthesized form"
+
+
+class TestGenerateCSliceBy8Variants:
+    """Slice-by-8 emits four distinct update-loop variants depending on
+    (width, refin).  Each loads chunks of 8 bytes in either little-endian
+    (refin=True) or big-endian (refin=False) order before chaining
+    through ``crc_slice_tables[7..0]``.
+
+    The TestSliceBy8GeneratorAPI test in test_catalogue.py covers the
+    crc32 (w=32, refin=True) variant; these add the other three to
+    pin emitted structure without needing gcc.
+    """
+
+    def test_slice8_w32_normal(self):
+        # Act -- crc32-bzip2 is w=32 refin=False.
+        result = generate_c("crc32-bzip2", slice8=True)
+        assert result is not None
+        _header, source = result
+
+        # Assert -- big-endian byte loading; top-byte-first xor in tail.
+        assert "(uint32_t)data[0] << 24" in source, (
+            "non-reflected w=32 loads bytes big-endian"
+        )
+        assert "uint32_t top = crc >> 24;" in source, (
+            "non-reflected tail extracts top byte before xor"
+        )
+        assert "^ (crc << 8);" in source, "non-reflected tail left-shifts"
+
+    def test_slice8_w64_reflected(self):
+        # Act -- crc64-xz is w=64 refin=True.
+        result = generate_c("crc64-xz", slice8=True)
+        assert result is not None
+        _header, source = result
+
+        # Assert -- 64-bit little-endian load + LSB-first table indexing.
+        assert "(uint64_t)data[7] << 56" in source, (
+            "reflected w=64 loads all 8 bytes little-endian to u64"
+        )
+        # Tail right-shifts state by 8 each iteration.
+        assert (
+            "crc = crc_slice_tables[0][(crc ^ *data++) & 0xFF] ^ (crc >> 8);"
+            in source
+        ), "reflected w=64 tail right-shifts"
+
+    def test_slice8_w64_normal(self):
+        # Act -- crc64-ecma-182 is w=64 refin=False.
+        result = generate_c("crc64-ecma-182", slice8=True)
+        assert result is not None
+        _header, source = result
+
+        # Assert -- 64-bit big-endian load + tail extracts top byte.
+        assert "(uint64_t)data[0] << 56" in source, (
+            "non-reflected w=64 loads top byte first"
+        )
+        assert "uint64_t top = crc >> 56;" in source, (
+            "non-reflected w=64 tail extracts top byte"
+        )
+        assert "^ (crc << 8);" in source, "non-reflected w=64 tail left-shifts"
+
+
+class TestGenerateCFromEntryReflectionPaths:
+    """``generate_c_from_entry`` accepts entries where
+    ``refin != refout`` -- a configuration absent from the reveng
+    catalogue but valid Rocksoft/Williams.  This triggers the finalize
+    function's reflection block (c.py:470-475), which loops over the
+    state bits and rebuilds them in reversed order.
+
+    Catalogue entries always have refin == refout, so this branch is
+    unreachable via ``generate_c(name)`` alone -- only via a synthetic
+    entry.  Runtime correctness of mixed reflection is covered by the
+    from_entry exec tests in test_catalogue.py; this is the structural
+    pin.
+    """
+
+    def test_refout_differs_from_refin_emits_reflection_block(self):
+        # Arrange -- CRC-16 with refin=False, refout=True (synthetic).
+        entry = {
+            "width": 16, "poly": 0x1021, "init": 0xFFFF,
+            "refin": False, "refout": True, "xorout": 0x0000,
+            "check": 0xDEAD, "desc": "synthetic mixed-reflection",
+        }
+
+        # Act
+        _header, source = generate_c_from_entry(
+            "synth_mixed", entry, symbol="synth_mixed",
+        )
+
+        # Assert -- the reflection block appears in finalize.
+        assert "/* reflect output (refout != refin) */" in source, (
+            "comment marks the mixed-reflection branch"
+        )
+        assert "uint16_t reflected = 0;" in source, (
+            "reflection accumulator declared at uint16_t"
+        )
+        assert "for (int k = 0; k < 16; k++)" in source, (
+            "loop over all 16 state bits"
+        )
+        assert "reflected |= ((state >> k) & 1) << (15 - k);" in source, (
+            "bit-reverse formula"
+        )
+        assert "state = reflected;" in source, (
+            "rebinds state to the reversed value for subsequent xorout"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -324,8 +480,14 @@ class TestGeneratedCSliceBy8Executes:
         # they can link in the same runner.
         bb_sym = f"{_func_name(name)}_bb"
         s8_sym = f"{_func_name(name)}_s8"
-        bb_header, bb_source = generate_c(name, symbol=bb_sym)
-        s8_header, s8_source = generate_c(name, slice8=True, symbol=s8_sym)
+        bb_result = generate_c(name, symbol=bb_sym)
+        s8_result = generate_c(name, slice8=True, symbol=s8_sym)
+        assert bb_result is not None, f"generate_c({name!r}) returned None"
+        assert s8_result is not None, (
+            f"generate_c({name!r}, slice8=True) returned None"
+        )
+        bb_header, bb_source = bb_result
+        s8_header, s8_source = s8_result
         ctype = _c_state_type(CRC_CATALOGUE[name]["width"])
 
         (tmp_path / f"{bb_sym}.h").write_text(bb_header)

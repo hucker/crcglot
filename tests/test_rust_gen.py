@@ -2,9 +2,15 @@
 
 Two layers:
 
-* **Structural** (fast, always run) -- ``TestGenerateRust`` checks the
-  shape of ``generate_rust(...)`` output: function signature, type
-  width, ``#[cfg(test)] mod tests`` block, check value embedded.
+* **Structural** (fast, always run) -- ``TestGenerateRust`` and the
+  ``TestGenerateRust*Variants`` classes check the shape of
+  ``generate_rust(...)`` output: function signature, type width,
+  ``#[cfg(test)] mod tests`` block, check value embedded, the
+  table-driven and slice-by-8 update-loop variants, and the
+  ``refout != refin`` finalize reflection branch (reachable only via
+  ``generate_rust_from_entry`` since no catalogue entry has them
+  unequal).  These tests assert on emitted Rust syntax -- execution
+  correctness is the slow tests' job.
 
 * **Execution-verified** (marked ``slow``, skipped without rustc) --
   shells out to ``rustc`` to compile and run the generated code,
@@ -19,7 +25,7 @@ import subprocess
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_rust
+from crcglot import CRC_CATALOGUE, generate_rust, generate_rust_from_entry
 
 
 HAS_RUSTC = shutil.which("rustc") is not None
@@ -96,6 +102,185 @@ class TestGenerateRust:
         # Assert
         assert code is not None, "generator returned code"
         assert "u32" in code, "CRC-32 should use u32"
+
+    def test_crc64_uses_u64(self):
+        # Act
+        code = generate_rust("crc64-xz")
+
+        # Assert -- exercises the w > 32 type-selection branch.
+        assert code is not None, "generator returned code"
+        assert "u64" in code, "CRC-64 should use u64"
+        assert "fn crc64_xz" in code, "function name"
+
+
+class TestGenerateRustTableVariants:
+    """Table-driven update-loop variants emit different inner loops:
+
+    * w == 8: simplified ``CRC_TABLE[(crc ^ byte) as usize]`` (Rust
+      rejects ``u8 << 8`` so the generic shift form would fail to
+      compile).
+    * w > 8, refin=True: right-shift form (``>> 8`` after table xor).
+    * w > 8, refin=False: left-shift form (``(crc >> {w-8}) ^ byte``).
+
+    All three are reveng-verified at runtime by the slow exec tests
+    below; these structural tests catch shape regressions without
+    needing rustc.
+    """
+
+    def test_table_emits_const_array(self):
+        # Act
+        code = generate_rust("crc16-modbus", table=True)
+
+        # Assert -- the table-format helper output (lines 41-51 in rust.py).
+        assert code is not None
+        assert "const CRC_TABLE: [u16; 256] = [" in code, (
+            "table declaration with correct type and length"
+        )
+
+    def test_table_w8_uses_simplified_loop(self):
+        """w=8 table loop has no shifts -- the table lookup IS the
+        complete step."""
+        # Act
+        code = generate_rust("crc8", table=True)
+
+        # Assert
+        assert code is not None
+        assert "crc = CRC_TABLE[(crc ^ byte) as usize];" in code, (
+            "w=8 table loop is the simplified form"
+        )
+        # The generic refin=False shift form (`crc >> 0` is nonsense for
+        # u8) must NOT appear -- if it did, rustc would reject u8 << 8.
+        assert "(crc << 8)" not in code, (
+            "w=8 must not emit the wider-CRC shift form"
+        )
+
+    def test_table_reflected_uses_right_shift(self):
+        """w>8 reflected: ``CRC_TABLE[(crc ^ byte as u16) as usize & 0xFF]
+        ^ (crc >> 8)``."""
+        # Act -- crc16-modbus is refin=True.
+        code = generate_rust("crc16-modbus", table=True)
+
+        # Assert
+        assert code is not None
+        assert "^ (crc >> 8)" in code, "reflected table loop right-shifts"
+
+    def test_table_normal_uses_left_shift(self):
+        """w>8 non-reflected: ``CRC_TABLE[((crc >> {w-8}) ^ byte as u16)
+        as usize & 0xFF] ^ (crc << 8) & {mask}``."""
+        # Act -- crc16-xmodem is refin=False.
+        code = generate_rust("crc16-xmodem", table=True)
+
+        # Assert
+        assert code is not None
+        assert "(crc >> 8)" in code, (
+            "non-reflected w=16 right-shifts by w-8=8 for table index"
+        )
+        assert "(crc << 8) & 0xFFFF" in code, (
+            "non-reflected w=16 left-shifts result, masked to width"
+        )
+
+
+class TestGenerateRustSliceBy8Variants:
+    """Slice-by-8 emits four distinct update-loop variants depending on
+    (width, refin).  Each loads chunks of 8 bytes in either little-endian
+    (refin=True) or big-endian (refin=False) order before chaining
+    through ``CRC_SLICE_TABLES[7..0]``.
+
+    The TestSliceBy8GeneratorAPI tests in test_catalogue.py only cover
+    the crc32 (w=32, refin=True) variant; these add the remaining three.
+    """
+
+    def test_slice8_w32_reflected(self):
+        # Act -- crc32 is w=32 refin=True (the canonical reflected case).
+        code = generate_rust("crc32", slice8=True)
+
+        # Assert -- little-endian byte loading; LSB-first table indexing.
+        assert code is not None
+        assert "let b03 = data[i] as u32 | (data[i+1] as u32) << 8" in code, (
+            "reflected w=32 loads bytes little-endian"
+        )
+        # Tail loop also right-shifts.
+        assert "^ (crc >> 8);" in code, "reflected tail right-shifts"
+
+    def test_slice8_w32_normal(self):
+        # Act -- crc32-bzip2 is w=32 refin=False (non-reflected).
+        code = generate_rust("crc32-bzip2", slice8=True)
+
+        # Assert -- big-endian byte loading; top-byte-first xor.
+        assert code is not None
+        assert "let b03 = (data[i] as u32) << 24" in code, (
+            "non-reflected w=32 loads bytes big-endian"
+        )
+        assert "let top = crc >> 24;" in code, (
+            "non-reflected tail extracts top byte before xor"
+        )
+        assert "^ (crc << 8);" in code, "non-reflected tail left-shifts"
+
+    def test_slice8_w64_reflected(self):
+        # Act -- crc64-xz is w=64 refin=True.
+        code = generate_rust("crc64-xz", slice8=True)
+
+        # Assert -- 64-bit little-endian load + 8-byte table chain.
+        assert code is not None
+        assert "(data[i+7] as u64) << 56" in code, (
+            "reflected w=64 loads all 8 bytes little-endian to u64"
+        )
+        assert "^ (crc >> 8);" in code, "reflected w=64 tail right-shifts"
+
+    def test_slice8_w64_normal(self):
+        # Act -- crc64-ecma-182 is w=64 refin=False.
+        code = generate_rust("crc64-ecma-182", slice8=True)
+
+        # Assert -- 64-bit big-endian load + tail extracts top byte.
+        assert code is not None
+        assert "(data[i] as u64) << 56" in code, (
+            "non-reflected w=64 loads top byte first"
+        )
+        assert "let top = crc >> 56;" in code, (
+            "non-reflected w=64 tail extracts top byte"
+        )
+        assert "^ (crc << 8);" in code, "non-reflected w=64 tail left-shifts"
+
+
+class TestGenerateRustFromEntryReflectionPaths:
+    """``generate_rust_from_entry`` accepts entries where
+    ``refin != refout`` -- a configuration absent from the reveng
+    catalogue but valid Rocksoft/Williams.  This triggers the finalize
+    function's reflection block (rust.py:435-440), which loops over the
+    state bits and rebuilds them in reversed order.
+
+    Catalogue entries always have refin == refout, so this branch is
+    unreachable via ``generate_rust(name)`` alone -- only via a
+    synthetic entry.  The test here is structural; runtime correctness
+    of mixed reflection is covered by the from_entry exec tests in
+    test_catalogue.py.
+    """
+
+    def test_refout_differs_from_refin_emits_reflection_block(self):
+        # Arrange -- CRC-16 with refin=False, refout=True (synthetic).
+        entry = {
+            "width": 16, "poly": 0x1021, "init": 0xFFFF,
+            "refin": False, "refout": True, "xorout": 0x0000,
+            "check": 0xDEAD, "desc": "synthetic mixed-reflection",
+        }
+
+        # Act
+        code = generate_rust_from_entry("synth_mixed", entry)
+
+        # Assert -- the reflection block appears in finalize.
+        assert "// reflect output (refout != refin)" in code, (
+            "comment marks the mixed-reflection branch"
+        )
+        assert "let mut reflected: u16 = 0;" in code, (
+            "reflection accumulator declared at u16"
+        )
+        assert "for k in 0..16 {" in code, "loop over all 16 state bits"
+        assert "reflected |= ((state >> k) & 1) << (15 - k);" in code, (
+            "bit-reverse formula"
+        )
+        assert "let state = reflected;" in code, (
+            "rebinds state to the reversed value for subsequent xorout"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────
