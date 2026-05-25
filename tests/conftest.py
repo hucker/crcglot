@@ -46,7 +46,7 @@ def _fix_msys2_path_on_windows() -> None:
     msys2_idx = norm.index(norm_msys2) if norm_msys2 in norm else -1
     if git_idx >= 0 and (msys2_idx < 0 or git_idx < msys2_idx):
         warnings.warn(
-            f"termapy tests: prepending {msys2_bin!r} to PATH for the test "
+            f"crcglot tests: prepending {msys2_bin!r} to PATH for the test "
             f"session.  Git's mingw64\\bin appears in PATH at position "
             f"{git_idx} -- ahead of msys2's at position "
             f"{'absent' if msys2_idx < 0 else msys2_idx}.  Without this fix, "

@@ -2,9 +2,7 @@
 
 ## v0.1.0 — 2026-05-25
 
-Initial release.  Extracted from [hucker/termapy](https://github.com/hucker/termapy)
-where this code lived as `termapy.protocol.crcgen` through several
-feature iterations (streaming API, custom-params, slice-by-8).
+Initial release.
 
 ### What's in
 
@@ -34,12 +32,3 @@ strategy:
   executed, and asserted against the same check value.  Each
   toolchain is auto-skipped if not on PATH (so the suite still
   partially runs without a full polyglot install).
-
-### Background
-
-Originally part of the [termapy](https://pypi.org/project/termapy/)
-serial-terminal toolkit, where it powered `/proto.crc.<lang>`
-commands during embedded-device debugging.  Extracted as a
-standalone package so engineers who need just the CRC codegen
-don't have to install a TUI dependency tree, and so the package
-can develop on its own release cadence.

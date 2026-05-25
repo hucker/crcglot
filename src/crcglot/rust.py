@@ -289,7 +289,7 @@ def _self_test_rust(fname: str, check: int, width: int) -> str:
     """Emit a Rust ``#[cfg(test)] mod tests`` block.
 
     Idiomatic: ``cargo test`` discovers it automatically and it's
-    compiled out of release builds via ``#[cfg(test)]``.  Termapy's
+    compiled out of release builds via ``#[cfg(test)]``.  crcglot's
     pytest harness invokes ``rustc --test file.rs`` to build a test
     binary and runs it -- exit 0 means the assertion passed.
     """
