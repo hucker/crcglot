@@ -29,6 +29,11 @@ generated code is byte-identical to v0.1.0.
 - README: four status badges (tests, coverage, ruff, ty); new
   "CLI reference" section documents every subcommand, flag, and
   `--custom` parameter in one place.
+- New `EXAMPLES.md`: the actual generated code for `crc32` across
+  all 9 language × implementation combinations (C / Rust / Python /
+  VHDL crossed with bit-by-bit / table-driven / slice-by-8 where
+  supported).  Readers can compare output shapes side by side
+  without installing.
 - `uvx ruff check src tests` and `uvx ty check src tests` both
   pass clean.
 
