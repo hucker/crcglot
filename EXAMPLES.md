@@ -1090,6 +1090,11 @@ def crc32(data: bytes) -> int:
     One-shot wrapper.  For streaming use crc32_init / _update / _finalize.
     """
     return crc32_finalize(crc32_update(crc32_init(), data))
+
+
+def crc32_self_test() -> bool:
+    """Return True if crc32 reproduces the reveng check value."""
+    return crc32(b'123456789') == 0xCBF43926
 ```
 
 ---
@@ -1163,6 +1168,11 @@ def crc32(data: bytes) -> int:
     One-shot wrapper.  For streaming use crc32_init / _update / _finalize.
     """
     return crc32_finalize(crc32_update(crc32_init(), data))
+
+
+def crc32_self_test() -> bool:
+    """Return True if crc32 reproduces the reveng check value."""
+    return crc32(b'123456789') == 0xCBF43926
 ```
 
 ---

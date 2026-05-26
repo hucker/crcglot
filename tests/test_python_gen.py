@@ -68,6 +68,51 @@ class TestGeneratePython:
         assert actual == expected, f"{name} table: {actual:#x} != {expected:#x}"
 
 
+class TestGeneratedPythonSelfTest:
+    """The generated module must expose ``<fname>_self_test()`` so a
+    downstream caller can verify on their interpreter that the
+    algorithm reproduces the reveng catalogue's canonical check value.
+    """
+
+    @pytest.mark.parametrize("table", [False, True])
+    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    def test_self_test_returns_true(self, name, table):
+        # Arrange
+        code = generate_python(name, table=table)
+        assert code is not None, f"generate_python({name!r}) returned code"
+        ns: dict = {}
+        exec(code, ns)
+        fname = name.replace("-", "_").replace(".", "_")
+
+        # Act
+        actual = ns[f"{fname}_self_test"]()
+
+        # Assert
+        assert actual is True, (
+            f"{name} (table={table}): self_test returned "
+            f"{actual!r}, expected True"
+        )
+
+    def test_self_test_detects_broken_implementation(self):
+        # Arrange - generate crc32 then corrupt the finalize xorout so
+        # the implementation produces a wrong value; the self-test
+        # must catch it (otherwise it isn't actually verifying anything).
+        code = generate_python("crc32")
+        assert code is not None, "crc32 generator returned code"
+        corrupted = code.replace("state ^ 0xFFFFFFFF", "state ^ 0xDEADBEEF")
+        assert corrupted != code, "corruption substitution actually changed something"
+        ns: dict = {}
+        exec(corrupted, ns)
+
+        # Act
+        actual = ns["crc32_self_test"]()
+
+        # Assert
+        assert actual is False, (
+            f"self_test on corrupted crc32 returned {actual!r}, expected False"
+        )
+
+
 class TestGeneratedPythonStreaming:
     """The streaming primitives (init / update / finalize) must satisfy
     the splittability invariant: for any input, computing in chunks

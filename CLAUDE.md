@@ -1,5 +1,23 @@
 # crcglot — Claude Code instructions
 
+## Branch hygiene
+
+Never work directly on `main`.  Branch first, before any edit, using
+the form `<kind>/<dashed-slug>`:
+
+| Kind    | Use for                                                |
+| ------- | ------------------------------------------------------ |
+| `feat`  | New features (e.g. new generator option, new function) |
+| `bug`   | Bug fixes                                              |
+| `doc`   | README / EXAMPLES / docstring-only changes             |
+| `test`  | Test-only changes                                      |
+| `chore` | Tooling, dependencies, CI                              |
+| `rel`   | Release-related changes                                |
+| `ref`   | Refactorings (no behavior change)                      |
+
+Slugs use dashes, not underscores.  Examples:
+`feat/python-self-test`, `bug/vhdl-refout`, `doc/readme-cli-section`.
+
 ## Quality gates (must all pass before declaring work done)
 
 Run these three checks at the end of every coding task.  Any non-zero

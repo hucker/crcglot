@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-1187%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-1330%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -31,7 +31,7 @@ crcglot info crc32                        # show parameters
 | `<fname>`                                | One-shot wrapper that calls the streaming triple        |
 | `<fname>_self_test`                      | Verify against the reveng check value on your toolchain |
 
-C / Rust / VHDL ship `_self_test()` returning 0/1 (or boolean for VHDL).  Python verifies via the docstring's `check:` line — the same interpreter generated it.
+Every target ships `_self_test()`: C returns 0/1, Rust emits a `#[cfg(test)]` block discovered by `cargo test`, VHDL and Python return `boolean` / `bool`.
 
 ## CLI reference
 
