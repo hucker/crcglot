@@ -29,6 +29,7 @@ from crcglot import (
 
 _CRC_FILE_EXTENSIONS = {
     "c": (".h", ".c"),
+    "csharp": (".cs",),
     "go": (".go",),
     "python": (".py",),
     "rust": (".rs",),
@@ -36,7 +37,7 @@ _CRC_FILE_EXTENSIONS = {
 }
 
 
-_LANGS = ("c", "go", "python", "rust", "vhdl")
+_LANGS = ("c", "csharp", "go", "python", "rust", "vhdl")
 
 
 _CUSTOM_KV_KEYS = {

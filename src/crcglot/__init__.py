@@ -22,6 +22,7 @@ from typing import Callable
 
 from crcglot.c import generate_c, generate_c_from_entry
 from crcglot.catalogue import CRC_CATALOGUE, _generic_crc, _reflect
+from crcglot.csharp import generate_csharp, generate_csharp_from_entry
 from crcglot.go import generate_go, generate_go_from_entry
 from crcglot.python import generate_python, generate_python_from_entry
 from crcglot.rust import generate_rust, generate_rust_from_entry
@@ -31,6 +32,7 @@ from crcglot.vhdl import generate_vhdl, generate_vhdl_from_entry
 # Language code -> name-lookup generator callable.
 GENERATORS: dict[str, Callable] = {
     "c": generate_c,
+    "csharp": generate_csharp,
     "go": generate_go,
     "python": generate_python,
     "rust": generate_rust,
@@ -41,6 +43,7 @@ GENERATORS: dict[str, Callable] = {
 # Language code -> entry-dict generator callable (custom-params path).
 GENERATORS_FROM_ENTRY: dict[str, Callable] = {
     "c": generate_c_from_entry,
+    "csharp": generate_csharp_from_entry,
     "go": generate_go_from_entry,
     "python": generate_python_from_entry,
     "rust": generate_rust_from_entry,
@@ -56,6 +59,8 @@ __all__ = [
     "_reflect",
     "generate_c",
     "generate_c_from_entry",
+    "generate_csharp",
+    "generate_csharp_from_entry",
     "generate_go",
     "generate_go_from_entry",
     "generate_python",
