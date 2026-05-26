@@ -1766,14 +1766,8 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn check_value_matches_reveng() {
-        assert_eq!(crc32(b"123456789"), 0xCBF43926);
-    }
+pub fn crc32_self_test() -> bool {
+    crc32(b"123456789") == 0xCBF43926_u32
 }
 ```
 
@@ -1853,14 +1847,8 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn check_value_matches_reveng() {
-        assert_eq!(crc32(b"123456789"), 0xCBF43926);
-    }
+pub fn crc32_self_test() -> bool {
+    crc32(b"123456789") == 0xCBF43926_u32
 }
 ```
 
@@ -2202,14 +2190,8 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn check_value_matches_reveng() {
-        assert_eq!(crc32(b"123456789"), 0xCBF43926);
-    }
+pub fn crc32_self_test() -> bool {
+    crc32(b"123456789") == 0xCBF43926_u32
 }
 ```
 

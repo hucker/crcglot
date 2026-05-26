@@ -37,7 +37,7 @@ Both surfaces are documented in detail below.
 | `<fname>`                                | One-shot wrapper that calls the streaming triple        |
 | `<fname>_self_test`                      | Verify against the reveng check value on your toolchain |
 
-Every target ships `_self_test()`: C returns 0/1, Rust emits a `#[cfg(test)]` block discovered by `cargo test`, VHDL / Python / Go / C# / Zig return `boolean` / `bool`.
+Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go / C# / Zig / Python / VHDL return `bool` / `boolean`.  No `#[cfg(test)]` gating — call it from your release build, a boot self-check, or a startup assertion.
 
 ## How it's verified
 

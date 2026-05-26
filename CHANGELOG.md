@@ -1,5 +1,70 @@
 # Changelog
 
+## v0.6.0 — 2026-05-26
+
+Rust generator: `_self_test()` is now a runtime-callable `pub fn`,
+not a `#[cfg(test)]` test block.  Brings Rust in line with every
+other target (C / Go / C# / Zig / Python / VHDL) and makes the v0.5.0
+README claim about calling `_self_test()` in your build environment
+actually true for Rust output.
+
+### Generated Rust changed shape
+
+Old emission (v0.5.0 and earlier):
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn check_value_matches_reveng() {
+        assert_eq!(crc32(b"123456789"), 0xCBF43926);
+    }
+}
+```
+
+New emission:
+
+```rust
+pub fn crc32_self_test() -> bool {
+    crc32(b"123456789") == 0xCBF43926_u32
+}
+```
+
+The old block was only compiled under `cargo test` / `rustc --test`,
+so a release-build caller couldn't wire `_self_test()` into a boot
+self-check or startup assertion -- contradicting what the README
+recommends.  The new shape compiles in every build configuration and
+returns a `bool` you can branch on.
+
+### Migration for v0.5.0 callers
+
+If you were relying on `cargo test` discovering the embedded test,
+wrap the new function in your own `#[test]`:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn check_value_matches_reveng() {
+        assert!(crc32_self_test());
+    }
+}
+```
+
+If you wanted `_self_test()` callable from release code -- you
+couldn't on v0.5.0; now you can.
+
+### Test harness rewire
+
+`tests/test_rust_gen.py::TestGeneratedRustExecutes` switched from
+`rustc --test` to compiling with an injected `main()` that calls
+`_self_test()` and exits 0 iff it returned `true`.  Same algorithm
+coverage, exercised through the same path a downstream consumer
+would actually use.  README "What you get per language" caption and
+`rust.py` module docstring updated; `EXAMPLES.md` regenerated.
+
 ## v0.5.0 — 2026-05-26
 
 Public helper `generic_crc` for field-defined CRCs, plus a verification

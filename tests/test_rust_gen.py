@@ -5,7 +5,7 @@ Two layers:
 * **Structural** (fast, always run) -- ``TestGenerateRust`` and the
   ``TestGenerateRust*Variants`` classes check the shape of
   ``generate_rust(...)`` output: function signature, type width,
-  ``#[cfg(test)] mod tests`` block, check value embedded, the
+  ``<fname>_self_test()`` callable, check value embedded, the
   table-driven and slice-by-8 update-loop variants, and the
   ``refout != refin`` finalize reflection branch (reachable only via
   ``generate_rust_from_entry`` since no catalogue entry has them
@@ -70,10 +70,11 @@ def _slice8_algos() -> list[str]:
 class TestGenerateRust:
     """generate_rust returns a single .rs source string.
 
-    Includes a ``#[cfg(test)] mod tests`` block at the bottom; idiomatic
-    Rust testing -- ``cargo test`` discovers it, and crcglot's pytest
-    runs it via ``rustc --test``.  See the execution-verified tests
-    below for the parameterized compile + run verification.
+    Includes a ``pub fn <fname>_self_test() -> bool`` at the bottom --
+    a plain runtime-callable function so downstream consumers can wire
+    it into a boot self-check or startup assertion, not just
+    ``cargo test``.  See the execution-verified tests below for the
+    parameterized compile + run verification.
     """
 
     def test_generates_code(self):
@@ -85,8 +86,12 @@ class TestGenerateRust:
         assert "fn crc16_modbus" in code, "function name"
         assert "u16" in code, "correct type"
         assert "0x4B37" in code, "check value"
-        assert "#[cfg(test)]" in code, "cfg(test) gated test module emitted"
-        assert "#[test]" in code, "individual #[test] attribute present"
+        assert "pub fn crc16_modbus_self_test() -> bool" in code, (
+            "runtime-callable self_test emitted"
+        )
+        assert "#[cfg(test)]" not in code, (
+            "no cfg(test) gate -- self_test must compile into release builds"
+        )
 
     def test_unknown_algorithm(self):
         # Assert
@@ -297,13 +302,13 @@ class TestGenerateRustFromEntryReflectionPaths:
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_RUSTC, reason="rustc not in PATH")
 class TestGeneratedRustExecutes:
-    """Compile each generated .rs file as a test binary, then run.
+    """Compile each generated .rs file with an injected main(), then run.
 
-    The generator embeds a ``#[cfg(test)] mod tests`` block with one
-    ``#[test] fn check_value_matches_reveng()`` assertion per file,
-    so ``rustc --test file.rs`` produces a binary that runs that
-    test on execution.  Nonzero exit = test failed = generator
-    produced wrong CRC for ``b"123456789"``.
+    The generator emits ``pub fn <fname>_self_test() -> bool``; we
+    append a ``main()`` that calls it and exits 0 iff it returns true.
+    This exercises exactly the path a downstream consumer would use
+    (release-build runtime call, not ``cargo test``), so a regression
+    that only manifests outside ``cfg(test)`` would surface here.
     """
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
@@ -313,19 +318,19 @@ class TestGeneratedRustExecutes:
         assert code is not None, f"generate_rust({name!r}) returned None"
         fname = _func_name(name)
 
+        main_src = (
+            f"\nfn main() {{\n"
+            f"    if !{fname}_self_test() {{ std::process::exit(1); }}\n"
+            f"}}\n"
+        )
         src = tmp_path / f"{fname}.rs"
-        src.write_text(code)
+        src.write_text(code + main_src)
         binary = tmp_path / ("run.exe" if shutil.which("cmd") else "run")
 
-        # Act -- compile as a test harness
+        # Act -- compile + run (no --test; we have our own main())
         compile_result = subprocess.run(
-            [
-                "rustc",
-                "--test",
-                "--edition=2021",
-                "-o", str(binary),
-                str(src),
-            ],
+            ["rustc", "--edition=2021", "-A", "warnings",
+             "-o", str(binary), str(src)],
             capture_output=True,
             cwd=tmp_path,
         )
@@ -334,13 +339,12 @@ class TestGeneratedRustExecutes:
             f"{compile_result.stderr.decode(errors='replace')}"
         )
 
-        # Act -- run (rustc --test binary returns 0 on all tests pass)
         run_result = subprocess.run([str(binary)], capture_output=True, cwd=tmp_path)
 
         # Assert
         assert run_result.returncode == 0, (
-            f"{name}: test binary returned {run_result.returncode}: "
-            f"{run_result.stdout.decode(errors='replace')}"
+            f"{name}: _self_test() returned false "
+            f"(binary exit {run_result.returncode})"
         )
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
@@ -353,19 +357,19 @@ class TestGeneratedRustExecutes:
         )
         fname = _func_name(name)
 
+        main_src = (
+            f"\nfn main() {{\n"
+            f"    if !{fname}_self_test() {{ std::process::exit(1); }}\n"
+            f"}}\n"
+        )
         src = tmp_path / f"{fname}.rs"
-        src.write_text(code)
+        src.write_text(code + main_src)
         binary = tmp_path / ("run.exe" if shutil.which("cmd") else "run")
 
         # Act -- compile + run
         compile_result = subprocess.run(
-            [
-                "rustc",
-                "--test",
-                "--edition=2021",
-                "-o", str(binary),
-                str(src),
-            ],
+            ["rustc", "--edition=2021", "-A", "warnings",
+             "-o", str(binary), str(src)],
             capture_output=True,
             cwd=tmp_path,
         )
@@ -377,7 +381,8 @@ class TestGeneratedRustExecutes:
 
         # Assert
         assert run_result.returncode == 0, (
-            f"{name} (table): test binary returned {run_result.returncode}"
+            f"{name} (table): _self_test() returned false "
+            f"(binary exit {run_result.returncode})"
         )
 
 
@@ -397,9 +402,10 @@ class TestGeneratedRustStreaming:
         fname = _func_name(name)
         rtype = _rust_state_type(algo.width)
 
-        # Append a main() that exercises the streaming patterns.  rustc
-        # without --test happily compiles a .rs with both fn definitions
-        # and main(); the existing #[cfg(test)] mod stays inert.
+        # Append a main() that exercises the streaming patterns.  The
+        # generated _self_test() is just a plain pub fn now, so rustc
+        # without --test compiles the whole file fine alongside our
+        # injected main().
         main_src = (
             f"\nfn main() {{\n"
             f"    let s1 = {fname}_init();\n"

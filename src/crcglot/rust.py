@@ -1,26 +1,28 @@
 """Rust CRC generator.
 
-Emits a complete ``.rs`` file with four module-level functions:
+Emits a complete ``.rs`` file with five module-level functions:
 
   - ``<fname>_init() -> rtype`` -- return the starting state
   - ``<fname>_update(state, data) -> rtype`` -- feed bytes, return new state
   - ``<fname>_finalize(state) -> rtype`` -- apply output reflection + xorout
   - ``<fname>(data) -> rtype`` -- one-shot wrapper (init + update + finalize)
+  - ``<fname>_self_test() -> bool`` -- true iff the one-shot reproduces
+    the reveng catalogue check value for ``b"123456789"``
 
-Plus an idiomatic ``#[cfg(test)] mod tests`` block containing a
-``#[test]`` that asserts the one-shot path against the reveng
-catalogue's ``check`` value.  ``cargo test`` discovers and runs it;
-crcglot's pytest harness uses ``rustc --test file.rs -o bin && ./bin``
-for the same verification.
+The self-test is a plain ``pub fn``, not a ``#[cfg(test)]`` block, so
+callers can wire it into a boot self-check or a release-build startup
+assertion -- not only into ``cargo test``.  This matches the other six
+targets and the README's recommendation to verify in-environment.
 
 The streaming primitives (init / update / finalize) let callers
 compute a CRC over data that arrives in chunks (large files, network
 streams) without buffering everything.  The one-shot wrapper preserves
 the simple API for the common case.
 
-Verified at build time by ``tests.test_crc_codegen_exec
-.TestGeneratedRustExecutes`` (one-shot path via the cfg(test) module)
-and ``TestGeneratedRustStreaming`` (streaming splittability
+Verified at build time by ``tests.test_rust_gen
+.TestGeneratedRustExecutes`` (one-shot path: compile with an injected
+``main()`` that calls ``_self_test()`` and exits 0 iff it returns
+``true``) and ``TestGeneratedRustStreaming`` (streaming splittability
 invariant via a synthesized runner).
 """
 
@@ -285,24 +287,20 @@ def _update_loop_rust(
     ]
 
 
-def _self_test_rust(fname: str, check: int, width: int) -> str:
-    """Emit a Rust ``#[cfg(test)] mod tests`` block.
+def _self_test_rust(fname: str, check: int, width: int, rtype: str) -> str:
+    """Emit a Rust ``pub fn <fname>_self_test() -> bool``.
 
-    Idiomatic: ``cargo test`` discovers it automatically and it's
-    compiled out of release builds via ``#[cfg(test)]``.  crcglot's
-    pytest harness invokes ``rustc --test file.rs`` to build a test
-    binary and runs it -- exit 0 means the assertion passed.
+    Returns true iff the one-shot CRC of ``b"123456789"`` matches the
+    catalogue check value.  Callable from any build configuration --
+    debug, release, embedded -- so downstream consumers can wire it
+    into a boot self-check or a startup assertion, not just
+    ``cargo test``.  Matches the convention of every other target
+    (C returns 0/1; Go / C# / Zig / Python / VHDL return bool).
     """
     lines = [
         f"",
-        f"#[cfg(test)]",
-        f"mod tests {{",
-        f"    use super::*;",
-        f"",
-        f"    #[test]",
-        f"    fn check_value_matches_reveng() {{",
-        f'        assert_eq!({fname}(b"123456789"), {_hex(check, width)});',
-        f"    }}",
+        f"pub fn {fname}_self_test() -> bool {{",
+        f'    {fname}(b"123456789") == {_hex(check, width)}_{rtype}',
         f"}}",
     ]
     return "\n".join(lines)
@@ -449,6 +447,6 @@ def generate_rust_from_entry(
         f"    {fname}_finalize({fname}_update({fname}_init(), data))"
     )
     lines.append(f"}}")
-    lines.append(_self_test_rust(fname, check, w))
+    lines.append(_self_test_rust(fname, check, w, rtype))
 
     return "\n".join(lines)
