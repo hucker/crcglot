@@ -40,7 +40,7 @@ def _reflect(value: int, width: int) -> int:
     return result
 
 
-def _generic_crc(
+def generic_crc(
     data: bytes,
     width: int,
     poly: int,
@@ -50,6 +50,11 @@ def _generic_crc(
     xorout: int,
 ) -> int:
     """Compute CRC using Rocksoft/Williams parameterization.
+
+    Public helper for callers who need a check value for a custom
+    polynomial -- e.g. to feed into :class:`AlgorithmInfo` before
+    handing it to a ``generator_from_entry`` callable, or to verify a
+    one-off CRC in the field without going through the catalogue.
 
     Args:
         data: Payload bytes.

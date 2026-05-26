@@ -23,7 +23,7 @@ from crcglot import (
     ALGORITHMS,
     LANGUAGES,
     AlgorithmInfo,
-    _generic_crc,
+    generic_crc,
 )
 
 
@@ -194,7 +194,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
-        check = _generic_crc(b"123456789", width, poly, init, refin, refout, xorout)
+        check = generic_crc(b"123456789", width, poly, init, refin, refout, xorout)
         custom_name = kv.get("name") or "crc_custom"
         desc = kv.get("desc") or (
             f"Custom CRC-{width} (poly=0x{poly:X}, init=0x{init:X}, "

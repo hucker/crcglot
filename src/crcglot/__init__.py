@@ -27,8 +27,12 @@ Public API:
         - generate_vhdl / generate_vhdl_from_entry
         - generate_zig / generate_zig_from_entry
 
-    Engine utilities (used by the --custom CLI path):
-        - _generic_crc, _reflect
+    Engine utilities:
+        - generic_crc: public helper to compute a check value for any
+          Rocksoft/Williams parameter set (used by the --custom CLI
+          path and available for field use when defining a one-off
+          CRC).
+        - _reflect: internal bit-reversal helper.
 """
 
 from __future__ import annotations
@@ -37,8 +41,8 @@ from crcglot.c import generate_c, generate_c_from_entry
 from crcglot.catalogue import (
     ALGORITHMS,
     AlgorithmInfo,
-    _generic_crc,
     _reflect,
+    generic_crc,
 )
 from crcglot.csharp import generate_csharp, generate_csharp_from_entry
 from crcglot.go import generate_go, generate_go_from_entry
@@ -54,7 +58,6 @@ __all__ = [
     "AlgorithmInfo",
     "LANGUAGES",
     "LanguageInfo",
-    "_generic_crc",
     "_reflect",
     "generate_c",
     "generate_c_from_entry",
@@ -70,4 +73,5 @@ __all__ = [
     "generate_vhdl_from_entry",
     "generate_zig",
     "generate_zig_from_entry",
+    "generic_crc",
 ]

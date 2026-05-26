@@ -39,6 +39,12 @@ Both surfaces are documented in detail below.
 
 Every target ships `_self_test()`: C returns 0/1, Rust emits a `#[cfg(test)]` block discovered by `cargo test`, VHDL / Python / Go / C# / Zig return `boolean` / `bool`.
 
+## How it's verified
+
+CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against its **hardcoded** canonical check value — not the catalogue's own `check` field, so a silent regression in the engine can't hide — and the Python generator is run end-to-end (generated, exec'd, and called on `b"123456789"`) against the same hardcoded vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, Zig, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `zig` / `ghdl` and re-checks the runtime result — same algorithm coverage, exercised through each real toolchain.
+
+Every generated file also ships its own `_self_test()` carrying that same canonical vector.  **For every target except Python, you should call `_self_test()` once in your build environment** — wire it into a unit test, a startup assertion, or your boot self-check.  Our CI proves the generator emits correct code on our reference toolchain; only running `_self_test()` on yours proves your compiler version, optimization flags, target endianness, and integer widths haven't introduced a subtle disagreement.  Python is the exception: the interpreter that ran the CI suite is the one running your code, so the in-environment check would be redundant.
+
 ## CLI reference
 
 ```text
@@ -104,7 +110,7 @@ crcglot c --custom width=16 poly=0x1234 init=0xFFFF \
 | `name=NAME` | no       | Default `crc_custom`.  Used in generated comments.                      |
 | `desc=TEXT` | no       | Free-form description in comments.                                      |
 
-The check value for the custom parameters is computed automatically (`_generic_crc(b"123456789", ...)`) and embedded into the generated `_self_test()`.
+The check value for the custom parameters is computed automatically (`generic_crc(b"123456789", ...)`) and embedded into the generated `_self_test()`.
 
 ## Catalogue
 
@@ -156,11 +162,10 @@ Each entry is a frozen `AlgorithmInfo` dataclass with the full Rocksoft / Willia
 ### Custom polynomials
 
 ```python
-from crcglot import AlgorithmInfo, LANGUAGES
-from crcglot.catalogue import _generic_crc
+from crcglot import AlgorithmInfo, LANGUAGES, generic_crc
 
 # Compute the canonical check value for a custom poly.
-check = _generic_crc(b"123456789", 16, 0x1234, 0xFFFF, True, True, 0x0000)
+check = generic_crc(b"123456789", 16, 0x1234, 0xFFFF, True, True, 0x0000)
 
 # Build an AlgorithmInfo and feed it to any generator.
 algo = AlgorithmInfo(

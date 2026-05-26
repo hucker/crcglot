@@ -49,7 +49,7 @@ from crcglot import (
     generate_rust,
     generate_vhdl,
 )
-from crcglot.catalogue import _generic_crc
+from crcglot.catalogue import generic_crc
 
 
 # Reveng-derived canonical check values for the algorithms used in
@@ -57,7 +57,7 @@ from crcglot.catalogue import _generic_crc
 # come from the reveng CRC catalogue
 # (https://reveng.sourceforge.io/crc-catalogue/all.htm) and serve as
 # external ground truth for the entire chain.  Deriving them from
-# ``CRC_CATALOGUE`` or ``_generic_crc`` instead would make the tests
+# ``CRC_CATALOGUE`` or ``generic_crc`` instead would make the tests
 # circular -- the catalogue's check field IS populated by the same
 # engine, so the tests would assert ``engine(x) == engine(x)`` and
 # pass even if the engine were silently wrong.  By hardcoding from
@@ -256,7 +256,7 @@ class TestCustomCrcChainAgainstRevengTruth:
 
     @pytest.mark.parametrize("algo_name", sorted(_REVENG_CHECK_VALUES.keys()))
     def test_engine_matches_reveng(self, algo_name):
-        """``_generic_crc`` with hardcoded params produces the
+        """``generic_crc`` with hardcoded params produces the
         reveng-published check value -- proves the engine itself is
         correct independent of catalogue / generator paths."""
         # Arrange
@@ -265,13 +265,13 @@ class TestCustomCrcChainAgainstRevengTruth:
         )
 
         # Act
-        actual = _generic_crc(
+        actual = generic_crc(
             b"123456789", w, poly, init, refin, refout, xorout
         )
 
         # Assert
         assert actual == expected, (
-            f"{algo_name}: _generic_crc gave {actual:#x}, "
+            f"{algo_name}: generic_crc gave {actual:#x}, "
             f"reveng-canonical is {expected:#x}"
         )
 
@@ -396,7 +396,7 @@ class TestGenerateFromEntryAcceptsSyntheticEntry:
         # that's not in any catalogue.
         width, poly, init = 16, 0x1234, 0xABCD
         refin, refout, xorout = False, False, 0x5678
-        engine_result = _generic_crc(
+        engine_result = generic_crc(
             b"123456789", width, poly, init, refin, refout, xorout
         )
         algo = AlgorithmInfo(

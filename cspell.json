@@ -4,6 +4,7 @@
     "words": [
         "addopts",
         "aixm",
+        "algorithminfo",
         "Altera",
         "archiver",
         "autosar",
@@ -41,8 +42,10 @@
         "jamcrc",
         "jhash",
         "kwarg",
+        "languageinfo",
         "libgcc",
         "libstdc",
+        "madeup",
         "mcrf",
         "microcontroller",
         "mifare",

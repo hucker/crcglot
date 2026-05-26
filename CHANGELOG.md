@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.5.0 — 2026-05-26
+
+Public helper `generic_crc` for field-defined CRCs, plus a verification
+section in the README.  No generator code changed; emitted source is
+byte-identical to v0.4.0.
+
+### `generic_crc` is now public API
+
+The Rocksoft/Williams CRC engine that powers `--custom` and populates
+the catalogue's `check` values has been promoted from `_generic_crc`
+to `generic_crc` and is now exported from the package root.  Use it
+to compute the canonical check value for a CRC that isn't in the
+reveng catalogue -- e.g. a vendor-defined poly -- without going
+through the CLI:
+
+```python
+from crcglot import AlgorithmInfo, LANGUAGES, generic_crc
+
+check = generic_crc(b"123456789", 16, 0x1234, 0xFFFF, True, True, 0x0000)
+algo = AlgorithmInfo(
+    name="my_crc16", width=16, poly=0x1234, init=0xFFFF,
+    refin=True, refout=True, xorout=0x0000, check=check,
+    desc="Vendor-defined CRC-16",
+)
+code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
+```
+
+Non-breaking: the underscore-prefixed name was documented as private
+in the v0.4.0 module docstring, so no legitimate public consumer was
+importing it.  Internal callers (`cli.py`, `tests/test_catalogue.py`)
+updated in lockstep.
+
+### README: "How it's verified" section
+
+New section between "What you get per language" and "CLI reference"
+spells out the two-tier verification strategy:
+
+- The Python suite (run by CI on every push) checks every algorithm
+  against its **hardcoded** reveng vector -- not the catalogue's own
+  `check` field, so a silent engine regression can't hide -- and
+  also runs the Python generator end-to-end (generated, exec'd,
+  called) against the same hardcoded vectors.
+- The slow tier on top of that compiles and executes the generated
+  source for every algorithm in C, Rust, Go, C#, Zig, and VHDL via
+  `gcc` / `rustc` / `go` / `dotnet` / `zig` / `ghdl`.
+
+The section also recommends calling `_self_test()` once in your build
+environment for every target except Python -- compiler version,
+optimization flags, target endianness, and integer widths can each
+subtly disagree with the reference toolchain.
+
+### Verification on this release
+
+Run on a partially equipped box (gcc / rustc / dotnet / ghdl
+present; go and zig absent): 1676 passed, 483 skipped (the skips are
+the go/zig slow-tier execution tests), 0 failed, 97% coverage.  Fast
+tier in isolation: 928 passed, 97%.  Since v0.5.0 changes no
+generator code, the go/zig emitted source is bit-identical to v0.4.0
+(which was verified end-to-end with all six toolchains).
+
 ## v0.4.0 — 2026-05-26
 
 Typed introspection API + slice-by-8 for every compiled target.
