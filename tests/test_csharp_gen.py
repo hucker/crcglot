@@ -195,18 +195,40 @@ class TestGenerateCSharpFromEntryRefoutBranch:
         )
 
 
+_CSHARP_EXIT_CODE_LABEL = {
+    0: "(all checks passed)",
+    1: "_self_test failed (one-shot check value wrong)",
+    2: "split-at-4 streamed result wrong",
+    3: "empty-chunk-first streamed result wrong",
+    4: "empty-chunk-last streamed result wrong",
+}
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_DOTNET_SDK, reason="dotnet SDK not available")
 class TestGeneratedCSharpExecutes:
     """Compile + run via ``dotnet run`` on a minimal project that
-    wraps the generated class and exits 0 iff ``_self_test()`` returns
-    true.  Same shape as the C / Rust execution tests.
+    runs four checks in one compiled binary:
+
+      1. ``_self_test()`` -- one-shot vs reveng check value
+      2. split-at-4 streaming
+      3. empty-chunk-first streaming
+      4. empty-chunk-last streaming
+
+    Distinct exit codes 1..4 identify which pattern broke; 0 means
+    every pattern matched the catalogue check value.
     """
 
     @pytest.mark.parametrize("table", [False, True])
     @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
-    def test_self_test_passes(self, name, table, tmp_path):
+    def test_oneshot_and_streaming(self, name, table, tmp_path):
         # Arrange
+        entry = CRC_CATALOGUE[name]
+        expected = entry["check"]
+        cstype = _cs_state_type(entry["width"])
+        suffix = "u" if entry["width"] > 16 and entry["width"] <= 32 else (
+            "UL" if entry["width"] > 32 else ""
+        )
         code = generate_csharp(name, table=table)
         assert code is not None, f"generate_csharp({name!r}) returned code"
         fname = _func_name(name)
@@ -224,13 +246,37 @@ class TestGeneratedCSharpExecutes:
         """).strip(), encoding="utf-8")
         gen_path = tmp_path / "Gen.cs"
         gen_path.write_text(code, encoding="utf-8")
+        ascii_one_to_nine = (
+            "new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }"
+        )
+        ascii_one_to_four = "new byte[] { 0x31, 0x32, 0x33, 0x34 }"
+        ascii_five_to_nine = "new byte[] { 0x35, 0x36, 0x37, 0x38, 0x39 }"
+        ascii_empty = "new byte[] { }"
         runner = textwrap.dedent(f"""
             using System;
             public static class Probe
             {{
                 public static int Main(string[] args)
                 {{
-                    return {cls}.{fname}_self_test() ? 0 : 1;
+                    {cstype} expected = {hex(expected)}{suffix};
+                    if (!{cls}.{fname}_self_test()) return 1;
+                    {cstype} s;
+                    // split-at-4
+                    s = {cls}.{fname}_init();
+                    s = {cls}.{fname}_update(s, {ascii_one_to_four});
+                    s = {cls}.{fname}_update(s, {ascii_five_to_nine});
+                    if ({cls}.{fname}_finalize(s) != expected) return 2;
+                    // empty-chunk-first
+                    s = {cls}.{fname}_init();
+                    s = {cls}.{fname}_update(s, {ascii_empty});
+                    s = {cls}.{fname}_update(s, {ascii_one_to_nine});
+                    if ({cls}.{fname}_finalize(s) != expected) return 3;
+                    // empty-chunk-last
+                    s = {cls}.{fname}_init();
+                    s = {cls}.{fname}_update(s, {ascii_one_to_nine});
+                    s = {cls}.{fname}_update(s, {ascii_empty});
+                    if ({cls}.{fname}_finalize(s) != expected) return 4;
+                    return 0;
                 }}
             }}
         """).strip()
@@ -244,7 +290,10 @@ class TestGeneratedCSharpExecutes:
         )
 
         # Assert
+        label = _CSHARP_EXIT_CODE_LABEL.get(
+            result.returncode, "(compile or runtime error)"
+        )
         assert result.returncode == 0, (
             f"{name} (table={table}): dotnet run exited "
-            f"{result.returncode}; stderr={result.stderr!r}"
+            f"{result.returncode} {label}; stderr={result.stderr!r}"
         )

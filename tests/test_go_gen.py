@@ -153,29 +153,45 @@ class TestGenerateGoFromEntryRefoutBranch:
         assert "var reflected uint16 = 0" in code, "reflection variable declared"
 
 
+_EXIT_CODE_LABEL = {
+    0: "(all checks passed)",
+    1: "_self_test failed (one-shot check value wrong)",
+    2: "split-at-4 streamed result wrong",
+    3: "empty-chunk-first streamed result wrong",
+    4: "empty-chunk-last streamed result wrong",
+}
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GO, reason="go toolchain not on PATH")
 class TestGeneratedGoExecutes:
     """Shell out to ``go run`` to compile and execute the generated
-    code, asserting it reproduces the reveng catalogue's check value.
+    code.  The runner checks four things in one compiled binary:
 
-    Same pattern as the C / Rust execution tests.  Synthesizes a
-    main.go runner per algorithm that calls _self_test() and exits
-    0 on success.
+      1. ``_self_test()``        -- one-shot vs reveng check value
+      2. split-at-4 streaming    -- init / update("1234") /
+                                    update("56789") / finalize
+      3. empty-chunk-first       -- init / update("") /
+                                    update("123456789") / finalize
+      4. empty-chunk-last        -- init / update("123456789") /
+                                    update("") / finalize
+
+    Distinct exit codes (1..4) let a failure point to which pattern
+    broke; 0 means every pattern matched the catalogue check value.
+    Folding all four into one binary keeps the compile budget the
+    same as a one-shot-only test.
     """
 
     @pytest.mark.parametrize("table", [False, True])
     @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
-    def test_self_test_passes(self, name, table, tmp_path):
+    def test_oneshot_and_streaming(self, name, table, tmp_path):
         # Arrange
+        entry = CRC_CATALOGUE[name]
+        expected = entry["check"]
+        gtype = _go_state_type(entry["width"])
         code = generate_go(name, table=table)
         assert code is not None, f"generate_go({name!r}) returned code"
         fname = _func_name(name)
-        # Replace `package crc` with `package main` + `import "os"`
-        # immediately after, then append a main() that exits 0 if
-        # self_test passes, 1 otherwise.  Go requires imports to come
-        # before any other declarations, so we inject the import at
-        # the package boundary rather than appending it at the end.
         code = code.replace(
             "package crc",
             'package main\n\nimport "os"',
@@ -183,10 +199,32 @@ class TestGeneratedGoExecutes:
         )
         runner = textwrap.dedent(f"""
             func main() {{
-                if {fname}_self_test() {{
-                    os.Exit(0)
+                expected := {gtype}({hex(expected)})
+                if !{fname}_self_test() {{
+                    os.Exit(1)
                 }}
-                os.Exit(1)
+                // split-at-4
+                s := {fname}_init()
+                s = {fname}_update(s, []byte("1234"))
+                s = {fname}_update(s, []byte("56789"))
+                if {fname}_finalize(s) != expected {{
+                    os.Exit(2)
+                }}
+                // empty-chunk-first
+                s = {fname}_init()
+                s = {fname}_update(s, []byte(""))
+                s = {fname}_update(s, []byte("123456789"))
+                if {fname}_finalize(s) != expected {{
+                    os.Exit(3)
+                }}
+                // empty-chunk-last
+                s = {fname}_init()
+                s = {fname}_update(s, []byte("123456789"))
+                s = {fname}_update(s, []byte(""))
+                if {fname}_finalize(s) != expected {{
+                    os.Exit(4)
+                }}
+                os.Exit(0)
             }}
         """)
         src = code + runner
@@ -200,7 +238,10 @@ class TestGeneratedGoExecutes:
         )
 
         # Assert
+        label = _EXIT_CODE_LABEL.get(
+            result.returncode, "(compile or runtime error)"
+        )
         assert result.returncode == 0, (
             f"{name} (table={table}): go run exited "
-            f"{result.returncode}; stderr={result.stderr!r}"
+            f"{result.returncode} {label}; stderr={result.stderr!r}"
         )

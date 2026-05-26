@@ -162,27 +162,61 @@ class TestGenerateZigFromEntryRefoutBranch:
         )
 
 
+_ZIG_EXIT_CODE_LABEL = {
+    0: "(all checks passed)",
+    1: "_self_test failed (one-shot check value wrong)",
+    2: "split-at-4 streamed result wrong",
+    3: "empty-chunk-first streamed result wrong",
+    4: "empty-chunk-last streamed result wrong",
+}
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_ZIG, reason="zig toolchain not on PATH")
 class TestGeneratedZigExecutes:
     """Compile + run via ``zig run`` on a synthesized runner that
-    appends a ``pub fn main()`` calling ``_self_test()`` and exiting
-    0 on success.
+    appends a ``pub fn main()`` running four checks in one binary:
+
+      1. ``_self_test()`` -- one-shot vs reveng check value
+      2. split-at-4 streaming
+      3. empty-chunk-first streaming
+      4. empty-chunk-last streaming
+
+    Distinct exit codes 1..4 identify which pattern broke; 0 means
+    every pattern matched the catalogue check value.
     """
 
     @pytest.mark.parametrize("table", [False, True])
     @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
-    def test_self_test_passes(self, name, table, tmp_path):
+    def test_oneshot_and_streaming(self, name, table, tmp_path):
         # Arrange
+        entry = CRC_CATALOGUE[name]
+        expected = entry["check"]
+        ztype = _zig_state_type(entry["width"])
         code = generate_zig(name, table=table)
         assert code is not None, f"generate_zig({name!r}) returned code"
         fname = _func_name(name)
         runner = textwrap.dedent(f"""
             const std = @import("std");
             pub fn main() !void {{
-                if (!{fname}_self_test()) {{
-                    std.process.exit(1);
-                }}
+                const expected: {ztype} = {hex(expected)};
+                if (!{fname}_self_test()) std.process.exit(1);
+                var s: {ztype} = undefined;
+                // split-at-4
+                s = {fname}_init();
+                s = {fname}_update(s, "1234");
+                s = {fname}_update(s, "56789");
+                if ({fname}_finalize(s) != expected) std.process.exit(2);
+                // empty-chunk-first
+                s = {fname}_init();
+                s = {fname}_update(s, "");
+                s = {fname}_update(s, "123456789");
+                if ({fname}_finalize(s) != expected) std.process.exit(3);
+                // empty-chunk-last
+                s = {fname}_init();
+                s = {fname}_update(s, "123456789");
+                s = {fname}_update(s, "");
+                if ({fname}_finalize(s) != expected) std.process.exit(4);
             }}
         """)
         src = code + runner
@@ -197,7 +231,10 @@ class TestGeneratedZigExecutes:
         )
 
         # Assert
+        label = _ZIG_EXIT_CODE_LABEL.get(
+            result.returncode, "(compile or runtime error)"
+        )
         assert result.returncode == 0, (
             f"{name} (table={table}): zig run exited "
-            f"{result.returncode}; stderr={result.stderr!r}"
+            f"{result.returncode} {label}; stderr={result.stderr!r}"
         )
