@@ -34,10 +34,11 @@ _CRC_FILE_EXTENSIONS = {
     "python": (".py",),
     "rust": (".rs",),
     "vhdl": (".vhd",),
+    "zig": (".zig",),
 }
 
 
-_LANGS = ("c", "csharp", "go", "python", "rust", "vhdl")
+_LANGS = ("c", "csharp", "go", "python", "rust", "vhdl", "zig")
 
 
 _CUSTOM_KV_KEYS = {
@@ -152,7 +153,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             file=sys.stderr,
         )
         return 2
-    if use_slice8 and lang in ("go", "csharp", "zig"):
+    if use_slice8 and lang in ("csharp", "go", "zig"):
         print(
             f"Note: --slice8 is not implemented for {lang}; "
             f"using --table instead.",

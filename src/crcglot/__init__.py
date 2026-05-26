@@ -27,6 +27,7 @@ from crcglot.go import generate_go, generate_go_from_entry
 from crcglot.python import generate_python, generate_python_from_entry
 from crcglot.rust import generate_rust, generate_rust_from_entry
 from crcglot.vhdl import generate_vhdl, generate_vhdl_from_entry
+from crcglot.zig import generate_zig, generate_zig_from_entry
 
 
 # Language code -> name-lookup generator callable.
@@ -37,6 +38,7 @@ GENERATORS: dict[str, Callable] = {
     "python": generate_python,
     "rust": generate_rust,
     "vhdl": generate_vhdl,
+    "zig": generate_zig,
 }
 
 
@@ -48,6 +50,7 @@ GENERATORS_FROM_ENTRY: dict[str, Callable] = {
     "python": generate_python_from_entry,
     "rust": generate_rust_from_entry,
     "vhdl": generate_vhdl_from_entry,
+    "zig": generate_zig_from_entry,
 }
 
 
@@ -69,4 +72,6 @@ __all__ = [
     "generate_rust_from_entry",
     "generate_vhdl",
     "generate_vhdl_from_entry",
+    "generate_zig",
+    "generate_zig_from_entry",
 ]
