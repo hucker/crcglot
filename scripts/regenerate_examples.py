@@ -53,27 +53,17 @@ _VARIANT_FLAG = {
     "slice8": "--slice8",
 }
 
-# Human-readable language label (PascalCase / canonical name).
-_LANG_LABEL = {
-    "c": "C",
-    "csharp": "C#",
-    "go": "Go",
-    "python": "Python",
-    "rust": "Rust",
-    "vhdl": "VHDL",
-    "zig": "Zig",
+# Code-fence info string per language.  Most just equal the LANGUAGES
+# code key; exceptions get an explicit override below.  The human-readable
+# label comes from ``LanguageInfo.display_name`` so adding a new language
+# requires no edits to this script.
+_FENCE_OVERRIDES = {
+    "verilog": "systemverilog",  # GitHub Linguist recognizes this label
 }
 
-# Code-fence info string per language.
-_FENCE = {
-    "c": "c",
-    "csharp": "csharp",
-    "go": "go",
-    "python": "python",
-    "rust": "rust",
-    "vhdl": "vhdl",
-    "zig": "zig",
-}
+
+def _fence_for(code: str) -> str:
+    return _FENCE_OVERRIDES.get(code, code)
 
 
 _HEADER = """# crcglot generated code gallery
@@ -119,7 +109,7 @@ def _quick_links() -> str:
     lines = ["## Quick links", ""]
     for code in sorted(LANGUAGES.keys()):
         info = LANGUAGES[code]
-        lang_label = _LANG_LABEL[code]
+        lang_label = LANGUAGES[code].display_name
         variants = [v for v in _VARIANT_ORDER if v in info.variants]
         links = [
             f"[{_VARIANT_LABEL[v]}](#{_anchor_for(code, v)})"
@@ -136,13 +126,13 @@ def _render_one(code: str, variant: str) -> str:
     pair; every other language emits a single string.
     """
     info = LANGUAGES[code]
-    lang_label = _LANG_LABEL[code]
+    lang_label = info.display_name
     variant_label = _VARIANT_LABEL[variant]
     flag = _VARIANT_FLAG[variant]
     cmd = f"crcglot {code} {_ALGORITHM}"
     if flag:
         cmd += f" {flag}"
-    fence = _FENCE[code]
+    fence = _fence_for(code)
 
     # Build kwargs for the generator call.
     kwargs = {}

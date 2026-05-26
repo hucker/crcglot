@@ -1,5 +1,101 @@
 # Changelog
 
+## v0.7.0 — 2026-05-26
+
+Two new targets (TypeScript and Verilog), display metadata on
+`LanguageInfo`, README install section showing `uv tool install`, and
+**Zig has been removed** -- see below.
+
+### NEW target: TypeScript 🔷
+
+```bash
+crcglot typescript crc32 file=mycrc
+```
+
+Emits a single `.ts` module with `init` / `update` / `finalize`
+streaming triple, a one-shot wrapper, and a runtime-callable
+`_self_test()` returning `boolean`.  Three variants: bitwise, table,
+slice-by-8.  State type is `number` for widths 8 / 16 / 32 and
+`bigint` for width 64 -- both with native JS bitwise operators (no
+external library, no runtime ceiling at 2^53-1).
+
+The emitted module is runtime-agnostic -- pure TypeScript with no
+imports, runs under Node, Bun, Deno, browser ES modules, or any
+bundler.  Internally, uint32 coercion (`>>> 0`) is applied at the
+right points so non-reflected CRC-32 results don't slide into the
+negative int32 range and surprise the caller.
+
+Verified end-to-end via `tsx` (Node) across all 71 catalogue
+algorithms × bitwise / table / slice8 variants on this dev box.
+
+### NEW target: Verilog 🔧 (SystemVerilog 2012)
+
+```bash
+crcglot verilog crc32 file=mycrc
+```
+
+Emits a single `.sv` file containing `package <fname>_pkg` with
+`automatic` functions for the streaming triple, one-shot wrapper,
+and `_self_test()` returning `bit`.  Bit-by-bit only -- like VHDL,
+this is a simulator-friendly reference implementation; synthesizable
+pipelined RTL is a future enhancement and a different shape
+(`always_ff` blocks, not pure functions).
+
+Verified end-to-end via Icarus Verilog (`iverilog -g2012` + `vvp`)
+across all 71 catalogue algorithms.
+
+### NEW: display metadata on `LanguageInfo`
+
+Two new fields on the frozen `LanguageInfo` dataclass:
+
+- `emoji: str` -- single-grapheme pictographic identifier (e.g.
+  `"🦀"` for Rust, `"🔷"` for TypeScript)
+- `display_name: str` -- human-readable name (e.g. `"C / C++"`,
+  `"TypeScript"`).  Distinct from `code`, which is the dispatch key.
+
+Useful for terminal output, generated documentation, and the
+auto-EXAMPLES script (which now derives section headings from
+`display_name` instead of a hardcoded dict, so a new language only
+needs to land in `LANGUAGES` to show up everywhere).
+
+### BREAKING: Zig target removed
+
+`crcglot zig <algo>` no longer exists, `generate_zig` and
+`generate_zig_from_entry` are no longer importable, and the `"zig"`
+entry has been dropped from `LANGUAGES`.
+
+Migration: pick another compiled target (`c`, `rust`, `go`, `csharp`,
+`typescript`) for the same algorithm and recompile.  If you were
+distributing crcglot-generated Zig source in a build pipeline, pin
+to `crcglot==0.6.0` until you migrate.
+
+Why removed: Zig 0.13 → 0.16 changed enough that the existing
+generator's CRC-64 slice-by-8 output became flaky under parallel
+test execution, and re-validating it wasn't the right use of this
+release's scope.  Zig may return as a separate generator branch
+later -- the design lives in git history at v0.6.0.
+
+### NEW: README install section
+
+`uv tool install crcglot` is now the recommended install path
+alongside `pip install`.  Section covers `uv tool` (isolated CLI),
+`uv add` (library use), `pip`, and `pipx`.
+
+### Registry shape and test infra
+
+- `LANGUAGES` now has 8 entries (TypeScript + Verilog added; Zig
+  removed; net +1 vs v0.6.0).
+- `scripts/regenerate_examples.py` is data-driven on `display_name`
+  / `extensions` -- no per-language hardcoding.  A new language
+  landing in `LANGUAGES` shows up in the regenerated gallery
+  automatically.
+- `tests/conftest.py` learns a Windows PATH-fixup pass for install
+  dirs that don't propagate to already-open shells:
+  `C:\iverilog\bin`, `C:\Program Files\nodejs`,
+  `C:\Program Files\Go\bin`, `%LOCALAPPDATA%\Microsoft\WinGet\Links`,
+  `%APPDATA%\npm`.  Lets the slow tier pick up freshly-installed
+  toolchains without restarting VS Code.
+
 ## v0.6.0 — 2026-05-26
 
 Rust generator: `_self_test()` is now a runtime-callable `pub fn`,

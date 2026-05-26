@@ -1,7 +1,7 @@
 [project]
 name = "crcglot"
-version = "0.6.0"
-description = "Verified CRC source-code for C, C#, Go, Python, Rust, VHDL, and Zig — catalogue-driven, typed introspection API, self-test embedded."
+version = "0.7.0"
+description = "Verified CRC source-code for C, C#, Go, Python, Rust, TypeScript, Verilog, and VHDL — catalogue-driven, typed introspection API, self-test embedded."
 license = "MIT"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -39,7 +39,7 @@ build-backend = "uv_build"
 testpaths = ["tests"]
 addopts = "-v --cov=crcglot --cov-report=term-missing -n auto"
 markers = [
-    "slow: subprocess-spawning test (compiles + runs generated code via gcc / rustc / ghdl / go / dotnet / zig).  Skip with -m 'not slow' for fast iteration.",
+    "slow: subprocess-spawning test (compiles + runs generated code via gcc / rustc / go / dotnet / tsx / iverilog / ghdl).  Skip with -m 'not slow' for fast iteration.",
 ]
 
 [tool.coverage.run]

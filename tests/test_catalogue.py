@@ -85,11 +85,19 @@ class TestLanguageMetadata:
     def test_all_languages_present(self):
         # Assert
         assert set(LANGUAGES.keys()) == {
-            "c", "csharp", "go", "python", "rust", "vhdl", "zig",
-        }, "expected c / csharp / go / python / rust / vhdl / zig in LANGUAGES"
+            "c", "csharp", "go", "python", "rust",
+            "typescript", "verilog", "vhdl",
+        }, (
+            "expected c / csharp / go / python / rust / typescript / "
+            "verilog / vhdl in LANGUAGES"
+        )
 
     @pytest.mark.parametrize(
-        "code", ["c", "csharp", "go", "python", "rust", "vhdl", "zig"]
+        "code",
+        [
+            "c", "csharp", "go", "python", "rust",
+            "typescript", "verilog", "vhdl",
+        ],
     )
     def test_entry_is_languageinfo_with_callables(self, code):
         # Act
@@ -123,8 +131,9 @@ class TestLanguageMetadata:
             ("go", ".go"),
             ("python", ".py"),
             ("rust", ".rs"),
+            ("typescript", ".ts"),
+            ("verilog", ".sv"),
             ("vhdl", ".vhd"),
-            ("zig", ".zig"),
         ],
     )
     def test_extension_per_language(self, code, expected_ext):
@@ -144,27 +153,75 @@ class TestLanguageMetadata:
             )
 
     def test_slice8_supported_on_compiled_languages(self):
-        # Assert -- every compiled target supports slice8.  Python is
-        # the holdout (CPython per-int overhead measurably negates the
-        # speedup), and VHDL is bitwise-only as a simulator reference.
+        # Assert -- every compiled software target supports slice8.
+        # Python is the holdout (CPython per-int overhead measurably
+        # negates the speedup); VHDL and Verilog are simulator
+        # references (bitwise only).
         slice8_langs = {
             code for code, info in LANGUAGES.items() if "slice8" in info.variants
         }
-        assert slice8_langs == {"c", "csharp", "go", "rust", "zig"}, (
-            "slice8 is supported on c / csharp / go / rust / zig; "
+        assert slice8_langs == {
+            "c", "csharp", "go", "rust", "typescript",
+        }, (
+            "slice8 is supported on c / csharp / go / rust / typescript; "
             f"got {sorted(slice8_langs)}"
         )
 
-    def test_vhdl_is_bitwise_only(self):
-        # Assert
-        assert LANGUAGES["vhdl"].variants == frozenset({"bitwise"}), (
-            "VHDL generator only emits bit-by-bit (simulator reference)"
-        )
+    def test_hardware_targets_are_bitwise_only(self):
+        # Assert -- both HDL generators emit bit-by-bit only (no table
+        # / slice8); these are simulator-reference, not synthesizable
+        # high-throughput RTL.
+        for hdl in ("vhdl", "verilog"):
+            assert LANGUAGES[hdl].variants == frozenset({"bitwise"}), (
+                f"{hdl} generator must be bit-by-bit only"
+            )
 
     def test_python_excludes_slice8(self):
         # Assert -- Python's per-int overhead eats the slice8 speedup
         # (measured ~0.79x); the variant is intentionally absent.
         assert "slice8" not in LANGUAGES["python"].variants
+
+    def test_every_entry_has_emoji_and_display_name(self):
+        # Assert -- the v0.7.0 display-metadata fields are populated
+        # for every target.  Emoji is at least one codepoint; display
+        # name is a non-empty human-readable string.
+        for code, info in LANGUAGES.items():
+            assert isinstance(info.emoji, str) and info.emoji, (
+                f"{code}: emoji must be a non-empty string"
+            )
+            assert isinstance(info.display_name, str) and info.display_name, (
+                f"{code}: display_name must be a non-empty string"
+            )
+
+    @pytest.mark.parametrize(
+        "code,expected_display",
+        [
+            ("c", "C / C++"),
+            ("csharp", "C#"),
+            ("go", "Go"),
+            ("python", "Python"),
+            ("rust", "Rust"),
+            ("typescript", "TypeScript"),
+            ("verilog", "Verilog"),
+            ("vhdl", "VHDL"),
+        ],
+    )
+    def test_display_name_per_language(self, code, expected_display):
+        # Assert
+        actual = LANGUAGES[code].display_name
+        expected = expected_display
+        assert actual == expected, (
+            f"{code}: display_name mismatch (got {actual!r}, "
+            f"expected {expected!r})"
+        )
+
+    def test_emojis_are_distinct(self):
+        # Assert -- no two targets share an emoji (catches copy-paste
+        # bugs when adding a new language).
+        emojis = [info.emoji for info in LANGUAGES.values()]
+        assert len(set(emojis)) == len(emojis), (
+            f"duplicate emoji in LANGUAGES: {emojis}"
+        )
 
 
 class TestAlgorithmMetadata:
@@ -223,7 +280,11 @@ class TestGenerators:
     (refin=False) algorithms via the typed dispatch in LANGUAGES."""
 
     @pytest.mark.parametrize(
-        "lang", ["c", "csharp", "go", "python", "rust", "vhdl", "zig"]
+        "lang",
+        [
+            "c", "csharp", "go", "python", "rust",
+            "typescript", "verilog", "vhdl",
+        ],
     )
     def test_reflected_algorithm(self, lang):
         """Verify reflected algorithms (refin=True) generate code."""
@@ -236,7 +297,11 @@ class TestGenerators:
         assert len(body) > 100, "non-trivial output"
 
     @pytest.mark.parametrize(
-        "lang", ["c", "csharp", "go", "python", "rust", "vhdl", "zig"]
+        "lang",
+        [
+            "c", "csharp", "go", "python", "rust",
+            "typescript", "verilog", "vhdl",
+        ],
     )
     def test_normal_algorithm(self, lang):
         """Verify normal algorithms (refin=False) generate code."""

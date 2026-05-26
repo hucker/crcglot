@@ -295,7 +295,7 @@ def _self_test_rust(fname: str, check: int, width: int, rtype: str) -> str:
     debug, release, embedded -- so downstream consumers can wire it
     into a boot self-check or a startup assertion, not just
     ``cargo test``.  Matches the convention of every other target
-    (C returns 0/1; Go / C# / Zig / Python / VHDL return bool).
+    (C returns 0/1; Go / C# / TypeScript / Python / Verilog / VHDL return bool).
     """
     lines = [
         f"",

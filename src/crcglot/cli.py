@@ -280,7 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="crcglot",
         description=(
             "Verified CRC source-code generator for C, C#, Go, Python, "
-            "Rust, VHDL, and Zig.  Catalogue-driven, self-test embedded."
+            "Rust, TypeScript, Verilog, and VHDL.  Catalogue-driven, "
+            "self-test embedded."
         ),
     )
     subs = parser.add_subparsers(dest="command", required=True)
@@ -293,7 +294,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = subs.add_parser("info", help="Show algorithm parameters")
     p_info.add_argument("name", help="Algorithm name (e.g. crc32)")
 
-    # crcglot {c,csharp,go,python,rust,vhdl,zig} <algo> [--table|--slice8] [file=STEM] [symbol=NAME]
+    # crcglot {c,csharp,go,python,rust,typescript,verilog,vhdl} <algo>
+    # [--table|--slice8] [file=STEM] [symbol=NAME]
     # Or: crcglot c --custom width=... poly=... ...
     for lang in LANGUAGES:
         p = subs.add_parser(lang, help=f"Generate {lang.upper()} source code")
@@ -305,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--slice8", action="store_true",
             help=(
                 "Use slice-by-8 (5-10x faster than --table). "
-                "C / Rust / Go / C# / Zig; widths 32 or 64 only. "
+                "Compiled-software targets; widths 32 or 64 only. "
                 "Accepted for python but falls back to --table."
             ),
         )

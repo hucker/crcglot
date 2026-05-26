@@ -63,4 +63,69 @@ def _fix_msys2_path_on_windows() -> None:
     os.environ["PATH"] = os.pathsep.join([msys2_bin] + parts)
 
 
+def _append_to_path_if_present(candidate: str) -> None:
+    """Append ``candidate`` to PATH if it exists and isn't already there.
+
+    Used by the per-tool Windows PATH fixups below.  No-op if the
+    directory doesn't exist (other-platform / not-installed cases)
+    or if it's already on PATH at any position.
+    """
+    import os
+    if not os.path.isdir(candidate):
+        return
+    path = os.environ.get("PATH", "")
+    parts = path.split(os.pathsep)
+    norm = [os.path.normcase(p) for p in parts]
+    if os.path.normcase(candidate) in norm:
+        return
+    os.environ["PATH"] = os.pathsep.join(parts + [candidate])
+
+
+def _add_windows_tool_dirs_to_path() -> None:
+    """Add tool dirs to PATH for Windows installers that don't update it.
+
+    Each entry is a directory that some standard Windows installer of a
+    test-time tool drops binaries into without amending PATH, or where
+    a winget-installed shim lives that an already-open shell hasn't yet
+    refreshed PATH to see:
+
+    - ``C:\\iverilog\\bin``: Icarus Verilog winget / official installer.
+    - ``C:\\Program Files\\nodejs``: Node.js LTS winget / MSI.
+    - ``C:\\Program Files\\Go\\bin``: Go via winget / official MSI.
+    - ``%LOCALAPPDATA%\\Microsoft\\WinGet\\Links``: winget's shim
+      directory (archive-distributed tools without their own
+      installer land here -- safe to include even if no current
+      target depends on it).
+    - ``%APPDATA%\\npm``: where ``npm install -g <pkg>`` drops shims
+      (tsx, etc.).
+
+    All entries are checked for existence first, so this no-ops on
+    Linux/macOS and on Windows shells without the tools installed.
+    Without this fixup, the slow-tier tests for any of these tools
+    would skip after a fresh install -- pytest's subprocess inherits
+    the parent shell's pre-install PATH and can't see the binaries
+    that the install just added.
+    """
+    import os
+    import sys
+    if sys.platform != "win32":
+        return
+    appdata = os.environ.get("APPDATA", "")
+    local_appdata = os.environ.get("LOCALAPPDATA", "")
+    candidates = [
+        r"C:\iverilog\bin",
+        r"C:\Program Files\nodejs",
+        r"C:\Program Files\Go\bin",
+    ]
+    if local_appdata:
+        candidates.append(
+            os.path.join(local_appdata, "Microsoft", "WinGet", "Links")
+        )
+    if appdata:
+        candidates.append(os.path.join(appdata, "npm"))
+    for c in candidates:
+        _append_to_path_if_present(c)
+
+
 _fix_msys2_path_on_windows()
+_add_windows_tool_dirs_to_path()
