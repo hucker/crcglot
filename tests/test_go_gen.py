@@ -171,12 +171,17 @@ class TestGeneratedGoExecutes:
         code = generate_go(name, table=table)
         assert code is not None, f"generate_go({name!r}) returned code"
         fname = _func_name(name)
-        # Replace `package crc` with `package main` and append a main()
-        # that exits 0 if self_test passes, 1 otherwise.  go run needs
-        # a main package; the generated package crc is meant for drop-in.
-        code = code.replace("package crc", "package main", 1)
+        # Replace `package crc` with `package main` + `import "os"`
+        # immediately after, then append a main() that exits 0 if
+        # self_test passes, 1 otherwise.  Go requires imports to come
+        # before any other declarations, so we inject the import at
+        # the package boundary rather than appending it at the end.
+        code = code.replace(
+            "package crc",
+            'package main\n\nimport "os"',
+            1,
+        )
         runner = textwrap.dedent(f"""
-            import "os"
             func main() {{
                 if {fname}_self_test() {{
                     os.Exit(0)

@@ -71,7 +71,16 @@ def _format_table_zig(table: list[int], width: int, ztype: str) -> str:
 def _update_loop_zig(
     w: int, poly: int, refin: bool, mask: str, ztype: str, table: bool,
 ) -> list[str]:
-    """Emit the per-byte main-loop lines for the update function."""
+    """Emit the per-byte main-loop lines for the update function.
+
+    Zig is strict about shift overflow: ``crc << 1`` on a ``uW`` whose
+    top bit is set is illegal behaviour (panic in debug, undefined in
+    release) because the result would not fit in ``uW``.  Zig has no
+    C-style wrapping shift operator -- ``<<%`` does not exist.  We
+    sidestep this by **masking before shifting** so the shift result
+    always fits, instead of masking after.  Mathematically equivalent
+    to C's wrapping shift on unsigned types.
+    """
     if table:
         if w == 8:
             return [
@@ -85,14 +94,21 @@ def _update_loop_zig(
                 f"        crc = crc_table[@as(usize, @as(u8, @truncate(crc)) ^ b)] ^ (crc >> 8);",
                 "    }",
             ]
+        # Non-reflected w > 8.  The C equivalent is
+        # ``(crc << 8) & mask`` -- shift left by 8 and drop the byte
+        # that fell off the top.  Equivalent in unsigned arithmetic
+        # to masking the bottom (w - 8) bits first and shifting them
+        # up by 8: result max is ``(2^(w-8) - 1) * 256``, which fits
+        # in uW.  This avoids the shift-overflow that ``crc << 8`` on
+        # the full state would trigger in Zig's safe mode.
+        keep_mask = _hex((1 << (w - 8)) - 1, w)
         return [
             "    for (data) |b| {",
-            f"        crc = crc_table[@as(usize, @as(u8, @truncate(crc >> {w - 8})) ^ b)] ^ ((crc <<% 8) & {mask});",
+            f"        crc = crc_table[@as(usize, @as(u8, @truncate(crc >> {w - 8})) ^ b)] ^ ((crc & {keep_mask}) << 8);",
             "    }",
         ]
     if refin:
         ref_poly = _reflect(poly, w)
-        # For w=8 there's no widening to do; otherwise widen b before XOR.
         widened_b = "b" if w == 8 else f"@as({ztype}, b)"
         return [
             "    for (data) |b| {",
@@ -107,23 +123,31 @@ def _update_loop_zig(
             "        }",
             "    }",
         ]
-    # Non-reflected: align byte at top of state, then shift down through it.
-    # ``b << (w - 8)`` requires widening for w > 8.
+    # Non-reflected bit-by-bit.  Two-arm structure of the loop:
+    #
+    #   * Top-bit-clear branch: ``crc << 1`` is safe (the high bit
+    #     becomes the new top bit, max result is 2^w - 2).
+    #   * Top-bit-set branch: we'd overflow on a raw ``crc << 1``, so
+    #     we mask off the top bit first; the masked-and-shifted value
+    #     plus the XOR with ``poly`` is equivalent to the C version's
+    #     ``(crc << 1) ^ poly`` after the implicit overflow drop.
     if w == 8:
         align_in = "b"
     else:
         align_in = f"(@as({ztype}, b) << {w - 8})"
+    top_bit = _hex(1 << (w - 1), w)
+    low_mask = _hex((1 << (w - 1)) - 1, w)
+    _ = mask  # see method docstring -- pre-shift masking removes need for it
     return [
         "    for (data) |b| {",
         f"        crc ^= {align_in};",
         "        var i: u32 = 0;",
         "        while (i < 8) : (i += 1) {",
-        f"            if (crc & {_hex(1 << (w - 1), w)} != 0) {{",
-        f"                crc = (crc <<% 1) ^ {_hex(poly, w)};",
+        f"            if (crc & {top_bit} != 0) {{",
+        f"                crc = ((crc & {low_mask}) << 1) ^ {_hex(poly, w)};",
         "            } else {",
-        "                crc <<%= 1;",
+        "                crc = crc << 1;",
         "            }",
-        f"            crc &= {mask};",
         "        }",
         "    }",
     ]

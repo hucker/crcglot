@@ -88,15 +88,28 @@ def _cs_pascal_class(fname: str) -> str:
 
 
 def _cs_cast(width: int, expr: str) -> str:
-    """Wrap ``expr`` with an explicit cast when the destination is byte
-    or ushort -- direct assignment needs it because narrowing from int
-    is not implicit in C#.  No-op for uint / ulong.
+    """Wrap ``expr`` with an explicit cast to the state's unsigned type.
+
+    Always emitted, not just for byte / ushort.  The reason it's needed
+    for ``uint`` / ``ulong`` too: ``byte << 24`` evaluates to ``int``
+    (because ``<<`` promotes its left operand), and compound assignment
+    ``uint ^= int`` is not auto-cast-back-able (the int -> uint
+    conversion is not implicit, and ``^=`` is not a shift operator so
+    the compound-assignment shift exception doesn't rescue it).
+    Wrapping the rhs with ``(uint)(...)`` is an explicit conversion
+    that compiles cleanly.  The cast is redundant when the rhs is
+    already of the state's type (e.g. ``(crc << 1) ^ poly`` at uint),
+    but C# accepts redundant casts without warning, so it's cheaper
+    to always emit than to thread "do I need it here" through every
+    call site.
     """
     if width <= 8:
         return f"(byte)({expr})"
     if width <= 16:
         return f"(ushort)({expr})"
-    return expr
+    if width <= 32:
+        return f"(uint)({expr})"
+    return f"(ulong)({expr})"
 
 
 def _cs_byte_lit(b: int) -> str:
@@ -171,9 +184,19 @@ def _update_loop_csharp(
     shift_left = (
         f"crc = {_cs_cast(w, 'crc << 1')};" if w <= 16 else "crc <<= 1;"
     )
+    # For widths where ``w - 8`` is >= 32, C# masks shift counts on
+    # int down to 5 bits, so ``b << 56`` would compile to ``b << (56 &
+    # 0x1F)`` and lose the high bits.  Widen ``b`` to the state type
+    # *before* shifting to keep the full count.
+    if w == 8:
+        b_aligned = "b"
+    elif w >= 64:
+        b_aligned = f"({cstype})b << {w - 8}"
+    else:
+        b_aligned = f"b << {w - 8}"
     return [
         "        foreach (byte b in data) {",
-        f"            crc ^= {_cs_cast(w, f'b << {w - 8}')};",
+        f"            crc ^= {_cs_cast(w, b_aligned)};",
         "            for (int i = 0; i < 8; i++) {",
         f"                if ((crc & {_cs_hex(1 << (w - 1), w)}) != 0)",
         f"                    crc = {_cs_cast(w, f'(crc << 1) ^ {_cs_hex(poly, w)}')};",
