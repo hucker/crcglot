@@ -29,10 +29,14 @@ from crcglot import (
 
 _CRC_FILE_EXTENSIONS = {
     "c": (".h", ".c"),
+    "go": (".go",),
     "python": (".py",),
     "rust": (".rs",),
     "vhdl": (".vhd",),
 }
+
+
+_LANGS = ("c", "go", "python", "rust", "vhdl")
 
 
 _CUSTOM_KV_KEYS = {
@@ -147,6 +151,14 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             file=sys.stderr,
         )
         return 2
+    if use_slice8 and lang in ("go", "csharp", "zig"):
+        print(
+            f"Note: --slice8 is not implemented for {lang}; "
+            f"using --table instead.",
+            file=sys.stderr,
+        )
+        use_slice8 = False
+        use_table = True
     if use_slice8 and lang == "python":
         print(
             "Note: --slice8 is slower than --table in CPython "
@@ -285,9 +297,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = subs.add_parser("info", help="Show algorithm parameters")
     p_info.add_argument("name", help="Algorithm name (e.g. crc32)")
 
-    # crcglot {c,python,rust,vhdl} <algo> [--table|--slice8] [file=STEM] [symbol=NAME]
+    # crcglot {c,go,python,rust,vhdl} <algo> [--table|--slice8] [file=STEM] [symbol=NAME]
     # Or: crcglot c --custom width=... poly=... ...
-    for lang in ("c", "python", "rust", "vhdl"):
+    for lang in _LANGS:
         p = subs.add_parser(lang, help=f"Generate {lang.upper()} source code")
         p.add_argument(
             "--table", action="store_true",
@@ -330,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_list(args)
     if args.command == "info":
         return _cmd_info(args)
-    if args.command in ("c", "python", "rust", "vhdl"):
+    if args.command in _LANGS:
         return _cmd_codegen(args, args.command)
     parser.print_help(sys.stderr)
     return 2
