@@ -89,15 +89,25 @@ class TestGenerateZig:
         assert code is not None, "generator returned code"
         assert "pub fn crc64_xz_init() u64" in code, "CRC-64 init returns u64"
 
-    def test_non_reflected_uses_wrapping_shift(self):
-        # Arrange / Act - crc8 is non-reflected (refin=false), so the
-        # left-shift in the inner loop must use Zig's wrapping operator
-        # to avoid overflow panics when the top bit is set.
+    def test_non_reflected_masks_top_bit_before_shift(self):
+        # Arrange / Act - crc8 is non-reflected (refin=false).  Zig
+        # rejects ``crc << 1`` when the top bit is set (overflow is
+        # illegal behaviour); Zig 0.13 has no ``<<%`` wrapping shift
+        # operator either.  Generator's workaround: mask the top bit
+        # off *before* shifting in the top-bit-set branch, so the
+        # shift result always fits in uW.
         code = generate_zig("crc8")
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "<<%" in code, "non-reflected path uses wrapping shift"
+        # Top bit of u8 is 0x80; the masked-low-bits constant is 0x7F.
+        assert "crc & 0x7F" in code, (
+            "non-reflected path masks the top bit off before shifting"
+        )
+        assert "<<%" not in code, (
+            "Zig 0.13 has no <<% wrapping shift operator; generator "
+            "must not emit it"
+        )
 
     def test_symbol_override(self):
         # Act

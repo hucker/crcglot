@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.3.0 — 2026-05-25
+
+Three new language targets and a Python self-test.  No breaking
+changes to existing targets.
+
+### New targets
+
+- **Go** (`crcglot go <algo>`) -- emits a `package crc` file with the
+  streaming triple, one-shot wrapper, and `_self_test() bool`.
+  Supports bit-by-bit and `--table`.
+- **C#** (`crcglot csharp <algo>`) -- emits a single `.cs` file
+  declaring a `public static class` (named in PascalCase from the
+  algorithm) with the streaming triple, one-shot wrapper, and
+  `_self_test() bool`.  Supports bit-by-bit and `--table`.
+- **Zig** (`crcglot zig <algo>`) -- emits a `.zig` file with `pub fn`
+  exports for the streaming triple, one-shot wrapper, and
+  `_self_test() bool`.  Supports bit-by-bit and `--table`.
+
+### Python self-test
+
+The Python generator now emits `<fname>_self_test() -> bool`, matching
+the convention of the other targets.  Previously Python only signalled
+correctness via the docstring `check:` line.
+
+### Verification coverage
+
+Every algorithm in the catalogue × every shipped variant × every
+target compiles and runs on the real toolchain, verifying four
+patterns per algorithm: one-shot vs reveng check value, split-at-4
+streaming, empty-chunk-first streaming, empty-chunk-last streaming.
+Slow execution tests on the new targets are gated on `go`,
+`dotnet` (with SDK -- runtime alone is not enough), and `zig` being
+on PATH; structural tests always run.
+
+Full-suite tests: 1994 collected, fast-suite coverage ≥ 99%.
+
+### Tooling
+
+- `CLAUDE.md`: codified branch-naming convention
+  (`feat/<dashed-slug>` etc.).
+- `cspell.json`: terms from the new generators.
+
 ## v0.2.0 — 2026-05-25
 
 Developer-experience release.  No public API changes; existing

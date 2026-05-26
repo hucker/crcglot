@@ -73,11 +73,13 @@ class TestGenerators:
 
     def test_all_languages_present(self):
         # Assert
-        assert set(GENERATORS.keys()) == {"c", "python", "rust", "vhdl"}, (
-            "expected c, python, rust, vhdl generators"
-        )
+        assert set(GENERATORS.keys()) == {
+            "c", "csharp", "go", "python", "rust", "vhdl", "zig",
+        }, "expected c / csharp / go / python / rust / vhdl / zig generators"
 
-    @pytest.mark.parametrize("lang", ["c", "python", "rust", "vhdl"])
+    @pytest.mark.parametrize(
+        "lang", ["c", "csharp", "go", "python", "rust", "vhdl", "zig"]
+    )
     def test_reflected_algorithm(self, lang):
         """Verify reflected algorithms (refin=True) generate code."""
         # Act - crc16-modbus is reflected
@@ -88,7 +90,9 @@ class TestGenerators:
         body = "".join(result) if isinstance(result, tuple) else result
         assert len(body) > 100, "non-trivial output"
 
-    @pytest.mark.parametrize("lang", ["c", "python", "rust", "vhdl"])
+    @pytest.mark.parametrize(
+        "lang", ["c", "csharp", "go", "python", "rust", "vhdl", "zig"]
+    )
     def test_normal_algorithm(self, lang):
         """Verify normal algorithms (refin=False) generate code."""
         # Act - crc16-xmodem is normal

@@ -43,3 +43,4 @@ tests/cli_gold/_failures/
 
 # uv
 uv.lock
+.claude/
