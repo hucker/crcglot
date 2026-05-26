@@ -5,13 +5,17 @@ https://reveng.sourceforge.io/crc-catalogue/all.htm) plus
 generic Rocksoft/Williams CRC computation for any custom
 ``(width, poly, init, refin, refout, xorout)`` tuple.
 
-Each catalogue entry is a dict with keys: ``width``, ``poly``,
-``init``, ``refin``, ``refout``, ``xorout``, ``check`` (CRC of
-``b"123456789"`` -- the canonical reveng test vector), and
-``desc``.
+The public face is :data:`ALGORITHMS` -- a ``dict[str,
+AlgorithmInfo]`` keyed by algorithm name.  Each entry is a frozen
+dataclass with the Rocksoft/Williams parameters plus the canonical
+reveng ``check`` value (CRC of ``b"123456789"``) and a human-readable
+``desc``.  The underlying raw dict (``_REVENG_CATALOGUE``) is kept
+private so the public surface stays type-safe.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +101,11 @@ def _generic_crc(
 #
 # Each entry: width, poly (normal form), init, refin, refout, xorout, check.
 # check = CRC of b"123456789" - used as test vectors.
+#
+# ``_REVENG_CATALOGUE`` is the raw data source -- private.  Public
+# callers use :data:`ALGORITHMS` (typed view) built below.
 
-CRC_CATALOGUE: dict[str, dict] = {
+_REVENG_CATALOGUE: dict[str, dict] = {
     # ---- CRC-8 (20 algorithms) ----
     "crc8":             {"width": 8, "poly": 0x07, "init": 0x00, "refin": False, "refout": False, "xorout": 0x00, "check": 0xF4, "desc": "ITU-T I.432.1 (ATM HEC), ISDN"},
     "crc8-autosar":     {"width": 8, "poly": 0x2F, "init": 0xFF, "refin": False, "refout": False, "xorout": 0xFF, "check": 0xDF, "desc": "AUTOSAR automotive E2E profiles"},
@@ -175,5 +182,62 @@ CRC_CATALOGUE: dict[str, dict] = {
 }
 
 # Backward-compatible aliases for old short names
-CRC_CATALOGUE["crc16m"] = CRC_CATALOGUE["crc16-modbus"]
-CRC_CATALOGUE["crc16x"] = CRC_CATALOGUE["crc16-xmodem"]
+_REVENG_CATALOGUE["crc16m"] = _REVENG_CATALOGUE["crc16-modbus"]
+_REVENG_CATALOGUE["crc16x"] = _REVENG_CATALOGUE["crc16-xmodem"]
+
+
+# ---------------------------------------------------------------------------
+# Typed public view of the catalogue
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AlgorithmInfo:
+    """Typed metadata for one CRC algorithm.
+
+    All fields are required.  ``desc`` defaults to an empty string in
+    the catalogue when no description is available, never ``None`` --
+    callers can read ``info.desc`` unconditionally.
+
+    Attributes:
+        name: Algorithm name (e.g. ``"crc32"``, ``"crc16-modbus"``).
+        width: CRC bit width: 8, 16, 32, or 64.
+        poly: Generator polynomial in normal (MSB-first) form.
+        init: Initial register value.
+        refin: True to reflect each input byte.
+        refout: True to reflect the final CRC value.
+        xorout: XOR applied to the final CRC value.
+        check: Canonical reveng check value -- CRC of ``b"123456789"``.
+        desc: Human-readable description (may be ``""``).
+    """
+
+    name: str
+    width: int
+    poly: int
+    init: int
+    refin: bool
+    refout: bool
+    xorout: int
+    check: int
+    desc: str
+
+
+def _build_algorithms() -> dict[str, AlgorithmInfo]:
+    """Build the typed view of :data:`_REVENG_CATALOGUE` once at import."""
+    return {
+        name: AlgorithmInfo(
+            name=name,
+            width=entry["width"],
+            poly=entry["poly"],
+            init=entry["init"],
+            refin=entry["refin"],
+            refout=entry["refout"],
+            xorout=entry["xorout"],
+            check=entry["check"],
+            desc=entry.get("desc", ""),
+        )
+        for name, entry in _REVENG_CATALOGUE.items()
+    }
+
+
+ALGORITHMS: dict[str, AlgorithmInfo] = _build_algorithms()

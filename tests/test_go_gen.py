@@ -23,7 +23,12 @@ import textwrap
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_go, generate_go_from_entry
+from crcglot import (
+    ALGORITHMS,
+    AlgorithmInfo,
+    generate_go,
+    generate_go_from_entry,
+)
 
 
 HAS_GO = shutil.which("go") is not None
@@ -42,6 +47,17 @@ def _go_state_type(width: int) -> str:
     if width <= 32:
         return "uint32"
     return "uint64"
+
+
+# Input lengths spanning degenerate, sub-chunk, exact-chunk, mixed.
+_SLICE8_INPUT_LENGTHS = (0, 1, 7, 8, 9, 15, 16, 100)
+
+
+def _slice8_algos() -> list[str]:
+    """Catalogue algorithms eligible for slice-by-8 (width 32 or 64)."""
+    return sorted(
+        n for n, a in ALGORITHMS.items() if a.width in (32, 64)
+    )
 
 
 class TestGenerateGo:
@@ -104,13 +120,34 @@ class TestGenerateGo:
         # Act
         code = generate_go("crc32", table=True)
 
-        # Assert
+        # Assert - table variable is fname-prefixed so multiple
+        # generated CRCs can coexist in the same Go package without
+        # name collision.
         assert code is not None, "generator returned code"
-        assert "var _crcTable = [256]uint32{" in code, (
+        assert "var _crc32_table = [256]uint32{" in code, (
             "table-driven variant emits the lookup table"
         )
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    def test_slice8_emits_eight_tables(self):
+        # Act
+        code = generate_go("crc32", slice8=True)
+
+        # Assert
+        assert code is not None, "generator returned code"
+        assert "var _crc32_sliceTables = [8][256]uint32{" in code, (
+            "slice-by-8 variant emits the 2D table"
+        )
+        # Sanity: all 8 sub-table headers should be present.
+        for i in range(8):
+            assert f"// T{i}" in code, f"slice-by-8 missing T{i} comment"
+
+    @pytest.mark.parametrize("algo", ["crc8", "crc16-modbus"])
+    def test_slice8_rejects_narrow_widths(self, algo):
+        # Act + Assert
+        with pytest.raises(ValueError, match="slice8=True requires width"):
+            generate_go(algo, slice8=True)
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_all_catalogue_entries_compile_shape(self, name):
         # Act
         code = generate_go(name)
@@ -132,19 +169,15 @@ class TestGenerateGoFromEntryRefoutBranch:
 
     def test_refout_differs_from_refin_emits_reflection(self):
         # Arrange - synthetic entry with refout != refin
-        entry = {
-            "width": 16,
-            "poly": 0x1021,
-            "init": 0x0000,
-            "refin": False,
-            "refout": True,
-            "xorout": 0x0000,
-            "check": 0x0000,
-            "desc": "synthetic refout!=refin probe",
-        }
+        algo = AlgorithmInfo(
+            name="synthetic_refout",
+            width=16, poly=0x1021, init=0x0000,
+            refin=False, refout=True, xorout=0x0000,
+            check=0x0000, desc="synthetic refout!=refin probe",
+        )
 
         # Act
-        code = generate_go_from_entry("synthetic_refout", entry)
+        code = generate_go_from_entry("synthetic_refout", algo)
 
         # Assert
         assert "reflect output (refout != refin)" in code, (
@@ -183,12 +216,12 @@ class TestGeneratedGoExecutes:
     """
 
     @pytest.mark.parametrize("table", [False, True])
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_oneshot_and_streaming(self, name, table, tmp_path):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
-        gtype = _go_state_type(entry["width"])
+        algo = ALGORITHMS[name]
+        expected = algo.check
+        gtype = _go_state_type(algo.width)
         code = generate_go(name, table=table)
         assert code is not None, f"generate_go({name!r}) returned code"
         fname = _func_name(name)
@@ -244,4 +277,85 @@ class TestGeneratedGoExecutes:
         assert result.returncode == 0, (
             f"{name} (table={table}): go run exited "
             f"{result.returncode} {label}; stderr={result.stderr!r}"
+        )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GO, reason="go toolchain not on PATH")
+class TestGeneratedGoSliceBy8Executes:
+    """Slice-by-8 equivalence with bit-by-bit in generated Go.
+
+    Strategy mirrors test_c_gen.TestGeneratedCSliceBy8Executes:
+    generate both forms under disjoint symbol names, compile both into
+    the same ``package main``, assert byte-equal output across a range
+    of input lengths.  Since the bit-by-bit form is already
+    reveng-verified, equivalence proves slice-by-8 is correct.
+
+    Limited to CRC-32 / CRC-64 algorithms; slice-by-8 only makes sense
+    at those widths (validated by the slice8=True ValueError in the
+    generator).
+    """
+
+    @pytest.mark.parametrize("name", _slice8_algos())
+    def test_slice8_matches_bitbybit(self, name, tmp_path):
+        # Arrange -- generate two .go files with disjoint symbol names.
+        bb_sym = f"{_func_name(name)}_bb"
+        s8_sym = f"{_func_name(name)}_s8"
+        bb_code = generate_go(name, symbol=bb_sym)
+        s8_code = generate_go(name, slice8=True, symbol=s8_sym)
+        assert bb_code is not None, f"generate_go({name!r}) returned None"
+        assert s8_code is not None, (
+            f"generate_go({name!r}, slice8=True) returned None"
+        )
+
+        # Convert the first file's ``package crc`` to ``package main``
+        # AND inject ``import "os"`` immediately after, so the import
+        # lands before any var/func declarations (Go requires that).
+        bb_code = bb_code.replace(
+            "package crc",
+            'package main\n\nimport "os"',
+            1,
+        )
+        # The second file's package line + comment header collide with
+        # the first; keep only the function bodies + tables.  Locate
+        # the first ``var`` or ``func`` line and slice from there.
+        marker_idx = min(
+            (s8_code.find(p) for p in ("\nvar ", "\nfunc ") if s8_code.find(p) >= 0),
+            default=-1,
+        )
+        assert marker_idx > 0, "could not find first var/func in s8 source"
+        s8_body = s8_code[marker_idx:]
+
+        gtype = _go_state_type(ALGORITHMS[name].width)
+        lengths_csv = ", ".join(str(n) for n in _SLICE8_INPUT_LENGTHS)
+        runner = textwrap.dedent(f"""
+            func main() {{
+                var buf [256]byte
+                for k := 0; k < 256; k++ {{ buf[k] = byte(k) }}
+                lengths := []int{{ {lengths_csv} }}
+                for i, n := range lengths {{
+                    var bb {gtype} = {bb_sym}(buf[:n])
+                    var s8 {gtype} = {s8_sym}(buf[:n])
+                    if bb != s8 {{
+                        os.Exit(i + 1)
+                    }}
+                }}
+                os.Exit(0)
+            }}
+        """)
+        src = bb_code + s8_body + runner
+        src_path = tmp_path / "main.go"
+        src_path.write_text(src, encoding="utf-8")
+
+        # Act
+        result = subprocess.run(
+            ["go", "run", str(src_path)],
+            capture_output=True, text=True, timeout=60,
+        )
+
+        # Assert -- exit 0 means slice-by-8 == bit-by-bit at every length;
+        # nonzero index identifies which input length disagreed.
+        assert result.returncode == 0, (
+            f"{name}: go run exited {result.returncode} "
+            f"(length index, 0 = ok); stderr={result.stderr!r}"
         )

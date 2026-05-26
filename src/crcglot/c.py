@@ -39,7 +39,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
 )
-from crcglot.catalogue import CRC_CATALOGUE, _reflect
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
 
 def _format_table_c(table: list[int], width: int, ctype: str) -> str:
@@ -349,22 +349,22 @@ def generate_c(
     Thin wrapper around :func:`generate_c_from_entry`; use the latter
     directly when generating from a custom (non-catalogue) algorithm spec.
     """
-    entry = CRC_CATALOGUE.get(name)
-    if entry is None:
+    algo = ALGORITHMS.get(name)
+    if algo is None:
         return None
     return generate_c_from_entry(
-        name, entry, table=table, symbol=symbol, slice8=slice8,
+        name, algo, table=table, symbol=symbol, slice8=slice8,
     )
 
 
 def generate_c_from_entry(
     name: str,
-    entry: dict,
+    algo: AlgorithmInfo,
     table: bool = False,
     symbol: str | None = None,
     slice8: bool = False,
 ) -> tuple[str, str]:
-    """Generate a C ``.h`` + ``.c`` pair from a catalogue-shaped entry dict.
+    """Generate a C ``.h`` + ``.c`` pair from an :class:`AlgorithmInfo`.
 
     Returns a ``(header, source)`` tuple of complete, compilable files.
     The source emits the streaming triple (init / update / finalize),
@@ -375,9 +375,7 @@ def generate_c_from_entry(
         name: Algorithm name (used in comments + ``_self_test`` input
             data; pass a meaningful descriptor when generating from
             custom params).
-        entry: Catalogue dict with ``width`` / ``poly`` / ``init`` /
-            ``refin`` / ``refout`` / ``xorout`` / ``check`` (required)
-            and ``desc`` (optional).
+        algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         table: If True, emit the table-driven implementation instead
             of the bit-by-bit form.
         symbol: Optional override for the generated function name
@@ -388,14 +386,14 @@ def generate_c_from_entry(
     Returns:
         ``(header_source, impl_source)`` tuple of strings.
     """
-    w = entry["width"]
-    poly = entry["poly"]
-    init = entry["init"]
-    refin = entry["refin"]
-    refout = entry["refout"]
-    xorout = entry["xorout"]
-    check = entry["check"]
-    desc = entry.get("desc", "")
+    w = algo.width
+    poly = algo.poly
+    init = algo.init
+    refin = algo.refin
+    refout = algo.refout
+    xorout = algo.xorout
+    check = algo.check
+    desc = algo.desc
     fname = symbol if symbol else _func_name(name)
     mask = _mask(w)
 

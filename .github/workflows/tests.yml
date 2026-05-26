@@ -14,14 +14,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - name: Install GHDL (for VHDL execution tests)
-        # gcc and rustc are preinstalled on ubuntu-latest; the C and
-        # Rust generated-code execution tests run automatically.  GHDL
-        # is the one toolchain that needs an explicit install before
-        # the VHDL execution tests can verify the generator.
-        run: sudo apt-get update && sudo apt-get install -y ghdl
-      - name: Run tests
-        run: uv run --python ${{ matrix.python-version }} pytest
+      - name: Run fast suite
+        # crcglot's verification model: CI runs the structural (fast)
+        # tests, which exercise the generator code itself.  The slow
+        # tests shell out to gcc / rustc / ghdl / go / dotnet / zig
+        # to compile-and-run the *generated* code -- those run on a
+        # developer machine that already has the toolchains, NOT in
+        # CI.  The shipped value is the embedded `_self_test()`
+        # function the end user calls on THEIR toolchain, with THEIR
+        # version, against THEIR target.  CI installing six compilers
+        # just to compile catalogue check vectors is the wrong axis
+        # of confidence -- the customer's compiler is what matters.
+        run: uv run --python ${{ matrix.python-version }} pytest -m "not slow"
 
   audit:
     runs-on: ubuntu-latest

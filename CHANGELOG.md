@@ -1,5 +1,96 @@
 # Changelog
 
+## v0.4.0 — 2026-05-26
+
+Typed introspection API + slice-by-8 for every compiled target.
+**Breaking change** — replaces the loose-dict public surface
+(`CRC_CATALOGUE`, `GENERATORS`, `GENERATORS_FROM_ENTRY`) with frozen
+dataclasses (`AlgorithmInfo`, `LanguageInfo`) and typed registries
+(`ALGORITHMS`, `LANGUAGES`).
+
+### Slice-by-8 expansion
+
+Go, C#, and Zig now emit slice-by-8 implementations on demand
+(`crcglot <lang> <algo> --slice8`).  Previously only C and Rust did;
+the three new targets in v0.3.0 shipped with bit-by-bit and
+`--table` only.  All five compiled languages now offer the same
+three implementation shapes: bit-by-bit, table-driven, slice-by-8.
+
+Verification: each new slice-by-8 generator is checked by an
+execution-equivalence test that compiles both the bit-by-bit and the
+slice-by-8 forms under disjoint symbol names, runs them on inputs of
+varying lengths (0, 1, 7, 8, 9, 15, 16, 100 bytes), and asserts every
+result matches.  Since the bit-by-bit forms are reveng-verified,
+equivalence proves slice-by-8 is correct.
+
+Python remains bit-by-bit + table only (CPython per-int overhead
+measurably negates the speedup; measured 0.79x).  VHDL remains
+bit-by-bit only (simulator reference, not synthesizable throughput).
+
+### CI verification model clarified
+
+`.github/workflows/tests.yml` now runs `pytest -m "not slow"` only.
+The slow tests shell out to six different compilers to verify the
+*generated* code; that's a developer-machine concern, not a CI one.
+The verification crcglot actually ships is the embedded
+`_self_test()` function the end user calls on their toolchain.
+
+### New introspection API
+
+```python
+from crcglot import LANGUAGES, ALGORITHMS, LanguageInfo, AlgorithmInfo
+
+# Iterate target languages and their metadata.
+for code, info in LANGUAGES.items():
+    print(code, info.extensions, sorted(info.variants))
+    # info.generator(name, ...) and info.generator_from_entry(name, algo, ...)
+
+# Iterate algorithms.
+for name, algo in ALGORITHMS.items():
+    print(name, algo.width, algo.check, algo.desc)
+```
+
+`LanguageInfo` carries the file extensions (`(".h", ".c")` for C; a
+single-element tuple for every other language), the supported variants
+(subset of `{"bitwise", "table", "slice8"}`), and references to the
+two generator callables.  `AlgorithmInfo` carries the full Rocksoft /
+Williams parameters plus the canonical reveng `check` value and a
+human-readable `desc`.
+
+### Removed (breaking)
+
+- `CRC_CATALOGUE: dict[str, dict]` is no longer exported.  The raw
+  data still lives in `crcglot.catalogue._REVENG_CATALOGUE` but is
+  now private; consumers must move to `ALGORITHMS`.
+- `GENERATORS: dict[str, Callable]` is no longer exported.  Move to
+  `LANGUAGES[code].generator`.
+- `GENERATORS_FROM_ENTRY: dict[str, Callable]` is no longer exported.
+  Move to `LANGUAGES[code].generator_from_entry`, and pass an
+  `AlgorithmInfo` instance (not a dict) as the second argument.
+
+### Migration notes
+
+Mechanical search-and-replace for downstream callers:
+
+| Old                            | New                                       |
+| ------------------------------ | ----------------------------------------- |
+| `CRC_CATALOGUE`                | `ALGORITHMS`                              |
+| `entry["width"]`               | `algo.width` (etc.)                       |
+| `GENERATORS[lang]`             | `LANGUAGES[lang].generator`               |
+| `GENERATORS_FROM_ENTRY[lang]`  | `LANGUAGES[lang].generator_from_entry`    |
+| `entry = {"width": ..., ...}`  | `AlgorithmInfo(name=..., width=..., ...)` |
+
+### Internal
+
+- All seven generator modules (`c.py`, `csharp.py`, `go.py`,
+  `python.py`, `rust.py`, `vhdl.py`, `zig.py`) now consume
+  `ALGORITHMS` and `AlgorithmInfo` directly.
+- `cli.py`: dropped private `_CRC_FILE_EXTENSIONS` / `_LANGS`
+  constants; everything derives from `LANGUAGES`.
+- New module `src/crcglot/targets.py` holds `LanguageInfo` and
+  `LANGUAGES`; `AlgorithmInfo` and `ALGORITHMS` live in
+  `src/crcglot/catalogue.py` next to the raw data.
+
 ## v0.3.0 — 2026-05-25
 
 Three new language targets and a Python self-test.  No breaking

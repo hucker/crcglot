@@ -25,7 +25,12 @@ import subprocess
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_rust, generate_rust_from_entry
+from crcglot import (
+    ALGORITHMS,
+    AlgorithmInfo,
+    generate_rust,
+    generate_rust_from_entry,
+)
 
 
 HAS_RUSTC = shutil.which("rustc") is not None
@@ -53,7 +58,7 @@ _SLICE8_INPUT_LENGTHS = (0, 1, 7, 8, 9, 15, 16, 100)
 def _slice8_algos() -> list[str]:
     """Catalogue algorithms eligible for slice-by-8 (width 32 or 64)."""
     return sorted(
-        n for n, e in CRC_CATALOGUE.items() if e["width"] in (32, 64)
+        n for n, a in ALGORITHMS.items() if a.width in (32, 64)
     )
 
 
@@ -258,14 +263,15 @@ class TestGenerateRustFromEntryReflectionPaths:
 
     def test_refout_differs_from_refin_emits_reflection_block(self):
         # Arrange -- CRC-16 with refin=False, refout=True (synthetic).
-        entry = {
-            "width": 16, "poly": 0x1021, "init": 0xFFFF,
-            "refin": False, "refout": True, "xorout": 0x0000,
-            "check": 0xDEAD, "desc": "synthetic mixed-reflection",
-        }
+        algo = AlgorithmInfo(
+            name="synth_mixed",
+            width=16, poly=0x1021, init=0xFFFF,
+            refin=False, refout=True, xorout=0x0000,
+            check=0xDEAD, desc="synthetic mixed-reflection",
+        )
 
         # Act
-        code = generate_rust_from_entry("synth_mixed", entry)
+        code = generate_rust_from_entry("synth_mixed", algo)
 
         # Assert -- the reflection block appears in finalize.
         assert "// reflect output (refout != refin)" in code, (
@@ -300,7 +306,7 @@ class TestGeneratedRustExecutes:
     produced wrong CRC for ``b"123456789"``.
     """
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_check_value_matches_reveng(self, name, tmp_path):
         # Arrange
         code = generate_rust(name)
@@ -337,7 +343,7 @@ class TestGeneratedRustExecutes:
             f"{run_result.stdout.decode(errors='replace')}"
         )
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_table_driven_check_value_matches_reveng(self, name, tmp_path):
         """Same as above but with table=True."""
         # Arrange
@@ -381,15 +387,15 @@ class TestGeneratedRustStreaming:
     """Verify the Rust streaming triple satisfies the splittability invariant."""
 
     @pytest.mark.parametrize("table", [False, True])
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_split_streaming_matches_check(self, name, table, tmp_path):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
+        algo = ALGORITHMS[name]
+        expected = algo.check
         code = generate_rust(name, table=table)
         assert code is not None, f"generate_rust({name!r}) returned None"
         fname = _func_name(name)
-        rtype = _rust_state_type(entry["width"])
+        rtype = _rust_state_type(algo.width)
 
         # Append a main() that exercises the streaming patterns.  rustc
         # without --test happily compiles a .rs with both fn definitions
@@ -456,7 +462,7 @@ class TestGeneratedRustSliceBy8Executes:
         s8_sym = f"{_func_name(name)}_s8"
         bb_code = generate_rust(name, symbol=bb_sym)
         s8_code = generate_rust(name, slice8=True, symbol=s8_sym)
-        rtype = _rust_state_type(CRC_CATALOGUE[name]["width"])
+        rtype = _rust_state_type(ALGORITHMS[name].width)
 
         bb_path = tmp_path / f"{bb_sym}.rs"
         s8_path = tmp_path / f"{s8_sym}.rs"

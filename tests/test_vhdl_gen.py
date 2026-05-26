@@ -21,7 +21,7 @@ import subprocess
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_vhdl
+from crcglot import ALGORITHMS, generate_vhdl
 
 
 HAS_GHDL = shutil.which("ghdl") is not None
@@ -109,7 +109,7 @@ class TestGeneratedVhdlExecutes:
     on CI without it.
     """
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_self_test_passes(self, name, tmp_path):
         # Arrange
         code = generate_vhdl(name)
@@ -178,12 +178,12 @@ class TestGeneratedVhdlExecutes:
 class TestGeneratedVhdlStreaming:
     """Verify the VHDL streaming triple satisfies the splittability invariant."""
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_split_streaming_matches_check(self, name, tmp_path):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        w = entry["width"]
-        expected = entry["check"]
+        algo = ALGORITHMS[name]
+        w = algo.width
+        expected = algo.check
         code = generate_vhdl(name)
         assert code is not None, f"generate_vhdl({name!r}) returned None"
         fname = _func_name(name)

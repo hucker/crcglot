@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_python
+from crcglot import ALGORITHMS, generate_python
 
 
 # Standard check string used by the reveng catalogue
@@ -20,11 +20,11 @@ CHECK_DATA = b"123456789"
 class TestGeneratePython:
     """Verify generated Python code computes correct CRC values."""
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_generated_code_matches_check(self, name):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
+        algo = ALGORITHMS[name]
+        expected = algo.check
         code = generate_python(name)
         assert code is not None, f"generate_python returned code for {name}"
 
@@ -50,11 +50,11 @@ class TestGeneratePython:
         assert '"""' in code, "has docstring"
         assert "crc16-modbus" in code, "names the algorithm"
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_table_driven_matches_check(self, name):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
+        algo = ALGORITHMS[name]
+        expected = algo.check
         code = generate_python(name, table=True)
         assert code is not None, f"generate_python(table=True) returned code for {name}"
 
@@ -75,7 +75,7 @@ class TestGeneratedPythonSelfTest:
     """
 
     @pytest.mark.parametrize("table", [False, True])
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_self_test_returns_true(self, name, table):
         # Arrange
         code = generate_python(name, table=table)
@@ -135,11 +135,11 @@ class TestGeneratedPythonStreaming:
     """
 
     @pytest.mark.parametrize("table", [False, True])
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_streaming_matches_oneshot(self, name, table):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
+        algo = ALGORITHMS[name]
+        expected = algo.check
         code = generate_python(name, table=table)
         assert code is not None, f"generate_python({name!r}) returned code"
 

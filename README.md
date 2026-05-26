@@ -1,11 +1,11 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-1994%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-2159%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-99%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
-**Verified CRC source code for C, Rust, VHDL, Python, Go, C#, and Zig.**  Catalogue-driven, self-test embedded, multi-language by design.
+**Verified CRC source code for C, Rust, VHDL, Python, Go, C#, and Zig.**  Catalogue-driven, self-test embedded, multi-language by design.  **Pure-stdlib package — zero runtime dependencies.**
 
 LLMs will gladly write you CRC code.  It might even be right.  `crcglot` guarantees the generated code matches the canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) test vector (`crc("123456789") == <check value>`) and ships a self-test you can run on your toolchain to prove it.
 
@@ -13,18 +13,21 @@ LLMs will gladly write you CRC code.  It might even be right.  `crcglot` guarant
 
 ```bash
 pip install crcglot
-
-crcglot c crc32 --slice8 file=mycrc       # → mycrc.h + mycrc.c
-crcglot rust crc64-xz --slice8 > mycrc.rs
-crcglot vhdl crc32 > mycrc.vhd
-crcglot python crc16-modbus > mycrc.py
-crcglot go crc32 --table > crc32.go
-crcglot csharp crc16-modbus > Crc16Modbus.cs
-crcglot zig crc64-xz --table > crc64.zig
-
-crcglot list                              # browse the catalogue
-crcglot info crc32                        # show parameters
+crcglot c crc32 file=mycrc
 ```
+
+That's it.  You now have `mycrc.h` and `mycrc.c` — drop-in CRC-32 with a built-in `_self_test()` you can call to verify it matches the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
+
+Different language?  Swap `c` for `python` / `rust` / `vhdl` / `go` / `csharp` / `zig`.  Different algorithm?  Run `crcglot list` to browse all 71.
+
+Or use it from Python code:
+
+```python
+from crcglot import LANGUAGES
+header, source = LANGUAGES["c"].generator("crc32")
+```
+
+Both surfaces are documented in detail below.
 
 ## What you get per language
 
@@ -67,7 +70,7 @@ Generate source code for the chosen target language.
 | -------------------- | --------------------------------------------------------------------------------------------------- |
 | (default) bit-by-bit | Smallest code, zero RAM table, slowest.  All widths.                                                |
 | `--table`            | 256-entry lookup table, 4-8× faster.  All widths.                                                   |
-| `--slice8`           | 8 lookup tables, 5-10× faster than `--table`.  CRC-32 / CRC-64 only.  C / Rust only.                |
+| `--slice8`           | 8 lookup tables, 5-10× faster than `--table`.  CRC-32 / CRC-64 only.  C / Rust / Go / C# / Zig.     |
 | `--custom`           | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                         |
 | `file=STEM`          | Write to disk (extension picked per language; see below).  Omit for stdout.                         |
 | `symbol=NAME`        | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given. |
@@ -106,6 +109,67 @@ The check value for the custom parameters is computed automatically (`_generic_c
 ## Catalogue
 
 64+ algorithms covering everything from CRC-8 (ATM, AUTOSAR, Bluetooth, Maxim 1-Wire) through CRC-16 (Modbus, XMODEM, CCITT, IBM SDLC) through CRC-32 (Ethernet, bzip2, iSCSI, AUTOSAR) to CRC-64 (XZ, ECMA-182, NVMe, Redis).  Browse with `crcglot list`.
+
+## Programmatic API
+
+Two registries, both keyed by short code:
+
+### `LANGUAGES` — supported target languages
+
+```python
+from crcglot import LANGUAGES
+
+for code, info in LANGUAGES.items():
+    print(code, info.extensions, sorted(info.variants))
+    # → c       ('.h', '.c')  ['bitwise', 'slice8', 'table']
+    # → csharp  ('.cs',)      ['bitwise', 'slice8', 'table']
+    # → go      ('.go',)      ['bitwise', 'slice8', 'table']
+    # → python  ('.py',)      ['bitwise', 'table']
+    # → rust    ('.rs',)      ['bitwise', 'slice8', 'table']
+    # → vhdl    ('.vhd',)     ['bitwise']
+    # → zig     ('.zig',)     ['bitwise', 'slice8', 'table']
+```
+
+Each entry is a frozen `LanguageInfo` dataclass with:
+
+- `code` — dispatch key (`"c"`, `"csharp"`, ...)
+- `extensions` — file extension tuple (`(".h", ".c")` for C; single-element for the rest)
+- `variants` — subset of `{"bitwise", "table", "slice8"}` that the generator accepts
+- `generator(name, ...)` — name-lookup callable (returns source string, or `(header, source)` tuple for C)
+- `generator_from_entry(name, algo, ...)` — bypass the catalogue with a custom `AlgorithmInfo`
+
+### `ALGORITHMS` — the reveng CRC catalogue
+
+```python
+from crcglot import ALGORITHMS
+
+modbus = ALGORITHMS["crc16-modbus"]
+print(modbus.width, hex(modbus.check), modbus.desc)
+# → 16 0x4b37 Modbus RTU serial protocol
+
+# Filter to CRC-32 only.
+crc32_family = [a for a in ALGORITHMS.values() if a.width == 32]
+```
+
+Each entry is a frozen `AlgorithmInfo` dataclass with the full Rocksoft / Williams parameter set: `name`, `width`, `poly`, `init`, `refin`, `refout`, `xorout`, `check`, `desc`.
+
+### Custom polynomials
+
+```python
+from crcglot import AlgorithmInfo, LANGUAGES
+from crcglot.catalogue import _generic_crc
+
+# Compute the canonical check value for a custom poly.
+check = _generic_crc(b"123456789", 16, 0x1234, 0xFFFF, True, True, 0x0000)
+
+# Build an AlgorithmInfo and feed it to any generator.
+algo = AlgorithmInfo(
+    name="my_crc16", width=16, poly=0x1234, init=0xFFFF,
+    refin=True, refout=True, xorout=0x0000, check=check,
+    desc="My custom CRC-16",
+)
+code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
+```
 
 ## Example output
 

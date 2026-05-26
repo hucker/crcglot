@@ -25,7 +25,7 @@ import subprocess
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_c, generate_c_from_entry
+from crcglot import ALGORITHMS, AlgorithmInfo, generate_c, generate_c_from_entry
 
 
 HAS_GCC = shutil.which("gcc") is not None
@@ -53,7 +53,7 @@ _SLICE8_INPUT_LENGTHS = (0, 1, 7, 8, 9, 15, 16, 100)
 def _slice8_algos() -> list[str]:
     """Catalogue algorithms eligible for slice-by-8 (width 32 or 64)."""
     return sorted(
-        n for n, e in CRC_CATALOGUE.items() if e["width"] in (32, 64)
+        n for n, a in ALGORITHMS.items() if a.width in (32, 64)
     )
 
 
@@ -236,15 +236,16 @@ class TestGenerateCFromEntryReflectionPaths:
 
     def test_refout_differs_from_refin_emits_reflection_block(self):
         # Arrange -- CRC-16 with refin=False, refout=True (synthetic).
-        entry = {
-            "width": 16, "poly": 0x1021, "init": 0xFFFF,
-            "refin": False, "refout": True, "xorout": 0x0000,
-            "check": 0xDEAD, "desc": "synthetic mixed-reflection",
-        }
+        algo = AlgorithmInfo(
+            name="synth_mixed",
+            width=16, poly=0x1021, init=0xFFFF,
+            refin=False, refout=True, xorout=0x0000,
+            check=0xDEAD, desc="synthetic mixed-reflection",
+        )
 
         # Act
         _header, source = generate_c_from_entry(
-            "synth_mixed", entry, symbol="synth_mixed",
+            "synth_mixed", algo, symbol="synth_mixed",
         )
 
         # Assert -- the reflection block appears in finalize.
@@ -292,7 +293,7 @@ class TestGeneratedCExecutes:
     a modern laptop with gcc on PATH.
     """
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_self_test_returns_zero(self, name, tmp_path):
         # Arrange
         result = generate_c(name)
@@ -336,7 +337,7 @@ class TestGeneratedCExecutes:
             f"(expected 0 == check value matches reveng)"
         )
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_table_driven_self_test_returns_zero(self, name, tmp_path):
         """Same as above but with table=True (table-driven implementation)."""
         # Arrange
@@ -387,16 +388,16 @@ class TestGeneratedCStreaming:
     the splittability invariant against the reveng check value."""
 
     @pytest.mark.parametrize("table", [False, True])
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_split_streaming_matches_check(self, name, table, tmp_path):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
+        algo = ALGORITHMS[name]
+        expected = algo.check
         result = generate_c(name, table=table)
         assert result is not None, f"generate_c({name!r}) returned None"
         header, source = result
         fname = _func_name(name)
-        ctype = _c_state_type(entry["width"])
+        ctype = _c_state_type(algo.width)
 
         (tmp_path / f"{fname}.h").write_text(header)
         (tmp_path / f"{fname}.c").write_text(source)
@@ -488,7 +489,7 @@ class TestGeneratedCSliceBy8Executes:
         )
         bb_header, bb_source = bb_result
         s8_header, s8_source = s8_result
-        ctype = _c_state_type(CRC_CATALOGUE[name]["width"])
+        ctype = _c_state_type(ALGORITHMS[name].width)
 
         (tmp_path / f"{bb_sym}.h").write_text(bb_header)
         (tmp_path / f"{bb_sym}.c").write_text(bb_source)

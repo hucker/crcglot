@@ -22,7 +22,12 @@ import textwrap
 
 import pytest
 
-from crcglot import CRC_CATALOGUE, generate_zig, generate_zig_from_entry
+from crcglot import (
+    ALGORITHMS,
+    AlgorithmInfo,
+    generate_zig,
+    generate_zig_from_entry,
+)
 
 
 HAS_ZIG = shutil.which("zig") is not None
@@ -30,6 +35,16 @@ HAS_ZIG = shutil.which("zig") is not None
 
 def _func_name(algo: str) -> str:
     return algo.replace("-", "_").replace(".", "_")
+
+
+_SLICE8_INPUT_LENGTHS = (0, 1, 7, 8, 9, 15, 16, 100)
+
+
+def _slice8_algos() -> list[str]:
+    """Catalogue algorithms eligible for slice-by-8 (width 32 or 64)."""
+    return sorted(
+        n for n, a in ALGORITHMS.items() if a.width in (32, 64)
+    )
 
 
 def _zig_state_type(width: int) -> str:
@@ -124,13 +139,32 @@ class TestGenerateZig:
         # Act
         code = generate_zig("crc32", table=True)
 
-        # Assert
+        # Assert -- table name is fname-prefixed so multiple generated
+        # CRCs can live in the same Zig compilation unit.
         assert code is not None, "generator returned code"
-        assert "const crc_table = [256]u32{" in code, (
+        assert "const crc32_table = [256]u32{" in code, (
             "table-driven variant emits the lookup table"
         )
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    def test_slice8_emits_eight_tables(self):
+        # Act
+        code = generate_zig("crc32", slice8=True)
+
+        # Assert
+        assert code is not None, "generator returned code"
+        assert "const crc32_sliceTables = [8][256]u32{" in code, (
+            "slice-by-8 variant emits the 2D table"
+        )
+        for i in range(8):
+            assert f"// T{i}" in code, f"slice-by-8 missing T{i} comment"
+
+    @pytest.mark.parametrize("algo", ["crc8", "crc16-modbus"])
+    def test_slice8_rejects_narrow_widths(self, algo):
+        # Act + Assert
+        with pytest.raises(ValueError, match="slice8=True requires width"):
+            generate_zig(algo, slice8=True)
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_all_catalogue_entries_compile_shape(self, name):
         # Act
         code = generate_zig(name)
@@ -152,19 +186,15 @@ class TestGenerateZigFromEntryRefoutBranch:
 
     def test_refout_differs_from_refin_emits_reflection(self):
         # Arrange
-        entry = {
-            "width": 16,
-            "poly": 0x1021,
-            "init": 0x0000,
-            "refin": False,
-            "refout": True,
-            "xorout": 0x0000,
-            "check": 0x0000,
-            "desc": "synthetic refout!=refin probe",
-        }
+        algo = AlgorithmInfo(
+            name="synthetic_refout",
+            width=16, poly=0x1021, init=0x0000,
+            refin=False, refout=True, xorout=0x0000,
+            check=0x0000, desc="synthetic refout!=refin probe",
+        )
 
         # Act
-        code = generate_zig_from_entry("synthetic_refout", entry)
+        code = generate_zig_from_entry("synthetic_refout", algo)
 
         # Assert
         assert "reflect output (refout != refin)" in code, (
@@ -197,12 +227,12 @@ class TestGeneratedZigExecutes:
     """
 
     @pytest.mark.parametrize("table", [False, True])
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_oneshot_and_streaming(self, name, table, tmp_path):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
-        ztype = _zig_state_type(entry["width"])
+        algo = ALGORITHMS[name]
+        expected = algo.check
+        ztype = _zig_state_type(algo.width)
         code = generate_zig(name, table=table)
         assert code is not None, f"generate_zig({name!r}) returned code"
         fname = _func_name(name)
@@ -247,4 +277,71 @@ class TestGeneratedZigExecutes:
         assert result.returncode == 0, (
             f"{name} (table={table}): zig run exited "
             f"{result.returncode} {label}; stderr={result.stderr!r}"
+        )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_ZIG, reason="zig toolchain not on PATH")
+class TestGeneratedZigSliceBy8Executes:
+    """Slice-by-8 equivalence with bit-by-bit in generated Zig.
+
+    Strategy mirrors the C / Go versions: generate both forms under
+    disjoint symbol names (so the per-fname table constants don't
+    collide), append both into one .zig file with a runner that
+    asserts byte-equal output across a range of input lengths.
+    Since bit-by-bit is reveng-verified, equivalence proves slice-by-8
+    is correct.
+
+    Limited to CRC-32 / CRC-64 algorithms; slice-by-8 only makes sense
+    at those widths (the generator raises ValueError otherwise).
+    """
+
+    @pytest.mark.parametrize("name", _slice8_algos())
+    def test_slice8_matches_bitbybit(self, name, tmp_path):
+        # Arrange -- two generated Zig files with disjoint symbol names.
+        bb_sym = f"{_func_name(name)}_bb"
+        s8_sym = f"{_func_name(name)}_s8"
+        bb_code = generate_zig(name, symbol=bb_sym)
+        s8_code = generate_zig(name, slice8=True, symbol=s8_sym)
+        assert bb_code is not None, f"generate_zig({name!r}) returned None"
+        assert s8_code is not None, (
+            f"generate_zig({name!r}, slice8=True) returned None"
+        )
+        ztype = _zig_state_type(ALGORITHMS[name].width)
+        lengths_csv = ", ".join(str(n) for n in _SLICE8_INPUT_LENGTHS)
+        runner = textwrap.dedent(f"""
+            const std = @import("std");
+            pub fn main() !void {{
+                var buf: [256]u8 = undefined;
+                {{
+                    var k: usize = 0;
+                    while (k < 256) : (k += 1) {{ buf[k] = @as(u8, @intCast(k)); }}
+                }}
+                const lengths = [_]usize{{ {lengths_csv} }};
+                for (lengths, 0..) |n, li| {{
+                    const slice = buf[0..n];
+                    const bb: {ztype} = {bb_sym}(slice);
+                    const s8: {ztype} = {s8_sym}(slice);
+                    if (bb != s8) {{
+                        std.process.exit(@as(u8, @intCast(li + 1)));
+                    }}
+                }}
+            }}
+        """)
+        src = bb_code + "\n" + s8_code + "\n" + runner
+        src_path = tmp_path / "main.zig"
+        src_path.write_text(src, encoding="utf-8")
+
+        # Act
+        result = subprocess.run(
+            ["zig", "run", str(src_path)],
+            capture_output=True, text=True, timeout=60,
+            cwd=tmp_path,
+        )
+
+        # Assert -- exit 0 means slice-by-8 == bit-by-bit at every length;
+        # nonzero index identifies which input length disagreed.
+        assert result.returncode == 0, (
+            f"{name}: zig run exited {result.returncode} "
+            f"(length index, 0 = ok); stderr={result.stderr!r}"
         )

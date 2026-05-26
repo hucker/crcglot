@@ -35,7 +35,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
 )
-from crcglot.catalogue import CRC_CATALOGUE, _reflect
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
 
 def _format_table_rust(table: list[int], width: int, rtype: str) -> str:
@@ -320,28 +320,26 @@ def generate_rust(
     latter directly when generating from a custom (non-catalogue)
     algorithm spec.
     """
-    entry = CRC_CATALOGUE.get(name)
-    if entry is None:
+    algo = ALGORITHMS.get(name)
+    if algo is None:
         return None
     return generate_rust_from_entry(
-        name, entry, table=table, symbol=symbol, slice8=slice8,
+        name, algo, table=table, symbol=symbol, slice8=slice8,
     )
 
 
 def generate_rust_from_entry(
     name: str,
-    entry: dict,
+    algo: AlgorithmInfo,
     table: bool = False,
     symbol: str | None = None,
     slice8: bool = False,
 ) -> str:
-    """Generate Rust source from a catalogue-shaped entry dict.
+    """Generate Rust source from an :class:`AlgorithmInfo`.
 
     Args:
         name: Algorithm name (used in comments).
-        entry: Catalogue dict with ``width`` / ``poly`` / ``init`` /
-            ``refin`` / ``refout`` / ``xorout`` / ``check`` (required)
-            and ``desc`` (optional).
+        algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         table: If True, generate table-driven implementation.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
@@ -353,14 +351,14 @@ def generate_rust_from_entry(
     Returns:
         Rust source code string.
     """
-    w = entry["width"]
-    poly = entry["poly"]
-    init = entry["init"]
-    refin = entry["refin"]
-    refout = entry["refout"]
-    xorout = entry["xorout"]
-    check = entry["check"]
-    desc = entry.get("desc", "")
+    w = algo.width
+    poly = algo.poly
+    init = algo.init
+    refin = algo.refin
+    refout = algo.refout
+    xorout = algo.xorout
+    check = algo.check
+    desc = algo.desc
     fname = symbol if symbol else _func_name(name)
     mask = _mask(w)
 

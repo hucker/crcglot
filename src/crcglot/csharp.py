@@ -43,10 +43,11 @@ Verified at build time by ``tests.test_csharp_gen.TestGenerateCSharp``
 from __future__ import annotations
 
 from crcglot._helpers import (
+    _build_slice8_tables,
     _build_table,
     _func_name,
 )
-from crcglot.catalogue import CRC_CATALOGUE, _reflect
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
 
 def _cs_hex(value: int, width: int) -> str:
@@ -144,6 +145,157 @@ def _format_table_csharp(table: list[int], width: int, cstype: str) -> str:
     return "\n".join(lines)
 
 
+def _format_slice8_tables_csharp(
+    tables: list[list[int]], width: int, cstype: str,
+) -> str:
+    """Format the 8 slice-by-8 tables as a C# 2D ``private static readonly``
+    array.  Uses a multi-dimensional array (``[,]``) rather than a jagged
+    array (``[][]``) -- compiles to a single contiguous block, slightly
+    faster indexing than chasing pointers through outer-array entries.
+    """
+    hex_w = (width + 3) // 4
+    suffix = "u" if width <= 32 and width > 16 else ("UL" if width > 32 else "")
+    lines = [
+        f"    private static readonly {cstype}[,] _crcSliceTables "
+        f"= new {cstype}[,] {{",
+    ]
+    for t_idx, table in enumerate(tables):
+        lines.append(f"        {{  // T{t_idx}")
+        for row in range(0, 256, 8):
+            vals = ", ".join(
+                f"0x{table[i]:0{hex_w}X}{suffix}"
+                for i in range(row, min(row + 8, 256))
+            )
+            lines.append(f"            {vals},")
+        lines.append(f"        }},")
+    lines.append("    };")
+    return "\n".join(lines)
+
+
+def _update_loop_csharp_slice8(
+    w: int, refin: bool, cstype: str,
+) -> list[str]:
+    """Emit the per-8-byte slice-by-8 main loop + byte-by-byte tail for C#.
+
+    Variable ``crc`` (of type ``cstype``) is assumed to already hold the
+    incoming state.  Walks ``data`` 8 bytes at a time via 8 chained table
+    lookups, then falls back to single-byte via T0 for any 1-7 trailing
+    bytes.  Only valid for w == 32 or w == 64.
+
+    C# specifics:
+    - ``byte << 24`` evaluates to ``int``; the ``uint`` state requires
+      an explicit cast.  For w=64, ``byte << 56`` would silently lose
+      bits (int shift count masked to 5 bits), so widen ``data[i]`` to
+      the state type *before* shifting.
+    - Multi-dim array indexing: ``_crcSliceTables[t, byte_value]`` --
+      byte_value widens to int implicitly.
+    """
+    if w == 32:
+        if refin:
+            return [
+                "        int i = 0;",
+                "        while (i + 8 <= data.Length) {",
+                "            uint b03 = (uint)data[i] | (uint)data[i + 1] << 8"
+                " | (uint)data[i + 2] << 16 | (uint)data[i + 3] << 24;",
+                "            uint b47 = (uint)data[i + 4] | (uint)data[i + 5] << 8"
+                " | (uint)data[i + 6] << 16 | (uint)data[i + 7] << 24;",
+                "            uint xored = crc ^ b03;",
+                "            crc = _crcSliceTables[7, (byte)xored]"
+                " ^ _crcSliceTables[6, (byte)(xored >> 8)]",
+                "                ^ _crcSliceTables[5, (byte)(xored >> 16)]"
+                " ^ _crcSliceTables[4, (byte)(xored >> 24)]",
+                "                ^ _crcSliceTables[3, (byte)b47]"
+                " ^ _crcSliceTables[2, (byte)(b47 >> 8)]",
+                "                ^ _crcSliceTables[1, (byte)(b47 >> 16)]"
+                " ^ _crcSliceTables[0, (byte)(b47 >> 24)];",
+                "            i += 8;",
+                "        }",
+                "        while (i < data.Length) {",
+                "            crc = _crcSliceTables[0, (byte)(crc ^ data[i])]"
+                " ^ (crc >> 8);",
+                "            i++;",
+                "        }",
+            ]
+        return [
+            "        int i = 0;",
+            "        while (i + 8 <= data.Length) {",
+            "            uint b03 = (uint)data[i] << 24 | (uint)data[i + 1] << 16"
+            " | (uint)data[i + 2] << 8 | (uint)data[i + 3];",
+            "            uint b47 = (uint)data[i + 4] << 24 | (uint)data[i + 5] << 16"
+            " | (uint)data[i + 6] << 8 | (uint)data[i + 7];",
+            "            uint xored = crc ^ b03;",
+            "            crc = _crcSliceTables[7, (byte)(xored >> 24)]"
+            " ^ _crcSliceTables[6, (byte)(xored >> 16)]",
+            "                ^ _crcSliceTables[5, (byte)(xored >> 8)]"
+            " ^ _crcSliceTables[4, (byte)xored]",
+            "                ^ _crcSliceTables[3, (byte)(b47 >> 24)]"
+            " ^ _crcSliceTables[2, (byte)(b47 >> 16)]",
+            "                ^ _crcSliceTables[1, (byte)(b47 >> 8)]"
+            " ^ _crcSliceTables[0, (byte)b47];",
+            "            i += 8;",
+            "        }",
+            "        while (i < data.Length) {",
+            "            byte top = (byte)(crc >> 24);",
+            "            crc = _crcSliceTables[0, (byte)(top ^ data[i])]"
+            " ^ (crc << 8);",
+            "            i++;",
+            "        }",
+        ]
+    # w == 64.  Each byte must be widened to ulong BEFORE shifting --
+    # otherwise byte promotes to int, and `int << 56` masks the shift
+    # count to 5 bits, silently corrupting the high bytes.
+    if refin:
+        return [
+            "        int i = 0;",
+            "        while (i + 8 <= data.Length) {",
+            "            ulong b = (ulong)data[i] | (ulong)data[i + 1] << 8"
+            " | (ulong)data[i + 2] << 16 | (ulong)data[i + 3] << 24",
+            "                | (ulong)data[i + 4] << 32 | (ulong)data[i + 5] << 40"
+            " | (ulong)data[i + 6] << 48 | (ulong)data[i + 7] << 56;",
+            "            ulong xored = crc ^ b;",
+            "            crc = _crcSliceTables[7, (byte)xored]"
+            " ^ _crcSliceTables[6, (byte)(xored >> 8)]",
+            "                ^ _crcSliceTables[5, (byte)(xored >> 16)]"
+            " ^ _crcSliceTables[4, (byte)(xored >> 24)]",
+            "                ^ _crcSliceTables[3, (byte)(xored >> 32)]"
+            " ^ _crcSliceTables[2, (byte)(xored >> 40)]",
+            "                ^ _crcSliceTables[1, (byte)(xored >> 48)]"
+            " ^ _crcSliceTables[0, (byte)(xored >> 56)];",
+            "            i += 8;",
+            "        }",
+            "        while (i < data.Length) {",
+            "            crc = _crcSliceTables[0, (byte)(crc ^ data[i])]"
+            " ^ (crc >> 8);",
+            "            i++;",
+            "        }",
+        ]
+    return [
+        "        int i = 0;",
+        "        while (i + 8 <= data.Length) {",
+        "            ulong b = (ulong)data[i] << 56 | (ulong)data[i + 1] << 48"
+        " | (ulong)data[i + 2] << 40 | (ulong)data[i + 3] << 32",
+        "                | (ulong)data[i + 4] << 24 | (ulong)data[i + 5] << 16"
+        " | (ulong)data[i + 6] << 8 | (ulong)data[i + 7];",
+        "            ulong xored = crc ^ b;",
+        "            crc = _crcSliceTables[7, (byte)(xored >> 56)]"
+        " ^ _crcSliceTables[6, (byte)(xored >> 48)]",
+        "                ^ _crcSliceTables[5, (byte)(xored >> 40)]"
+        " ^ _crcSliceTables[4, (byte)(xored >> 32)]",
+        "                ^ _crcSliceTables[3, (byte)(xored >> 24)]"
+        " ^ _crcSliceTables[2, (byte)(xored >> 16)]",
+        "                ^ _crcSliceTables[1, (byte)(xored >> 8)]"
+        " ^ _crcSliceTables[0, (byte)xored];",
+        "            i += 8;",
+        "        }",
+        "        while (i < data.Length) {",
+        "            byte top = (byte)(crc >> 56);",
+        "            crc = _crcSliceTables[0, (byte)(top ^ data[i])]"
+        " ^ (crc << 8);",
+        "            i++;",
+        "        }",
+    ]
+
+
 def _update_loop_csharp(
     w: int, poly: int, refin: bool, cstype: str, table: bool,
 ) -> list[str]:
@@ -219,7 +371,10 @@ def _self_test_csharp(fname: str, check: int, width: int) -> list[str]:
 
 
 def generate_csharp(
-    name: str, table: bool = False, symbol: str | None = None,
+    name: str,
+    table: bool = False,
+    symbol: str | None = None,
+    slice8: bool = False,
 ) -> str | None:
     """Look up a CRC algorithm by name and generate C# source for it.
 
@@ -227,46 +382,59 @@ def generate_csharp(
     latter directly when generating from a custom (non-catalogue)
     algorithm spec.
     """
-    entry = CRC_CATALOGUE.get(name)
-    if entry is None:
+    algo = ALGORITHMS.get(name)
+    if algo is None:
         return None
-    return generate_csharp_from_entry(name, entry, table=table, symbol=symbol)
+    return generate_csharp_from_entry(
+        name, algo, table=table, symbol=symbol, slice8=slice8,
+    )
 
 
 def generate_csharp_from_entry(
     name: str,
-    entry: dict,
+    algo: AlgorithmInfo,
     table: bool = False,
     symbol: str | None = None,
+    slice8: bool = False,
 ) -> str:
-    """Generate a C# source file from a catalogue-shaped entry dict.
+    """Generate a C# source file from an :class:`AlgorithmInfo`.
 
     Args:
         name: Algorithm name (used in comments and as the default
             function-name source).
-        entry: Catalogue dict with ``width`` / ``poly`` / ``init`` /
-            ``refin`` / ``refout`` / ``xorout`` / ``check`` (required)
-            and ``desc`` (optional).
+        algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         table: If True, emit the table-driven implementation.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  The class name is
             derived as the PascalCase'd form of the function name.
+        slice8: If True, emit the slice-by-8 implementation (8 tables,
+            ~5-10x throughput vs plain table-driven for CRC-32 /
+            CRC-64 on large buffers).  Only valid for width 32 or 64;
+            ``ValueError`` otherwise.
 
     Returns:
         C# source code string declaring a ``public static class``.
     """
-    w = entry["width"]
-    poly = entry["poly"]
-    init = entry["init"]
-    refin = entry["refin"]
-    refout = entry["refout"]
-    xorout = entry["xorout"]
-    check = entry["check"]
-    desc = entry.get("desc", "")
+    w = algo.width
+    poly = algo.poly
+    init = algo.init
+    refin = algo.refin
+    refout = algo.refout
+    xorout = algo.xorout
+    check = algo.check
+    desc = algo.desc
     fname = symbol if symbol else _func_name(name)
     cstype = _cs_type(w)
     cls = _cs_pascal_class(fname)
     mask = _cs_hex((1 << w) - 1, w)
+
+    if slice8 and w not in (32, 64):
+        raise ValueError(
+            f"slice8=True requires width=32 or width=64 (got width={w}). "
+            "Slice-by-8 is a high-throughput optimization that only "
+            "makes sense at those widths; smaller CRCs would need a "
+            "different chunking scheme."
+        )
 
     init_state = _reflect(init, w) if refin else init
 
@@ -284,7 +452,11 @@ def generate_csharp_from_entry(
     lines.append(f"public static class {cls}")
     lines.append(f"{{")
 
-    if table:
+    if slice8:
+        slice_tables = _build_slice8_tables(w, poly, refin)
+        lines.append(_format_slice8_tables_csharp(slice_tables, w, cstype))
+        lines.append("")
+    elif table:
         tbl = _build_table(w, poly, refin)
         lines.append(_format_table_csharp(tbl, w, cstype))
         lines.append("")
@@ -300,7 +472,10 @@ def generate_csharp_from_entry(
         f"    public static {cstype} {fname}_update({cstype} state, byte[] data) {{"
     )
     lines.append(f"        {cstype} crc = state;")
-    lines.extend(_update_loop_csharp(w, poly, refin, cstype, table))
+    if slice8:
+        lines.extend(_update_loop_csharp_slice8(w, refin, cstype))
+    else:
+        lines.extend(_update_loop_csharp(w, poly, refin, cstype, table))
     lines.append(f"        return crc;")
     lines.append(f"    }}")
     lines.append("")

@@ -3,11 +3,18 @@
 Tests in this file are organized by API surface rather than by target
 language:
 
-* ``TestGenerators`` -- the ``GENERATORS`` dispatch table itself
-  (every language present, reflected and normal algorithms accepted).
+* ``TestLanguageMetadata`` -- the ``LANGUAGES`` registry (every target
+  present, extensions correct, variants subset valid, generator
+  callables wired).
+
+* ``TestAlgorithmMetadata`` -- the ``ALGORITHMS`` typed view of the
+  reveng catalogue (every entry has a well-formed AlgorithmInfo).
+
+* ``TestGenerators`` -- every generator accepts both reflected
+  (refin=True) and normal (refin=False) algorithms.
 
 * ``TestCustomCrcChainAgainstRevengTruth`` -- the custom-params path
-  (``generate_<lang>_from_entry(name, entry, ...)``) verified against
+  (``generate_<lang>_from_entry(name, algo, ...)``) verified against
   HARDCODED reveng check values rather than engine-derived ones, so a
   regression in either the engine OR the generators surfaces.
 
@@ -31,7 +38,10 @@ from __future__ import annotations
 import pytest
 
 from crcglot import (
-    GENERATORS,
+    ALGORITHMS,
+    LANGUAGES,
+    AlgorithmInfo,
+    LanguageInfo,
     generate_c,
     generate_c_from_entry,
     generate_python,
@@ -66,16 +76,151 @@ _REVENG_CHECK_VALUES = {
 }
 
 
-class TestGenerators:
-    """The GENERATORS dispatch table itself -- one entry per target
-    language, every generator accepts both reflected (refin=True) and
-    normal (refin=False) algorithms."""
+class TestLanguageMetadata:
+    """The ``LANGUAGES`` registry exposes one ``LanguageInfo`` per
+    target with file extensions, variant support, and generator
+    callables wired correctly.
+    """
 
     def test_all_languages_present(self):
         # Assert
-        assert set(GENERATORS.keys()) == {
+        assert set(LANGUAGES.keys()) == {
             "c", "csharp", "go", "python", "rust", "vhdl", "zig",
-        }, "expected c / csharp / go / python / rust / vhdl / zig generators"
+        }, "expected c / csharp / go / python / rust / vhdl / zig in LANGUAGES"
+
+    @pytest.mark.parametrize(
+        "code", ["c", "csharp", "go", "python", "rust", "vhdl", "zig"]
+    )
+    def test_entry_is_languageinfo_with_callables(self, code):
+        # Act
+        info = LANGUAGES[code]
+
+        # Assert
+        assert isinstance(info, LanguageInfo), f"{code}: expected LanguageInfo"
+        assert info.code == code, f"{code}: info.code mismatch ({info.code!r})"
+        assert callable(info.generator), f"{code}: generator not callable"
+        assert callable(info.generator_from_entry), (
+            f"{code}: generator_from_entry not callable"
+        )
+
+    def test_c_has_two_extensions_others_one(self):
+        # Assert -- C is the only target that emits two files (.h + .c).
+        assert LANGUAGES["c"].extensions == (".h", ".c"), (
+            "C extension tuple is (.h, .c)"
+        )
+        for code, info in LANGUAGES.items():
+            if code == "c":
+                continue
+            assert len(info.extensions) == 1, (
+                f"{code}: expected single-element extension tuple, "
+                f"got {info.extensions!r}"
+            )
+
+    @pytest.mark.parametrize(
+        "code,expected_ext",
+        [
+            ("csharp", ".cs"),
+            ("go", ".go"),
+            ("python", ".py"),
+            ("rust", ".rs"),
+            ("vhdl", ".vhd"),
+            ("zig", ".zig"),
+        ],
+    )
+    def test_extension_per_language(self, code, expected_ext):
+        # Assert
+        assert LANGUAGES[code].extensions == (expected_ext,), (
+            f"{code}: extension mismatch"
+        )
+
+    def test_variants_are_valid_subset(self):
+        valid = {"bitwise", "table", "slice8"}
+        for code, info in LANGUAGES.items():
+            assert info.variants <= valid, (
+                f"{code}: variants {info.variants} not in {valid}"
+            )
+            assert "bitwise" in info.variants, (
+                f"{code}: every language must support bitwise"
+            )
+
+    def test_slice8_supported_on_compiled_languages(self):
+        # Assert -- every compiled target supports slice8.  Python is
+        # the holdout (CPython per-int overhead measurably negates the
+        # speedup), and VHDL is bitwise-only as a simulator reference.
+        slice8_langs = {
+            code for code, info in LANGUAGES.items() if "slice8" in info.variants
+        }
+        assert slice8_langs == {"c", "csharp", "go", "rust", "zig"}, (
+            "slice8 is supported on c / csharp / go / rust / zig; "
+            f"got {sorted(slice8_langs)}"
+        )
+
+    def test_vhdl_is_bitwise_only(self):
+        # Assert
+        assert LANGUAGES["vhdl"].variants == frozenset({"bitwise"}), (
+            "VHDL generator only emits bit-by-bit (simulator reference)"
+        )
+
+    def test_python_excludes_slice8(self):
+        # Assert -- Python's per-int overhead eats the slice8 speedup
+        # (measured ~0.79x); the variant is intentionally absent.
+        assert "slice8" not in LANGUAGES["python"].variants
+
+
+class TestAlgorithmMetadata:
+    """The ``ALGORITHMS`` typed view of the catalogue: every entry is
+    a well-formed AlgorithmInfo with the canonical reveng check value.
+    """
+
+    def test_size_matches_catalogue(self):
+        # Assert -- 71 algorithms in the catalogue (69 named + 2 aliases).
+        assert len(ALGORITHMS) == 71, f"expected 71 entries, got {len(ALGORITHMS)}"
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    def test_entry_is_algorithminfo(self, name):
+        # Assert
+        algo = ALGORITHMS[name]
+        assert isinstance(algo, AlgorithmInfo), (
+            f"{name}: expected AlgorithmInfo"
+        )
+        assert algo.name == name, (
+            f"{name}: algo.name should match key, got {algo.name!r}"
+        )
+        assert algo.width in (8, 16, 32, 64), (
+            f"{name}: width {algo.width} not in {{8, 16, 32, 64}}"
+        )
+        assert isinstance(algo.desc, str), (
+            f"{name}: desc must be str (possibly empty), got {type(algo.desc)}"
+        )
+
+    def test_crc32_matches_reveng(self):
+        # Assert
+        algo = ALGORITHMS["crc32"]
+        assert algo.width == 32, "crc32 width"
+        assert algo.check == 0xCBF43926, "crc32 reveng check value"
+        assert algo.poly == 0x04C11DB7, "crc32 polynomial"
+
+    def test_crc16_modbus_matches_reveng(self):
+        # Assert
+        algo = ALGORITHMS["crc16-modbus"]
+        assert algo.width == 16, "crc16-modbus width"
+        assert algo.check == 0x4B37, "crc16-modbus reveng check value"
+        assert algo.refin is True, "crc16-modbus refin"
+        assert algo.refout is True, "crc16-modbus refout"
+
+    def test_field_values_fit_width(self):
+        # Assert -- every numeric field fits the declared width.
+        for name, algo in ALGORITHMS.items():
+            mask = (1 << algo.width) - 1
+            assert 0 <= algo.poly <= mask, f"{name}: poly overflows width"
+            assert 0 <= algo.init <= mask, f"{name}: init overflows width"
+            assert 0 <= algo.xorout <= mask, f"{name}: xorout overflows width"
+            assert 0 <= algo.check <= mask, f"{name}: check overflows width"
+
+
+class TestGenerators:
+    """Every generator accepts both reflected (refin=True) and normal
+    (refin=False) algorithms via the typed dispatch in LANGUAGES."""
 
     @pytest.mark.parametrize(
         "lang", ["c", "csharp", "go", "python", "rust", "vhdl", "zig"]
@@ -83,7 +228,7 @@ class TestGenerators:
     def test_reflected_algorithm(self, lang):
         """Verify reflected algorithms (refin=True) generate code."""
         # Act - crc16-modbus is reflected
-        result = GENERATORS[lang]("crc16-modbus")
+        result = LANGUAGES[lang].generator("crc16-modbus")
 
         # Assert -- C returns a (header, source) pair; others return a string.
         assert result is not None, f"{lang} generator returned None for reflected algorithm"
@@ -96,7 +241,7 @@ class TestGenerators:
     def test_normal_algorithm(self, lang):
         """Verify normal algorithms (refin=False) generate code."""
         # Act - crc16-xmodem is normal
-        result = GENERATORS[lang]("crc16-xmodem")
+        result = LANGUAGES[lang].generator("crc16-xmodem")
 
         # Assert -- C returns a (header, source) pair; others return a string.
         assert result is not None, f"{lang} generator returned None for normal algorithm"
@@ -141,15 +286,16 @@ class TestCustomCrcChainAgainstRevengTruth:
         w, poly, init, refin, refout, xorout, expected = (
             _REVENG_CHECK_VALUES[algo_name]
         )
-        entry = {
-            "width": w, "poly": poly, "init": init,
-            "refin": refin, "refout": refout, "xorout": xorout,
-            "check": expected, "desc": f"hardcoded-canonical for {algo_name}",
-        }
+        algo = AlgorithmInfo(
+            name=algo_name,
+            width=w, poly=poly, init=init,
+            refin=refin, refout=refout, xorout=xorout,
+            check=expected, desc=f"hardcoded-canonical for {algo_name}",
+        )
         symbol = algo_name.replace("-", "_")
 
         # Act -- generate code and execute it.
-        code = generate_python_from_entry(algo_name, entry, symbol=symbol)
+        code = generate_python_from_entry(algo_name, algo, symbol=symbol)
         ns: dict = {}
         exec(code, ns)
         actual = ns[symbol](b"123456789")
@@ -172,15 +318,16 @@ class TestCustomCrcChainAgainstRevengTruth:
         w, poly, init, refin, refout, xorout, check = (
             _REVENG_CHECK_VALUES["crc16-modbus"]
         )
-        entry = {
-            "width": w, "poly": poly, "init": init,
-            "refin": refin, "refout": refout, "xorout": xorout,
-            "check": check, "desc": "structural test",
-        }
+        algo = AlgorithmInfo(
+            name="my_modbus",
+            width=w, poly=poly, init=init,
+            refin=refin, refout=refout, xorout=xorout,
+            check=check, desc="structural test",
+        )
 
         # Act
         result = generate_c_from_entry(
-            "my_modbus", entry, symbol="my_modbus",
+            "my_modbus", algo, symbol="my_modbus",
         )
 
         # Assert
@@ -252,14 +399,15 @@ class TestGenerateFromEntryAcceptsSyntheticEntry:
         engine_result = _generic_crc(
             b"123456789", width, poly, init, refin, refout, xorout
         )
-        entry = {
-            "width": width, "poly": poly, "init": init,
-            "refin": refin, "refout": refout, "xorout": xorout,
-            "check": engine_result, "desc": "Made-up CRC, no reveng truth",
-        }
+        algo = AlgorithmInfo(
+            name="madeup",
+            width=width, poly=poly, init=init,
+            refin=refin, refout=refout, xorout=xorout,
+            check=engine_result, desc="Made-up CRC, no reveng truth",
+        )
 
         # Act -- generate Python, exec, run on the check input.
-        code = generate_python_from_entry("madeup", entry, symbol="madeup")
+        code = generate_python_from_entry("madeup", algo, symbol="madeup")
         ns: dict = {}
         exec(code, ns)
         generated_result = ns["madeup"](b"123456789")

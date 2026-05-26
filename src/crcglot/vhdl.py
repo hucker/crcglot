@@ -36,7 +36,7 @@ Verified at build time by ``tests.test_crc_codegen_exec
 from __future__ import annotations
 
 from crcglot._helpers import _func_name, _hex
-from crcglot.catalogue import CRC_CATALOGUE, _reflect
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
 
 def _vhdl_lit(value: int, width: int) -> str:
@@ -89,25 +89,23 @@ def generate_vhdl(
     latter directly when generating from a custom (non-catalogue)
     algorithm spec.
     """
-    entry = CRC_CATALOGUE.get(name)
-    if entry is None:
+    algo = ALGORITHMS.get(name)
+    if algo is None:
         return None
-    return generate_vhdl_from_entry(name, entry, table=table, symbol=symbol)
+    return generate_vhdl_from_entry(name, algo, table=table, symbol=symbol)
 
 
 def generate_vhdl_from_entry(
     name: str,
-    entry: dict,
+    algo: AlgorithmInfo,
     table: bool = False,
     symbol: str | None = None,
 ) -> str:
-    """Generate a VHDL package from a catalogue-shaped entry dict.
+    """Generate a VHDL package from an :class:`AlgorithmInfo`.
 
     Args:
         name: Algorithm name (used in comments).
-        entry: Catalogue dict with ``width`` / ``poly`` / ``init`` /
-            ``refin`` / ``refout`` / ``xorout`` / ``check`` (required)
-            and ``desc`` (optional).
+        algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         table: Accepted for API symmetry with the other generators
             but ignored -- bit-by-bit only (table-driven VHDL deferred).
         symbol: Optional override for the generated function name
@@ -118,14 +116,14 @@ def generate_vhdl_from_entry(
         VHDL source string.
     """
     _ = table  # currently unused (see scope note in module docstring)
-    w = entry["width"]
-    poly = entry["poly"]
-    init = entry["init"]
-    refin = entry["refin"]
-    refout = entry["refout"]
-    xorout = entry["xorout"]
-    check = entry["check"]
-    desc = entry.get("desc", "")
+    w = algo.width
+    poly = algo.poly
+    init = algo.init
+    refin = algo.refin
+    refout = algo.refout
+    xorout = algo.xorout
+    check = algo.check
+    desc = algo.desc
     fname = symbol if symbol else _func_name(name)
     pkg = f"{fname}_pkg"
 

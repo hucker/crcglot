@@ -20,25 +20,11 @@ import sys
 from pathlib import Path
 
 from crcglot import (
-    CRC_CATALOGUE,
-    GENERATORS,
-    GENERATORS_FROM_ENTRY,
+    ALGORITHMS,
+    LANGUAGES,
+    AlgorithmInfo,
     _generic_crc,
 )
-
-
-_CRC_FILE_EXTENSIONS = {
-    "c": (".h", ".c"),
-    "csharp": (".cs",),
-    "go": (".go",),
-    "python": (".py",),
-    "rust": (".rs",),
-    "vhdl": (".vhd",),
-    "zig": (".zig",),
-}
-
-
-_LANGS = ("c", "csharp", "go", "python", "rust", "vhdl", "zig")
 
 
 _CUSTOM_KV_KEYS = {
@@ -90,7 +76,7 @@ def _write_files(
     cwd: Path,
 ) -> list[Path]:
     """Write generator output to disk.  C returns (header, source); others one string."""
-    extensions = _CRC_FILE_EXTENSIONS.get(lang, (".txt",))
+    extensions = LANGUAGES[lang].extensions
     written: list[Path] = []
     if isinstance(result, tuple):
         for content, ext in zip(result, extensions):
@@ -108,36 +94,34 @@ def _cmd_list(args: argparse.Namespace) -> int:
     """Print catalogue entries; optional glob filter."""
     import fnmatch
     pat = args.glob or "*"
-    names = sorted(n for n in CRC_CATALOGUE if fnmatch.fnmatch(n, pat))
+    names = sorted(n for n in ALGORITHMS if fnmatch.fnmatch(n, pat))
     if not names:
         print(f"No algorithms match {pat!r}", file=sys.stderr)
         return 1
     for n in names:
-        entry = CRC_CATALOGUE[n]
-        desc = entry.get("desc", "")
-        print(f"  {n:<24}  width={entry['width']:>2}  {desc}")
+        algo = ALGORITHMS[n]
+        print(f"  {n:<24}  width={algo.width:>2}  {algo.desc}")
     return 0
 
 
 def _cmd_info(args: argparse.Namespace) -> int:
     """Print parameters for a single algorithm."""
-    entry = CRC_CATALOGUE.get(args.name)
-    if entry is None:
+    algo = ALGORITHMS.get(args.name)
+    if algo is None:
         print(f"Unknown algorithm: {args.name!r}", file=sys.stderr)
         return 1
-    w = entry["width"]
+    w = algo.width
     hex_w = (w + 3) // 4
     print(f"{args.name}")
     print(f"  width:    {w}")
-    print(f"  poly:     0x{entry['poly']:0{hex_w}X}")
-    print(f"  init:     0x{entry['init']:0{hex_w}X}")
-    print(f"  refin:    {entry['refin']}")
-    print(f"  refout:   {entry['refout']}")
-    print(f"  xorout:   0x{entry['xorout']:0{hex_w}X}")
-    print(f"  check:    0x{entry['check']:0{hex_w}X}")
-    desc = entry.get("desc")
-    if desc:
-        print(f"  desc:     {desc}")
+    print(f"  poly:     0x{algo.poly:0{hex_w}X}")
+    print(f"  init:     0x{algo.init:0{hex_w}X}")
+    print(f"  refin:    {algo.refin}")
+    print(f"  refout:   {algo.refout}")
+    print(f"  xorout:   0x{algo.xorout:0{hex_w}X}")
+    print(f"  check:    0x{algo.check:0{hex_w}X}")
+    if algo.desc:
+        print(f"  desc:     {algo.desc}")
     return 0
 
 
@@ -153,20 +137,22 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             file=sys.stderr,
         )
         return 2
-    if use_slice8 and lang in ("csharp", "go", "zig"):
-        print(
-            f"Note: --slice8 is not implemented for {lang}; "
-            f"using --table instead.",
-            file=sys.stderr,
-        )
-        use_slice8 = False
-        use_table = True
-    if use_slice8 and lang == "python":
-        print(
-            "Note: --slice8 is slower than --table in CPython "
-            "(measured 0.79x); using --table instead.",
-            file=sys.stderr,
-        )
+    # Slice-by-8 fallback: if the user asked for it but the chosen
+    # language doesn't list it in its supported variants, downgrade to
+    # --table with a stderr note.  Reads the truth from LANGUAGES so
+    # there's no parallel list to keep in sync.
+    if use_slice8 and "slice8" not in LANGUAGES[lang].variants:
+        if lang == "python":
+            note = (
+                "Note: --slice8 is slower than --table in CPython "
+                "(measured 0.79x); using --table instead."
+            )
+        else:
+            note = (
+                f"Note: --slice8 is not implemented for {lang}; "
+                f"using --table instead."
+            )
+        print(note, file=sys.stderr)
         use_slice8 = False
         use_table = True
 
@@ -214,11 +200,17 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             f"Custom CRC-{width} (poly=0x{poly:X}, init=0x{init:X}, "
             f"refin={refin}, refout={refout}, xorout=0x{xorout:X})"
         )
-        entry = {
-            "width": width, "poly": poly, "init": init,
-            "refin": refin, "refout": refout, "xorout": xorout,
-            "check": check, "desc": desc,
-        }
+        algo = AlgorithmInfo(
+            name=custom_name,
+            width=width,
+            poly=poly,
+            init=init,
+            refin=refin,
+            refout=refout,
+            xorout=xorout,
+            check=check,
+            desc=desc,
+        )
         symbol = (
             symbol_override
             or (_symbol_from_stem(file_stem) if file_stem else None)
@@ -228,7 +220,9 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         if use_slice8:
             gen_kwargs["slice8"] = True
         try:
-            result = GENERATORS_FROM_ENTRY[lang](custom_name, entry, **gen_kwargs)
+            result = LANGUAGES[lang].generator_from_entry(
+                custom_name, algo, **gen_kwargs,
+            )
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 2
@@ -242,7 +236,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             )
             return 2
         name = bare[0].lower()
-        if name not in CRC_CATALOGUE:
+        if name not in ALGORITHMS:
             print(
                 f"Error: unknown algorithm {name!r}. Use 'crcglot list' to browse.",
                 file=sys.stderr,
@@ -256,7 +250,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         if use_slice8:
             gen_kwargs["slice8"] = True
         try:
-            result = GENERATORS[lang](name, **gen_kwargs)
+            result = LANGUAGES[lang].generator(name, **gen_kwargs)
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 2
@@ -285,8 +279,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crcglot",
         description=(
-            "Verified CRC source-code generator for C, Rust, VHDL, "
-            "and Python.  Catalogue-driven, self-test embedded."
+            "Verified CRC source-code generator for C, C#, Go, Python, "
+            "Rust, VHDL, and Zig.  Catalogue-driven, self-test embedded."
         ),
     )
     subs = parser.add_subparsers(dest="command", required=True)
@@ -299,9 +293,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = subs.add_parser("info", help="Show algorithm parameters")
     p_info.add_argument("name", help="Algorithm name (e.g. crc32)")
 
-    # crcglot {c,go,python,rust,vhdl} <algo> [--table|--slice8] [file=STEM] [symbol=NAME]
+    # crcglot {c,csharp,go,python,rust,vhdl,zig} <algo> [--table|--slice8] [file=STEM] [symbol=NAME]
     # Or: crcglot c --custom width=... poly=... ...
-    for lang in _LANGS:
+    for lang in LANGUAGES:
         p = subs.add_parser(lang, help=f"Generate {lang.upper()} source code")
         p.add_argument(
             "--table", action="store_true",
@@ -311,8 +305,8 @@ def build_parser() -> argparse.ArgumentParser:
             "--slice8", action="store_true",
             help=(
                 "Use slice-by-8 (5-10x faster than --table). "
-                "C / Rust only; widths 32 or 64 only. "
-                "Accepted for python but falls back to --table (CPython regression)."
+                "C / Rust / Go / C# / Zig; widths 32 or 64 only. "
+                "Accepted for python but falls back to --table."
             ),
         )
         p.add_argument(
@@ -344,7 +338,7 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_list(args)
     if args.command == "info":
         return _cmd_info(args)
-    if args.command in _LANGS:
+    if args.command in LANGUAGES:
         return _cmd_codegen(args, args.command)
     parser.print_help(sys.stderr)
     return 2

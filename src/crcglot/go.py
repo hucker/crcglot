@@ -18,7 +18,10 @@ callable from ``go test``, a startup boot-check, or anywhere.
 
 The file declares ``package crc`` by default; rename freely to drop
 into an existing package, or pass ``symbol=`` to rename the function
-trio (e.g. ``symbol=Crc32`` for Go-idiomatic exported names).
+trio (e.g. ``symbol=Crc32`` for Go-idiomatic exported names).  Lookup
+tables (``--table`` and ``--slice8`` variants) are named after the
+function symbol so multiple generated CRCs can coexist in one package
+without table-name collisions.
 
 Verified at build time by ``tests.test_go_gen.TestGenerateGo``
 (structural) and ``TestGeneratedGoExecutes`` (compile + run via
@@ -30,18 +33,25 @@ Verified at build time by ``tests.test_go_gen.TestGenerateGo``
 from __future__ import annotations
 
 from crcglot._helpers import (
+    _build_slice8_tables,
     _build_table,
     _func_name,
     _hex,
     _mask,
 )
-from crcglot.catalogue import CRC_CATALOGUE, _reflect
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
 
-def _format_table_go(table: list[int], width: int, gtype: str) -> str:
-    """Format a lookup table as a Go ``var`` array literal."""
+def _format_table_go(
+    table: list[int], width: int, gtype: str, fname: str,
+) -> str:
+    """Format a lookup table as a Go ``var`` array literal.
+
+    Variable name is prefixed with ``fname`` so multiple generated
+    CRCs can live in the same package without table-name collisions.
+    """
     hex_w = (width + 3) // 4
-    lines = [f"var _crcTable = [256]{gtype}{{"]
+    lines = [f"var _{fname}_table = [256]{gtype}{{"]
     for row in range(0, 256, 8):
         vals = ", ".join(
             f"0x{table[i]:0{hex_w}X}" for i in range(row, min(row + 8, 256))
@@ -51,10 +61,126 @@ def _format_table_go(table: list[int], width: int, gtype: str) -> str:
     return "\n".join(lines)
 
 
+def _format_slice8_tables_go(
+    tables: list[list[int]], width: int, gtype: str, fname: str,
+) -> str:
+    """Format the 8 slice-by-8 tables as a Go 2D ``var`` array literal.
+
+    Variable name is prefixed with ``fname`` so multiple generated
+    CRCs can live in the same package without collisions.
+    """
+    hex_w = (width + 3) // 4
+    lines = [f"var _{fname}_sliceTables = [8][256]{gtype}{{"]
+    for t_idx, table in enumerate(tables):
+        lines.append(f"    {{ // T{t_idx}")
+        for row in range(0, 256, 8):
+            vals = ", ".join(
+                f"0x{table[i]:0{hex_w}X}"
+                for i in range(row, min(row + 8, 256))
+            )
+            lines.append(f"        {vals},")
+        lines.append(f"    }},")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _update_loop_go_slice8(
+    w: int, refin: bool, gtype: str, fname: str,
+) -> list[str]:
+    """Emit the per-8-byte slice-by-8 main loop + byte-by-byte tail for Go.
+
+    Variable ``crc`` (of type ``gtype``) is assumed to already hold the
+    incoming state.  Walks ``data`` 8 bytes at a time via 8 chained
+    table lookups, then falls back to single-byte via the slice-by-8
+    table T0 for any 1-7 trailing bytes.
+
+    Only valid for w == 32 or w == 64.
+    """
+    t = f"_{fname}_sliceTables"
+    if w == 32:
+        if refin:
+            # Reflected: little-endian load, low byte of state XOR'd
+            # into the first 4 input bytes, T7..T0 walk from low to high.
+            return [
+                "    for len(data) >= 8 {",
+                "        b03 := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24",
+                "        b47 := uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24",
+                "        xored := crc ^ b03",
+                f"        crc = {t}[7][byte(xored)] ^ {t}[6][byte(xored>>8)] ^",
+                f"            {t}[5][byte(xored>>16)] ^ {t}[4][byte(xored>>24)] ^",
+                f"            {t}[3][byte(b47)] ^ {t}[2][byte(b47>>8)] ^",
+                f"            {t}[1][byte(b47>>16)] ^ {t}[0][byte(b47>>24)]",
+                "        data = data[8:]",
+                "    }",
+                "    for _, b := range data {",
+                f"        crc = {t}[0][byte(crc)^b] ^ (crc >> 8)",
+                "    }",
+            ]
+        # Non-reflected w=32: big-endian load, top of state XOR'd into
+        # first 4 input bytes' top byte; T[7-k] indexes byte at position k.
+        return [
+            "    for len(data) >= 8 {",
+            "        b03 := uint32(data[0])<<24 | uint32(data[1])<<16 | uint32(data[2])<<8 | uint32(data[3])",
+            "        b47 := uint32(data[4])<<24 | uint32(data[5])<<16 | uint32(data[6])<<8 | uint32(data[7])",
+            "        xored := crc ^ b03",
+            f"        crc = {t}[7][byte(xored>>24)] ^ {t}[6][byte(xored>>16)] ^",
+            f"            {t}[5][byte(xored>>8)] ^ {t}[4][byte(xored)] ^",
+            f"            {t}[3][byte(b47>>24)] ^ {t}[2][byte(b47>>16)] ^",
+            f"            {t}[1][byte(b47>>8)] ^ {t}[0][byte(b47)]",
+            "        data = data[8:]",
+            "    }",
+            "    for _, b := range data {",
+            "        top := byte(crc >> 24)",
+            f"        crc = {t}[0][top^b] ^ (crc << 8)",
+            "    }",
+        ]
+    # w == 64
+    if refin:
+        return [
+            "    for len(data) >= 8 {",
+            "        b := uint64(data[0]) | uint64(data[1])<<8 | uint64(data[2])<<16 | uint64(data[3])<<24 |",
+            "            uint64(data[4])<<32 | uint64(data[5])<<40 | uint64(data[6])<<48 | uint64(data[7])<<56",
+            "        xored := crc ^ b",
+            f"        crc = {t}[7][byte(xored)] ^ {t}[6][byte(xored>>8)] ^",
+            f"            {t}[5][byte(xored>>16)] ^ {t}[4][byte(xored>>24)] ^",
+            f"            {t}[3][byte(xored>>32)] ^ {t}[2][byte(xored>>40)] ^",
+            f"            {t}[1][byte(xored>>48)] ^ {t}[0][byte(xored>>56)]",
+            "        data = data[8:]",
+            "    }",
+            "    for _, b := range data {",
+            f"        crc = {t}[0][byte(crc)^b] ^ (crc >> 8)",
+            "    }",
+        ]
+    # Non-reflected w=64.  Same index convention as w=32.
+    return [
+        "    for len(data) >= 8 {",
+        "        b := uint64(data[0])<<56 | uint64(data[1])<<48 | uint64(data[2])<<40 | uint64(data[3])<<32 |",
+        "            uint64(data[4])<<24 | uint64(data[5])<<16 | uint64(data[6])<<8 | uint64(data[7])",
+        "        xored := crc ^ b",
+        f"        crc = {t}[7][byte(xored>>56)] ^ {t}[6][byte(xored>>48)] ^",
+        f"            {t}[5][byte(xored>>40)] ^ {t}[4][byte(xored>>32)] ^",
+        f"            {t}[3][byte(xored>>24)] ^ {t}[2][byte(xored>>16)] ^",
+        f"            {t}[1][byte(xored>>8)] ^ {t}[0][byte(xored)]",
+        "        data = data[8:]",
+        "    }",
+        "    for _, b := range data {",
+        "        top := byte(crc >> 56)",
+        f"        crc = {t}[0][top^b] ^ (crc << 8)",
+        "    }",
+    ]
+
+
 def _update_loop_go(
-    w: int, poly: int, refin: bool, mask: str, gtype: str, table: bool,
+    w: int,
+    poly: int,
+    refin: bool,
+    mask: str,
+    gtype: str,
+    table: bool,
+    fname: str,
 ) -> list[str]:
     """Emit the per-byte main-loop lines for the update function."""
+    t = f"_{fname}_table"
     if table:
         if w == 8:
             # 8-bit: table lookup IS the algorithm (no shifts, and
@@ -62,18 +188,18 @@ def _update_loop_go(
             # constant evaluator anyway).
             return [
                 "    for _, b := range data {",
-                "        crc = _crcTable[crc^b]",
+                f"        crc = {t}[crc^b]",
                 "    }",
             ]
         if refin:
             return [
                 "    for _, b := range data {",
-                f"        crc = _crcTable[{gtype}(byte(crc)^b)] ^ (crc >> 8)",
+                f"        crc = {t}[{gtype}(byte(crc)^b)] ^ (crc >> 8)",
                 "    }",
             ]
         return [
             "    for _, b := range data {",
-            f"        crc = _crcTable[byte(crc>>{w - 8})^b] ^ ((crc << 8) & {mask})",
+            f"        crc = {t}[byte(crc>>{w - 8})^b] ^ ((crc << 8) & {mask})",
             "    }",
         ]
     if refin:
@@ -115,7 +241,10 @@ def _self_test_go(fname: str, check: int, width: int) -> list[str]:
 
 
 def generate_go(
-    name: str, table: bool = False, symbol: str | None = None,
+    name: str,
+    table: bool = False,
+    symbol: str | None = None,
+    slice8: bool = False,
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Go source for it.
 
@@ -123,43 +252,56 @@ def generate_go(
     directly when generating from a custom (non-catalogue) algorithm
     spec.
     """
-    entry = CRC_CATALOGUE.get(name)
-    if entry is None:
+    algo = ALGORITHMS.get(name)
+    if algo is None:
         return None
-    return generate_go_from_entry(name, entry, table=table, symbol=symbol)
+    return generate_go_from_entry(
+        name, algo, table=table, symbol=symbol, slice8=slice8,
+    )
 
 
 def generate_go_from_entry(
     name: str,
-    entry: dict,
+    algo: AlgorithmInfo,
     table: bool = False,
     symbol: str | None = None,
+    slice8: bool = False,
 ) -> str:
-    """Generate a Go source file from a catalogue-shaped entry dict.
+    """Generate a Go source file from an :class:`AlgorithmInfo`.
 
     Args:
         name: Algorithm name (used in comments and as the default
             function-name source).
-        entry: Catalogue dict with ``width`` / ``poly`` / ``init`` /
-            ``refin`` / ``refout`` / ``xorout`` / ``check`` (required)
-            and ``desc`` (optional).
+        algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         table: If True, emit the table-driven implementation.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
+        slice8: If True, emit the slice-by-8 implementation (8 tables,
+            ~5-10x throughput vs plain table-driven for CRC-32 /
+            CRC-64 on large buffers).  Only valid for width 32 or 64;
+            ``ValueError`` otherwise.
 
     Returns:
         Go source code string declaring ``package crc``.
     """
-    w = entry["width"]
-    poly = entry["poly"]
-    init = entry["init"]
-    refin = entry["refin"]
-    refout = entry["refout"]
-    xorout = entry["xorout"]
-    check = entry["check"]
-    desc = entry.get("desc", "")
+    w = algo.width
+    poly = algo.poly
+    init = algo.init
+    refin = algo.refin
+    refout = algo.refout
+    xorout = algo.xorout
+    check = algo.check
+    desc = algo.desc
     fname = symbol if symbol else _func_name(name)
     mask = _mask(w)
+
+    if slice8 and w not in (32, 64):
+        raise ValueError(
+            f"slice8=True requires width=32 or width=64 (got width={w}). "
+            "Slice-by-8 is a high-throughput optimization that only "
+            "makes sense at those widths; smaller CRCs would need a "
+            "different chunking scheme."
+        )
 
     if w <= 8:
         gtype = "uint8"
@@ -185,9 +327,13 @@ def generate_go_from_entry(
     lines.append(f"package crc")
     lines.append(f"")
 
-    if table:
+    if slice8:
+        slice_tables = _build_slice8_tables(w, poly, refin)
+        lines.append(_format_slice8_tables_go(slice_tables, w, gtype, fname))
+        lines.append("")
+    elif table:
         tbl = _build_table(w, poly, refin)
-        lines.append(_format_table_go(tbl, w, gtype))
+        lines.append(_format_table_go(tbl, w, gtype, fname))
         lines.append("")
 
     # ----- <fname>_init() -----
@@ -199,7 +345,10 @@ def generate_go_from_entry(
     # ----- <fname>_update(state, data) -----
     lines.append(f"func {fname}_update(state {gtype}, data []byte) {gtype} {{")
     lines.append(f"    crc := state")
-    lines.extend(_update_loop_go(w, poly, refin, mask, gtype, table))
+    if slice8:
+        lines.extend(_update_loop_go_slice8(w, refin, gtype, fname))
+    else:
+        lines.extend(_update_loop_go(w, poly, refin, mask, gtype, table, fname))
     lines.append(f"    return crc")
     lines.append(f"}}")
     lines.append("")

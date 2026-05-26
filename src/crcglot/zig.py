@@ -36,12 +36,13 @@ Verified at build time by ``tests.test_zig_gen.TestGenerateZig``
 from __future__ import annotations
 
 from crcglot._helpers import (
+    _build_slice8_tables,
     _build_table,
     _func_name,
     _hex,
     _mask,
 )
-from crcglot.catalogue import CRC_CATALOGUE, _reflect
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
 
 def _zig_type(width: int) -> str:
@@ -55,10 +56,16 @@ def _zig_type(width: int) -> str:
     return "u64"
 
 
-def _format_table_zig(table: list[int], width: int, ztype: str) -> str:
-    """Format a lookup table as a Zig ``const`` array literal."""
+def _format_table_zig(
+    table: list[int], width: int, ztype: str, fname: str,
+) -> str:
+    """Format a lookup table as a Zig ``const`` array literal.
+
+    Name prefixed with ``fname`` so multiple generated CRCs can live
+    in one compilation unit without collisions.
+    """
     hex_w = (width + 3) // 4
-    lines = [f"const crc_table = [256]{ztype}{{"]
+    lines = [f"const {fname}_table = [256]{ztype}{{"]
     for row in range(0, 256, 8):
         vals = ", ".join(
             f"0x{table[i]:0{hex_w}X}" for i in range(row, min(row + 8, 256))
@@ -68,8 +75,156 @@ def _format_table_zig(table: list[int], width: int, ztype: str) -> str:
     return "\n".join(lines)
 
 
+def _format_slice8_tables_zig(
+    tables: list[list[int]], width: int, ztype: str, fname: str,
+) -> str:
+    """Format the 8 slice-by-8 tables as a Zig 2D ``const`` array literal.
+
+    Name prefixed with ``fname`` so multiple generated CRCs can live
+    in one compilation unit without collisions.
+    """
+    hex_w = (width + 3) // 4
+    lines = [f"const {fname}_sliceTables = [8][256]{ztype}{{"]
+    for t_idx, table in enumerate(tables):
+        lines.append(f"    // T{t_idx}")
+        lines.append(f"    [256]{ztype}{{")
+        for row in range(0, 256, 8):
+            vals = ", ".join(
+                f"0x{table[i]:0{hex_w}X}"
+                for i in range(row, min(row + 8, 256))
+            )
+            lines.append(f"        {vals},")
+        lines.append(f"    }},")
+    lines.append("};")
+    return "\n".join(lines)
+
+
+def _update_loop_zig_slice8(
+    w: int, refin: bool, ztype: str, fname: str,
+) -> list[str]:
+    """Emit the per-8-byte slice-by-8 main loop + byte-by-byte tail for Zig.
+
+    Variable ``crc`` (of type ``ztype``) is assumed to already hold the
+    incoming state.  Walks ``data`` 8 bytes at a time via 8 chained
+    table lookups, then falls back to single-byte via T0 for any 1-7
+    trailing bytes.  Only valid for w == 32 or w == 64.
+
+    Zig specifics:
+    - No ``<<%`` operator; shifts that might overflow are sidestepped
+      by masking before shifting, same trick as the bit-by-bit path.
+    - Array indices must be ``usize`` -- byte values are widened via
+      ``@as(usize, x)``.
+    - ``@as(u8, @truncate(crc))`` narrows the state to its low byte.
+    """
+    t = f"{fname}_sliceTables"
+    if w == 32:
+        # ``crc << 8`` in the tail (non-reflected w=32) needs the
+        # mask-before-shift trick because Zig rejects shifts that
+        # would overflow uW.  See _update_loop_zig for the same idiom.
+        keep_24 = "0xFFFFFF"
+        if refin:
+            return [
+                "    var d: []const u8 = data;",
+                "    while (d.len >= 8) {",
+                "        const b03: u32 = @as(u32, d[0]) | @as(u32, d[1]) << 8"
+                " | @as(u32, d[2]) << 16 | @as(u32, d[3]) << 24;",
+                "        const b47: u32 = @as(u32, d[4]) | @as(u32, d[5]) << 8"
+                " | @as(u32, d[6]) << 16 | @as(u32, d[7]) << 24;",
+                "        const xored: u32 = crc ^ b03;",
+                f"        crc = {t}[7][@as(usize, @as(u8, @truncate(xored)))]"
+                f" ^ {t}[6][@as(usize, @as(u8, @truncate(xored >> 8)))]",
+                f"            ^ {t}[5][@as(usize, @as(u8, @truncate(xored >> 16)))]"
+                f" ^ {t}[4][@as(usize, @as(u8, @truncate(xored >> 24)))]",
+                f"            ^ {t}[3][@as(usize, @as(u8, @truncate(b47)))]"
+                f" ^ {t}[2][@as(usize, @as(u8, @truncate(b47 >> 8)))]",
+                f"            ^ {t}[1][@as(usize, @as(u8, @truncate(b47 >> 16)))]"
+                f" ^ {t}[0][@as(usize, @as(u8, @truncate(b47 >> 24)))];",
+                "        d = d[8..];",
+                "    }",
+                "    for (d) |b| {",
+                f"        crc = {t}[0][@as(usize, @as(u8, @truncate(crc)) ^ b)]"
+                " ^ (crc >> 8);",
+                "    }",
+            ]
+        return [
+            "    var d: []const u8 = data;",
+            "    while (d.len >= 8) {",
+            "        const b03: u32 = @as(u32, d[0]) << 24 | @as(u32, d[1]) << 16"
+            " | @as(u32, d[2]) << 8 | @as(u32, d[3]);",
+            "        const b47: u32 = @as(u32, d[4]) << 24 | @as(u32, d[5]) << 16"
+            " | @as(u32, d[6]) << 8 | @as(u32, d[7]);",
+            "        const xored: u32 = crc ^ b03;",
+            f"        crc = {t}[7][@as(usize, @as(u8, @truncate(xored >> 24)))]"
+            f" ^ {t}[6][@as(usize, @as(u8, @truncate(xored >> 16)))]",
+            f"            ^ {t}[5][@as(usize, @as(u8, @truncate(xored >> 8)))]"
+            f" ^ {t}[4][@as(usize, @as(u8, @truncate(xored)))]",
+            f"            ^ {t}[3][@as(usize, @as(u8, @truncate(b47 >> 24)))]"
+            f" ^ {t}[2][@as(usize, @as(u8, @truncate(b47 >> 16)))]",
+            f"            ^ {t}[1][@as(usize, @as(u8, @truncate(b47 >> 8)))]"
+            f" ^ {t}[0][@as(usize, @as(u8, @truncate(b47)))];",
+            "        d = d[8..];",
+            "    }",
+            "    for (d) |b| {",
+            "        const top: u8 = @as(u8, @truncate(crc >> 24));",
+            f"        crc = {t}[0][@as(usize, top ^ b)]"
+            f" ^ ((crc & {keep_24}) << 8);",
+            "    }",
+        ]
+    # w == 64.
+    keep_56 = "0xFFFFFFFFFFFFFF"
+    if refin:
+        return [
+            "    var d: []const u8 = data;",
+            "    while (d.len >= 8) {",
+            "        const b: u64 = @as(u64, d[0]) | @as(u64, d[1]) << 8"
+            " | @as(u64, d[2]) << 16 | @as(u64, d[3]) << 24",
+            "            | @as(u64, d[4]) << 32 | @as(u64, d[5]) << 40"
+            " | @as(u64, d[6]) << 48 | @as(u64, d[7]) << 56;",
+            "        const xored: u64 = crc ^ b;",
+            f"        crc = {t}[7][@as(usize, @as(u8, @truncate(xored)))]"
+            f" ^ {t}[6][@as(usize, @as(u8, @truncate(xored >> 8)))]",
+            f"            ^ {t}[5][@as(usize, @as(u8, @truncate(xored >> 16)))]"
+            f" ^ {t}[4][@as(usize, @as(u8, @truncate(xored >> 24)))]",
+            f"            ^ {t}[3][@as(usize, @as(u8, @truncate(xored >> 32)))]"
+            f" ^ {t}[2][@as(usize, @as(u8, @truncate(xored >> 40)))]",
+            f"            ^ {t}[1][@as(usize, @as(u8, @truncate(xored >> 48)))]"
+            f" ^ {t}[0][@as(usize, @as(u8, @truncate(xored >> 56)))];",
+            "        d = d[8..];",
+            "    }",
+            "    for (d) |b| {",
+            f"        crc = {t}[0][@as(usize, @as(u8, @truncate(crc)) ^ b)]"
+            " ^ (crc >> 8);",
+            "    }",
+        ]
+    return [
+        "    var d: []const u8 = data;",
+        "    while (d.len >= 8) {",
+        "        const b: u64 = @as(u64, d[0]) << 56 | @as(u64, d[1]) << 48"
+        " | @as(u64, d[2]) << 40 | @as(u64, d[3]) << 32",
+        "            | @as(u64, d[4]) << 24 | @as(u64, d[5]) << 16"
+        " | @as(u64, d[6]) << 8 | @as(u64, d[7]);",
+        "        const xored: u64 = crc ^ b;",
+        f"        crc = {t}[7][@as(usize, @as(u8, @truncate(xored >> 56)))]"
+        f" ^ {t}[6][@as(usize, @as(u8, @truncate(xored >> 48)))]",
+        f"            ^ {t}[5][@as(usize, @as(u8, @truncate(xored >> 40)))]"
+        f" ^ {t}[4][@as(usize, @as(u8, @truncate(xored >> 32)))]",
+        f"            ^ {t}[3][@as(usize, @as(u8, @truncate(xored >> 24)))]"
+        f" ^ {t}[2][@as(usize, @as(u8, @truncate(xored >> 16)))]",
+        f"            ^ {t}[1][@as(usize, @as(u8, @truncate(xored >> 8)))]"
+        f" ^ {t}[0][@as(usize, @as(u8, @truncate(xored)))];",
+        "        d = d[8..];",
+        "    }",
+        "    for (d) |b| {",
+        "        const top: u8 = @as(u8, @truncate(crc >> 56));",
+        f"        crc = {t}[0][@as(usize, top ^ b)]"
+        f" ^ ((crc & {keep_56}) << 8);",
+        "    }",
+    ]
+
+
 def _update_loop_zig(
     w: int, poly: int, refin: bool, mask: str, ztype: str, table: bool,
+    fname: str,
 ) -> list[str]:
     """Emit the per-byte main-loop lines for the update function.
 
@@ -81,17 +236,18 @@ def _update_loop_zig(
     always fits, instead of masking after.  Mathematically equivalent
     to C's wrapping shift on unsigned types.
     """
+    t = f"{fname}_table"
     if table:
         if w == 8:
             return [
                 "    for (data) |b| {",
-                "        crc = crc_table[@as(usize, crc ^ b)];",
+                f"        crc = {t}[@as(usize, crc ^ b)];",
                 "    }",
             ]
         if refin:
             return [
                 "    for (data) |b| {",
-                f"        crc = crc_table[@as(usize, @as(u8, @truncate(crc)) ^ b)] ^ (crc >> 8);",
+                f"        crc = {t}[@as(usize, @as(u8, @truncate(crc)) ^ b)] ^ (crc >> 8);",
                 "    }",
             ]
         # Non-reflected w > 8.  The C equivalent is
@@ -104,7 +260,7 @@ def _update_loop_zig(
         keep_mask = _hex((1 << (w - 8)) - 1, w)
         return [
             "    for (data) |b| {",
-            f"        crc = crc_table[@as(usize, @as(u8, @truncate(crc >> {w - 8})) ^ b)] ^ ((crc & {keep_mask}) << 8);",
+            f"        crc = {t}[@as(usize, @as(u8, @truncate(crc >> {w - 8})) ^ b)] ^ ((crc & {keep_mask}) << 8);",
             "    }",
         ]
     if refin:
@@ -163,7 +319,10 @@ def _self_test_zig(fname: str, check: int, width: int) -> list[str]:
 
 
 def generate_zig(
-    name: str, table: bool = False, symbol: str | None = None,
+    name: str,
+    table: bool = False,
+    symbol: str | None = None,
+    slice8: bool = False,
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Zig source for it.
 
@@ -171,44 +330,57 @@ def generate_zig(
     directly when generating from a custom (non-catalogue) algorithm
     spec.
     """
-    entry = CRC_CATALOGUE.get(name)
-    if entry is None:
+    algo = ALGORITHMS.get(name)
+    if algo is None:
         return None
-    return generate_zig_from_entry(name, entry, table=table, symbol=symbol)
+    return generate_zig_from_entry(
+        name, algo, table=table, symbol=symbol, slice8=slice8,
+    )
 
 
 def generate_zig_from_entry(
     name: str,
-    entry: dict,
+    algo: AlgorithmInfo,
     table: bool = False,
     symbol: str | None = None,
+    slice8: bool = False,
 ) -> str:
-    """Generate a Zig source file from a catalogue-shaped entry dict.
+    """Generate a Zig source file from an :class:`AlgorithmInfo`.
 
     Args:
         name: Algorithm name (used in comments and as the default
             function-name source).
-        entry: Catalogue dict with ``width`` / ``poly`` / ``init`` /
-            ``refin`` / ``refout`` / ``xorout`` / ``check`` (required)
-            and ``desc`` (optional).
+        algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         table: If True, emit the table-driven implementation.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
+        slice8: If True, emit the slice-by-8 implementation (8 tables,
+            ~5-10x throughput vs plain table-driven for CRC-32 /
+            CRC-64 on large buffers).  Only valid for width 32 or 64;
+            ``ValueError`` otherwise.
 
     Returns:
         Zig source code string.
     """
-    w = entry["width"]
-    poly = entry["poly"]
-    init = entry["init"]
-    refin = entry["refin"]
-    refout = entry["refout"]
-    xorout = entry["xorout"]
-    check = entry["check"]
-    desc = entry.get("desc", "")
+    w = algo.width
+    poly = algo.poly
+    init = algo.init
+    refin = algo.refin
+    refout = algo.refout
+    xorout = algo.xorout
+    check = algo.check
+    desc = algo.desc
     fname = symbol if symbol else _func_name(name)
     ztype = _zig_type(w)
     mask = _mask(w)
+
+    if slice8 and w not in (32, 64):
+        raise ValueError(
+            f"slice8=True requires width=32 or width=64 (got width={w}). "
+            "Slice-by-8 is a high-throughput optimization that only "
+            "makes sense at those widths; smaller CRCs would need a "
+            "different chunking scheme."
+        )
 
     init_state = _reflect(init, w) if refin else init
 
@@ -222,9 +394,13 @@ def generate_zig_from_entry(
     lines.append(f"// Verify:    call {fname}_self_test() (returns true on success).")
     lines.append(f"")
 
-    if table:
+    if slice8:
+        slice_tables = _build_slice8_tables(w, poly, refin)
+        lines.append(_format_slice8_tables_zig(slice_tables, w, ztype, fname))
+        lines.append("")
+    elif table:
         tbl = _build_table(w, poly, refin)
-        lines.append(_format_table_zig(tbl, w, ztype))
+        lines.append(_format_table_zig(tbl, w, ztype, fname))
         lines.append("")
 
     # ----- <fname>_init() -----
@@ -238,7 +414,10 @@ def generate_zig_from_entry(
         f"pub fn {fname}_update(state: {ztype}, data: []const u8) {ztype} {{"
     )
     lines.append(f"    var crc: {ztype} = state;")
-    lines.extend(_update_loop_zig(w, poly, refin, mask, ztype, table))
+    if slice8:
+        lines.extend(_update_loop_zig_slice8(w, refin, ztype, fname))
+    else:
+        lines.extend(_update_loop_zig(w, poly, refin, mask, ztype, table, fname))
     lines.append(f"    return crc;")
     lines.append(f"}}")
     lines.append("")

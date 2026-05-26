@@ -26,7 +26,8 @@ import textwrap
 import pytest
 
 from crcglot import (
-    CRC_CATALOGUE,
+    ALGORITHMS,
+    AlgorithmInfo,
     generate_csharp,
     generate_csharp_from_entry,
 )
@@ -58,6 +59,16 @@ def _func_name(algo: str) -> str:
 
 def _pascal(fname: str) -> str:
     return "".join(p[:1].upper() + p[1:] for p in fname.split("_") if p)
+
+
+_SLICE8_INPUT_LENGTHS = (0, 1, 7, 8, 9, 15, 16, 100)
+
+
+def _slice8_algos() -> list[str]:
+    """Catalogue algorithms eligible for slice-by-8 (width 32 or 64)."""
+    return sorted(
+        n for n, a in ALGORITHMS.items() if a.width in (32, 64)
+    )
 
 
 def _cs_state_type(width: int) -> str:
@@ -147,7 +158,25 @@ class TestGenerateCSharp:
             "table-driven variant emits the lookup table"
         )
 
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    def test_slice8_emits_eight_tables(self):
+        # Act
+        code = generate_csharp("crc32", slice8=True)
+
+        # Assert
+        assert code is not None, "generator returned code"
+        assert "private static readonly uint[,] _crcSliceTables" in code, (
+            "slice-by-8 variant emits the 2D table"
+        )
+        for i in range(8):
+            assert f"// T{i}" in code, f"slice-by-8 missing T{i} comment"
+
+    @pytest.mark.parametrize("algo", ["crc8", "crc16-modbus"])
+    def test_slice8_rejects_narrow_widths(self, algo):
+        # Act + Assert
+        with pytest.raises(ValueError, match="slice8=True requires width"):
+            generate_csharp(algo, slice8=True)
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_all_catalogue_entries_compile_shape(self, name):
         # Act
         code = generate_csharp(name)
@@ -172,19 +201,15 @@ class TestGenerateCSharpFromEntryRefoutBranch:
 
     def test_refout_differs_from_refin_emits_reflection(self):
         # Arrange
-        entry = {
-            "width": 16,
-            "poly": 0x1021,
-            "init": 0x0000,
-            "refin": False,
-            "refout": True,
-            "xorout": 0x0000,
-            "check": 0x0000,
-            "desc": "synthetic refout!=refin probe",
-        }
+        algo = AlgorithmInfo(
+            name="synthetic_refout",
+            width=16, poly=0x1021, init=0x0000,
+            refin=False, refout=True, xorout=0x0000,
+            check=0x0000, desc="synthetic refout!=refin probe",
+        )
 
         # Act
-        code = generate_csharp_from_entry("synthetic_refout", entry)
+        code = generate_csharp_from_entry("synthetic_refout", algo)
 
         # Assert
         assert "reflect output (refout != refin)" in code, (
@@ -220,14 +245,14 @@ class TestGeneratedCSharpExecutes:
     """
 
     @pytest.mark.parametrize("table", [False, True])
-    @pytest.mark.parametrize("name", sorted(CRC_CATALOGUE.keys()))
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_oneshot_and_streaming(self, name, table, tmp_path):
         # Arrange
-        entry = CRC_CATALOGUE[name]
-        expected = entry["check"]
-        cstype = _cs_state_type(entry["width"])
-        suffix = "u" if entry["width"] > 16 and entry["width"] <= 32 else (
-            "UL" if entry["width"] > 32 else ""
+        algo = ALGORITHMS[name]
+        expected = algo.check
+        cstype = _cs_state_type(algo.width)
+        suffix = "u" if 16 < algo.width <= 32 else (
+            "UL" if algo.width > 32 else ""
         )
         code = generate_csharp(name, table=table)
         assert code is not None, f"generate_csharp({name!r}) returned code"
@@ -296,4 +321,89 @@ class TestGeneratedCSharpExecutes:
         assert result.returncode == 0, (
             f"{name} (table={table}): dotnet run exited "
             f"{result.returncode} {label}; stderr={result.stderr!r}"
+        )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_DOTNET_SDK, reason="dotnet SDK not available")
+class TestGeneratedCSharpSliceBy8Executes:
+    """Slice-by-8 equivalence with bit-by-bit in generated C#.
+
+    Generates both forms under disjoint symbol names (so the two
+    PascalCase'd class names don't collide), compiles them into one
+    .NET project, and asserts byte-equal output across a range of
+    input lengths.  Since bit-by-bit is reveng-verified, equivalence
+    proves slice-by-8 is correct.
+
+    Limited to CRC-32 / CRC-64 algorithms; slice-by-8 only makes
+    sense at those widths (the generator raises ValueError otherwise).
+    """
+
+    @pytest.mark.parametrize("name", _slice8_algos())
+    def test_slice8_matches_bitbybit(self, name, tmp_path):
+        # Arrange -- generate two .cs files with disjoint symbol names
+        # so the two PascalCase'd class names don't collide.
+        bb_sym = f"{_func_name(name)}_bb"
+        s8_sym = f"{_func_name(name)}_s8"
+        bb_code = generate_csharp(name, symbol=bb_sym)
+        s8_code = generate_csharp(name, slice8=True, symbol=s8_sym)
+        assert bb_code is not None, f"generate_csharp({name!r}) returned None"
+        assert s8_code is not None, (
+            f"generate_csharp({name!r}, slice8=True) returned None"
+        )
+        bb_cls = _pascal(bb_sym)
+        s8_cls = _pascal(s8_sym)
+        cstype = _cs_state_type(ALGORITHMS[name].width)
+
+        proj = tmp_path / "Probe.csproj"
+        proj.write_text(textwrap.dedent("""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>net8.0</TargetFramework>
+                <Nullable>disable</Nullable>
+                <RootNamespace>Probe</RootNamespace>
+            </PropertyGroup>
+            </Project>
+        """).strip(), encoding="utf-8")
+        (tmp_path / "Bb.cs").write_text(bb_code, encoding="utf-8")
+        (tmp_path / "S8.cs").write_text(s8_code, encoding="utf-8")
+
+        lengths_csv = ", ".join(str(n) for n in _SLICE8_INPUT_LENGTHS)
+        runner = textwrap.dedent(f"""
+            using System;
+            public static class Probe
+            {{
+                public static int Main(string[] args)
+                {{
+                    var buf = new byte[256];
+                    for (int k = 0; k < 256; k++) buf[k] = (byte)k;
+                    int[] lengths = new int[] {{ {lengths_csv} }};
+                    for (int li = 0; li < lengths.Length; li++)
+                    {{
+                        int n = lengths[li];
+                        var slice = new byte[n];
+                        Array.Copy(buf, slice, n);
+                        {cstype} bb = {bb_cls}.{bb_sym}(slice);
+                        {cstype} s8 = {s8_cls}.{s8_sym}(slice);
+                        if (bb != s8) return li + 1;
+                    }}
+                    return 0;
+                }}
+            }}
+        """).strip()
+        (tmp_path / "Program.cs").write_text(runner, encoding="utf-8")
+
+        # Act
+        result = subprocess.run(
+            ["dotnet", "run", "--project", str(proj), "-c", "Release"],
+            capture_output=True, text=True, timeout=120,
+            cwd=tmp_path,
+        )
+
+        # Assert -- exit 0 means slice-by-8 == bit-by-bit at every length;
+        # nonzero index identifies which input length disagreed.
+        assert result.returncode == 0, (
+            f"{name}: dotnet run exited {result.returncode} "
+            f"(length index, 0 = ok); stderr={result.stderr!r}"
         )
