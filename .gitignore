@@ -44,3 +44,8 @@ tests/cli_gold/_failures/
 # uv
 uv.lock
 .claude/
+
+# Benchmark working dir -- generated sources + compiled binaries.
+# BENCHMARKS.md (the rendered output) is committed; everything under
+# benchmarks/ is build product that scripts/benchmark.py regenerates.
+benchmarks/

@@ -86,8 +86,8 @@ Generate source code for the chosen target language.
 | Option / token       | Effect                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------- |
 | (default) bit-by-bit | Smallest code, zero RAM table, slowest.  All widths.                                                |
-| `--table`            | 256-entry lookup table, 4-8× faster.  All widths.                                                   |
-| `--slice8`           | 8 lookup tables, 5-10× faster than `--table`.  CRC-32 / CRC-64 only.  Compiled-software targets.    |
+| `--table`            | 256-entry lookup table.  Typically ~2-15× over bit-by-bit (compiler-dependent).  All widths.        |
+| `--slice8`           | 8 lookup tables.  Typically ~2-5× over `--table`.  CRC-32 / CRC-64, compiled targets only.          |
 | `--custom`           | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                         |
 | `file=STEM`          | Write to disk (extension picked per language; see below).  Omit for stdout.                         |
 | `symbol=NAME`        | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given. |
@@ -194,6 +194,10 @@ code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 ## Example output
 
 See [EXAMPLES.md](EXAMPLES.md) for the actual generated source for `crc32` across every language × implementation combination (C / Rust / Python / VHDL / Verilog / Go / C# / TypeScript crossed with bit-by-bit, table-driven, and slice-by-8 where supported).  Every block is reproducible with one CLI command.
+
+## Benchmarks
+
+See [BENCHMARKS.md](BENCHMARKS.md) for measured `crc32` throughput across every (language × variant) cell at 1 KiB and 1 MiB.  Within each language the trend is monotonic (`bit-by-bit < table < slice-by-8`) but the absolute speedup at each step depends heavily on how well the compiler optimizes the baseline — Rust's LLVM-vectorized bit-by-bit nearly ties its table-driven, while C# / Python see a 10×+ jump just from table-driven because their bitwise loops aren't vectorized.  VHDL and Verilog are excluded: they're simulator references for hardware datapaths, not software runtime.
 
 ## Acknowledgments
 
