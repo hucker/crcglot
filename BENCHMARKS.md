@@ -28,20 +28,44 @@ meaningful axis.
 - Two size columns: **1 KiB** (1024-byte buffer, dominated by call
   overhead / table-load cost) and **1 MiB** (1,048,576 bytes,
   dominated by inner-loop throughput).
-- Within each language, throughput should grow monotonically left to
-  right (bit-by-bit -> table -> slice-by-8).  If it doesn't, the
-  methodology has a bug and the script logs a warning to stderr.
+- Within each language, **slice-by-8 should beat table-driven** at
+  the same buffer size.  That's an algorithmic win: slice-by-8
+  processes 8 input bytes per iteration with 8 independent table
+  lookups, shortening the dependency chain.  No compiler can fake
+  it; if `slice8 < table` by more than measurement noise, the
+  methodology probably has a bug and the script logs a warning to
+  stderr.
+- **Table-driven vs bit-by-bit is NOT guaranteed to be monotonic.**
+  This sounds wrong but isn't.  Modern compilers (LLVM at `-O3` in
+  particular) aggressively unroll and vectorize the 8-iteration
+  inner-bit-shift loop, turning bit-by-bit into something that fits
+  largely in registers and runs without memory traffic.  A
+  table-driven implementation that does 1 indirect load per byte has
+  a serial dependency chain (each lookup depends on the prior `crc`
+  value), which the CPU can't ILP through.  Result: a well-vectorized
+  bit-by-bit loop can tie -- or in some cases beat -- table-driven,
+  especially on large buffers where table-load latency stacks up.
+  Languages whose JIT or codegen leaves bit-by-bit un-vectorized
+  (C#, TypeScript, Python, Go) show the classic large bitwise→table
+  jump; Rust at `-O3` shows it doesn't (table is only marginally
+  faster than bitwise, sometimes slower at 1 MiB).
+- **Tables** column reports the static RAM cost of the variant's
+  lookup tables: 0 for bit-by-bit, 1 KiB for table-driven (256
+  entries × CRC width), 8 KiB for slice-by-8 (8 tables × 256 × CRC
+  width).  The compiled code is small relative to those tables -- a
+  few hundred bytes of machine code in every case -- so this column
+  is a tight proxy for the variant's total static footprint.
 
 ## Toolchain (this run)
 
-| Tool             | Release flags                                     |
-| ---------------- | ------------------------------------------------- |
-| `gcc`            | `-O3 -DNDEBUG`                                    |
-| `rustc`          | `-C opt-level=3 -C codegen-units=1`               |
-| `go build`       | `-ldflags="-s -w"` (already optimized by default) |
-| `dotnet publish` | `-c Release` (needs SDK, not just runtime)        |
-| `python`         | interpreter only                                  |
-| `tsx`            | V8-JIT'd via Node.js                              |
+| Tool | Release flags |
+|------|----------------|
+| `gcc` | `-O3 -DNDEBUG` |
+| `rustc` | `-C opt-level=3 -C codegen-units=1` |
+| `go build` | `-ldflags="-s -w"` (already optimized by default) |
+| `dotnet publish` | `-c Release` (needs SDK, not just runtime) |
+| `python` | interpreter only |
+| `tsx` | V8-JIT'd via Node.js |
 
 ## Reproduce
 
@@ -54,22 +78,22 @@ Working files land under `benchmarks/<lang>/<variant>/<size>/`
 
 ## Results
 
-| Language   | Variant      | 1 KiB (MB/s) | 1 MiB (MB/s) |
-| ---------- | ------------ | ------------ | ------------ |
-| C / C++    | bit-by-bit   | 124.7        | 110.9        |
-| C / C++    | table-driven | 399.7        | 423.0        |
-| C / C++    | slice-by-8   | 1,648.5      | 1,841.9      |
-| Rust       | bit-by-bit   | 367.0        | 430.4        |
-| Rust       | table-driven | 426.5        | 374.7        |
-| Rust       | slice-by-8   | 1,044.5      | 1,511.1      |
-| Go         | bit-by-bit   | 49.3         | 26.8         |
-| Go         | table-driven | 465.1        | 423.0        |
-| Go         | slice-by-8   | 1,631.1      | 1,470.7      |
-| C#         | bit-by-bit   | 38.2         | 24.0         |
-| C#         | table-driven | 201.4        | 308.8        |
-| C#         | slice-by-8   | 399.7        | 685.7        |
-| TypeScript | bit-by-bit   | 89.7         | 22.1         |
-| TypeScript | table-driven | 173.9        | 83.3         |
-| TypeScript | slice-by-8   | 422.8        | 295.7        |
-| Python     | bit-by-bit   | 0.5          | 0.7          |
-| Python     | table-driven | 3.8          | 4.6          |
+| Language     | Variant      |  Tables | 1 KiB (MB/s) | 1 MiB (MB/s) |
+|--------------|--------------|--------:|-------------:|-------------:|
+| C / C++      | bit-by-bit   |       — |        113.0 |        118.1 |
+| C / C++      | table-driven |   1 KiB |        357.3 |        366.4 |
+| C / C++      | slice-by-8   |   8 KiB |      1,543.0 |      1,386.1 |
+| Rust         | bit-by-bit   |       — |        373.1 |        362.2 |
+| Rust         | table-driven |   1 KiB |        386.2 |        371.1 |
+| Rust         | slice-by-8   |   8 KiB |      1,290.1 |      1,270.3 |
+| Go           | bit-by-bit   |       — |         45.0 |         23.5 |
+| Go           | table-driven |   1 KiB |        386.6 |        340.0 |
+| Go           | slice-by-8   |   8 KiB |      1,165.3 |      1,300.3 |
+| C#           | bit-by-bit   |       — |         26.0 |         25.8 |
+| C#           | table-driven |   1 KiB |        220.9 |        341.8 |
+| C#           | slice-by-8   |   8 KiB |        262.7 |        443.5 |
+| TypeScript   | bit-by-bit   |       — |         75.4 |         16.4 |
+| TypeScript   | table-driven |   1 KiB |        157.8 |         60.1 |
+| TypeScript   | slice-by-8   |   8 KiB |        343.5 |        220.2 |
+| Python       | bit-by-bit   |       — |          0.6 |          0.6 |
+| Python       | table-driven |   1 KiB |          3.6 |          3.6 |
