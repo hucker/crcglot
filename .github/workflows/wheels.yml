@@ -36,9 +36,13 @@ jobs:
         # One runner per (platform, arch).  abi3 means one wheel each,
         # good for every CPython 3.11+.
         os:
-          - ubuntu-latest      # manylinux x86_64 (desktops, servers, WSL)
-          - ubuntu-24.04-arm   # manylinux aarch64 (Raspberry Pi 64-bit, Graviton)
-          - windows-latest     # win_amd64
+          # Linux runners build BOTH manylinux (glibc) and musllinux
+          # (Alpine/musl) wheels for their arch -- so these two runners
+          # yield four Linux wheels total.
+          - ubuntu-latest      # manylinux + musllinux x86_64 (desktops, servers, WSL, Docker)
+          - ubuntu-24.04-arm   # manylinux + musllinux aarch64 (Raspberry Pi 64-bit, Graviton)
+          - windows-latest     # win_amd64 (Intel / AMD)
+          - windows-11-arm     # win_arm64 (Surface Pro X, Snapdragon X laptops)
           - macos-13           # macOS x86_64 (Intel)
           - macos-14           # macOS arm64 (Apple Silicon)
     steps:

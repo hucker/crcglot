@@ -74,10 +74,13 @@ py-limited-api = "cp311"
 # won't rebuild for cp312+.
 build = "cp311-*"
 build-frontend = "build"
-# Skip the niches: musllinux (Alpine) and 32-bit aren't worth the
-# build time for a CRC library; desktop/server/Pi are all glibc 64-bit.
-# piwheels covers exotic ARMv7 from the sdist for the rare 32-bit Pi.
-skip = ["*-musllinux_*", "*_i686", "*-win32"]
+# Production coverage: build glibc (manylinux) AND musl (musllinux)
+# Linux wheels so Alpine / minimal-Docker users get a binary too.
+# Only 32-bit targets are skipped -- i686 (32-bit x86) and win32 are
+# legacy; no modern CRC workload runs there, and supporting them would
+# pull in EOL toolchains.  The rare 32-bit ARMv7 Raspberry Pi is
+# covered by piwheels building from the sdist.
+skip = ["*_i686", "*-win32"]
 # Run the C-extension parity suite inside each freshly-built wheel,
 # against the INSTALLED extension (not the source tree).  Override the
 # project's addopts (which pull in pytest-cov / pytest-xdist) so the

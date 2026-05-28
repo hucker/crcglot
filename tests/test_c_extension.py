@@ -200,3 +200,52 @@ class TestCExtensionEdgeCases:
         expected = _generic_crc_python(buf, *params)
         # Assert
         assert actual == expected
+
+
+class TestCExtensionTableCache:
+    """Exercise the (width, poly, refin) lookup-table cache.
+
+    The parameterized catalogue parity tests run under pytest-xdist
+    (split across workers), so no single process necessarily sees more
+    than ``CACHE_CAP`` distinct algorithms.  These tests run many
+    distinct polynomials in ONE process to hit cache-hit, cache-fill,
+    and cache-overflow (build-and-free) paths -- the last is otherwise
+    untested.
+    """
+
+    def test_all_catalogue_algorithms_one_process(self):
+        # Act + Assert -- every catalogue algorithm, in-process, so the
+        # cache fills past CACHE_CAP (71 algorithms > 64).  Each must
+        # still match the pure-Python engine.
+        for name, algo in ALGORITHMS.items():
+            args = (
+                _CHECK_INPUT, algo.width, algo.poly, algo.init,
+                algo.refin, algo.refout, algo.xorout,
+            )
+            actual = _c.c_generic_crc(*args)
+            expected = _generic_crc_python(*args)
+            assert actual == expected, (
+                f"{name}: C ({actual:#x}) != Python ({expected:#x})"
+            )
+
+    def test_repeated_calls_same_algorithm_use_cache(self):
+        # Act -- many calls for one algorithm; tables built once, reused.
+        # Correctness is the observable; the cache hit is internal.
+        params = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+        results = {_c.c_generic_crc(_CHECK_INPUT, *params) for _ in range(100)}
+        # Assert -- all identical, and correct.
+        assert results == {0xCBF43926}, f"unstable/incorrect: {results}"
+
+    def test_many_distinct_polys_overflow_cache(self):
+        # Arrange -- 200 distinct width-32 polynomials, well past
+        # CACHE_CAP=64, forcing the build-and-free overflow path.
+        # Act + Assert -- each agrees with the Python engine.
+        for k in range(200):
+            poly = (0x04C11DB7 ^ (k * 0x9E3779B1)) & 0xFFFFFFFF
+            poly |= 1  # keep it a plausible (odd) CRC polynomial
+            args = (_CHECK_INPUT, 32, poly, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+            actual = _c.c_generic_crc(*args)
+            expected = _generic_crc_python(*args)
+            assert actual == expected, (
+                f"poly={poly:#x}: C ({actual:#x}) != Python ({expected:#x})"
+            )
