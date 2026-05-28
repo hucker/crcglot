@@ -18,7 +18,12 @@ crcglot c crc32 file=mycrc
 
 That's it.  You now have `mycrc.h` and `mycrc.c` — drop-in CRC-32 with a built-in `_self_test()` you can call to verify it matches the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
 
-Different language?  Swap `c` for `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `typescript`.  Different algorithm?  Run `crcglot list` to browse all 71.
+**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` for all 71), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
+
+```bash
+crcglot rust crc32 --fast file=mycrc     # fastest Rust crc32
+crcglot c crc8 --small                    # smallest C crc8, to stdout
+```
 
 ### Installation
 
@@ -81,23 +86,24 @@ crcglot info crc64-xz
 
 ### `crcglot {c | csharp | go | python | rust | typescript | verilog | vhdl} <algorithm> [options...] [tokens...]`
 
-Generate source code for the chosen target language.
+Generate source code for the chosen target language.  Pick your intent — crcglot picks the implementation:
 
-| Option / token       | Effect                                                                                              |
-| -------------------- | --------------------------------------------------------------------------------------------------- |
-| (default) bit-by-bit | Smallest code, zero RAM table, slowest.  All widths.                                                |
-| `--table`            | 256-entry lookup table.  Typically ~2-15× over bit-by-bit (compiler-dependent).  All widths.        |
-| `--slice8`           | 8 lookup tables.  Typically ~2-5× over `--table`.  CRC-32 / CRC-64, compiled targets only.          |
-| `--custom`           | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                         |
-| `file=STEM`          | Write to disk (extension picked per language; see below).  Omit for stdout.                         |
-| `symbol=NAME`        | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given. |
+| Option / token | Effect                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------- |
+| `--small`      | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                     |
+| `--fast`       | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise.    |
+| `--custom`     | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                             |
+| `file=STEM`    | Write to disk (extension picked per language; see below).  Omit for stdout.                             |
+| `symbol=NAME`  | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given.     |
 
 File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; TypeScript `.ts`.
 
+**Expert overrides** (you usually don't need these — `--fast` chooses for you): `--table` forces the 256-entry single-table form, and `--slice8` forces the 8-table form.  They exist for the rare case where you want the *middle* of the size/speed curve explicitly — e.g. a RAM-constrained target where the 1 KiB table is fine but slice-by-8's 8 KiB isn't.  `--slice8` is CRC-32/64 + compiled targets only.
+
 Rules:
 
-- `--table` and `--slice8` are mutually exclusive (exit 2 if both given).
-- `--slice8 python` silently falls back to `--table` (CPython's per-int overhead eats the slice-by-8 speedup; stderr warns).
+- The variant selectors `--small` / `--fast` / `--table` / `--slice8` are mutually exclusive — pick at most one (exit 2 otherwise).  No selector = `--small`.
+- `--slice8 python` silently falls back to `--table` (CPython's per-int overhead eats the slice-by-8 speedup; stderr warns).  `--fast` never needs this fallback — it only picks slice-by-8 where it actually applies.
 - Without `file=`, output goes to stdout.  For C, header is emitted first, then source.
 - C / Rust / VHDL files embed `<symbol>_self_test()` returning 0 on success.  In constrained embedded targets, standard toolchain flags (`-Wl,--gc-sections` for C, LTO for Rust) strip whatever you don't call.
 
@@ -197,7 +203,9 @@ Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fas
 
 > **Performance, stated honestly:** with the C extension, crcglot computes any of the 71 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
 
-`crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` computes any catalogue algorithm (or custom polynomial) and transparently picks the fastest available path:
+At runtime there's **no variant choice to make** — the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
+
+Under the hood it dispatches three ways (you never select among them):
 
 1. **IEEE CRC-32 / JAMCRC → stdlib `zlib.crc32`** (hardware CRC folding — PCLMULQDQ on x86, PMULL / `crc32` instructions on ARM): tens of GB/s.  No software CRC out-runs silicon, so crcglot borrows the stdlib's path for the algorithms it covers.
 2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s, ~2,000× over pure Python.

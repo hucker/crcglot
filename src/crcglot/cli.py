@@ -125,23 +125,41 @@ def _cmd_info(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
-    """Generate source code for the given language."""
-    use_table = args.table
-    use_slice8 = args.slice8
+def _resolve_variant(
+    *,
+    small: bool,
+    fast: bool,
+    table: bool,
+    slice8: bool,
+    lang: str,
+    width: int,
+) -> tuple[bool, bool, str | None]:
+    """Map the chosen variant selector to ``(use_table, use_slice8)``.
 
-    if use_slice8 and use_table:
-        print(
-            "Error: --slice8 and --table are mutually exclusive "
-            "(slice-by-8 already uses tables, just 8 of them).",
-            file=sys.stderr,
-        )
-        return 2
-    # Slice-by-8 fallback: if the user asked for it but the chosen
-    # language doesn't list it in its supported variants, downgrade to
-    # --table with a stderr note.  Reads the truth from LANGUAGES so
-    # there's no parallel list to keep in sync.
-    if use_slice8 and "slice8" not in LANGUAGES[lang].variants:
+    ``--small`` / ``--fast`` are the intent front door; ``--table`` /
+    ``--slice8`` are expert overrides.  ``--fast`` picks the fastest
+    implementation the (language, width) actually supports -- slice-by-8
+    for width 32/64 on languages that emit it, table-driven otherwise --
+    so it never errors and needs no fallback.  ``--small`` (or no
+    selector) is bit-by-bit.
+
+    Returns ``(use_table, use_slice8, note)``; ``note`` is an optional
+    stderr message for the explicit-``--slice8`` -> table fallback on
+    languages that don't emit slice-by-8.  ``LANGUAGES[lang].variants``
+    is the single source of truth for capability.
+    """
+    variants = LANGUAGES[lang].variants
+    if fast:
+        if width in (32, 64) and "slice8" in variants:
+            return (False, True, None)
+        if "table" in variants:
+            return (True, False, None)
+        return (False, False, None)
+    if table:
+        return (True, False, None)
+    if slice8:
+        if "slice8" in variants:
+            return (False, True, None)
         if lang == "python":
             note = (
                 "Note: --slice8 is slower than --table in CPython "
@@ -152,9 +170,34 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 f"Note: --slice8 is not implemented for {lang}; "
                 f"using --table instead."
             )
-        print(note, file=sys.stderr)
-        use_slice8 = False
-        use_table = True
+        return (True, False, note)
+    # --small or no selector: bit-by-bit.
+    return (False, False, None)
+
+
+def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
+    """Generate source code for the given language."""
+    # At most one variant selector.  Intent flags (--small/--fast) and
+    # the expert overrides (--table/--slice8) all pick the same single
+    # axis, so more than one is ambiguous.
+    chosen = [
+        flag for flag, on in (
+            ("--small", args.small),
+            ("--fast", args.fast),
+            ("--table", args.table),
+            ("--slice8", args.slice8),
+        ) if on
+    ]
+    if len(chosen) > 1:
+        print(
+            f"Error: {', '.join(chosen)} are mutually exclusive -- pick "
+            "one variant selector (or none for the default bit-by-bit).",
+            file=sys.stderr,
+        )
+        return 2
+    # Variant resolution is deferred to _resolve_variant in the custom /
+    # catalogue paths below, because --fast depends on the algorithm
+    # width (slice-by-8 only applies to width 32/64).
 
     # Build kv dict from positional tokens (for --custom path: width=N
     # poly=X ..., plus file=STEM / symbol=NAME in any path).
@@ -194,6 +237,13 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
+        use_table, use_slice8, note = _resolve_variant(
+            small=args.small, fast=args.fast,
+            table=args.table, slice8=args.slice8,
+            lang=lang, width=width,
+        )
+        if note:
+            print(note, file=sys.stderr)
         check = generic_crc(b"123456789", width, poly, init, refin, refout, xorout)
         custom_name = kv.get("name") or "crc_custom"
         desc = kv.get("desc") or (
@@ -242,6 +292,13 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
+        use_table, use_slice8, note = _resolve_variant(
+            small=args.small, fast=args.fast,
+            table=args.table, slice8=args.slice8,
+            lang=lang, width=ALGORITHMS[name].width,
+        )
+        if note:
+            print(note, file=sys.stderr)
         symbol = (
             symbol_override
             or (_symbol_from_stem(file_stem) if file_stem else None)
@@ -299,16 +356,30 @@ def build_parser() -> argparse.ArgumentParser:
     # Or: crcglot c --custom width=... poly=... ...
     for lang in LANGUAGES:
         p = subs.add_parser(lang, help=f"Generate {lang.upper()} source code")
+        # Intent front door (pick one): --small / --fast.  crcglot maps
+        # them to the right implementation for the language and width.
+        p.add_argument(
+            "--small", action="store_true",
+            help="Smallest code, no lookup table (bit-by-bit). The default.",
+        )
+        p.add_argument(
+            "--fast", action="store_true",
+            help=(
+                "Fastest implementation the target supports "
+                "(slice-by-8 for width 32/64, else table-driven)."
+            ),
+        )
+        # Expert overrides: name the exact implementation.  Most users
+        # want --small / --fast instead.
         p.add_argument(
             "--table", action="store_true",
-            help="Use 256-entry lookup table (4-8x faster)",
+            help="Expert: 256-entry lookup table (the middle size point).",
         )
         p.add_argument(
             "--slice8", action="store_true",
             help=(
-                "Use slice-by-8 (5-10x faster than --table). "
-                "Compiled-software targets; widths 32 or 64 only. "
-                "Accepted for python but falls back to --table."
+                "Expert: slice-by-8 (8 tables). Width 32/64, compiled "
+                "targets only; python / unsupported fall back to --table."
             ),
         )
         p.add_argument(
