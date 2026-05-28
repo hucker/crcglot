@@ -59,6 +59,33 @@ sources = ["src/crcglot/_c.c"]
 define-macros = [["Py_LIMITED_API", "0x030B0000"]]
 py-limited-api = true
 
+# Tag the built wheel ``cp311-abi3`` (not ``cpXYZ-cpXYZ``).  The
+# ext-module's ``py-limited-api`` compiles against the Stable ABI; this
+# tells ``bdist_wheel`` to *tag* the wheel abi3 so pip on any CPython
+# 3.11+ accepts the single artifact.  Both must agree on cp311.
+[tool.distutils.bdist_wheel]
+py-limited-api = "cp311"
+
+[tool.cibuildwheel]
+# Build ONE abi3 wheel per platform on CPython 3.11.  Because the
+# extension is py-limited-api (Py_LIMITED_API=3.11), that single wheel
+# tagged ``cp311-abi3`` satisfies 3.11, 3.12, 3.13, 3.14, ... -- no
+# per-version builds.  cibuildwheel auto-detects the abi3 tag and
+# won't rebuild for cp312+.
+build = "cp311-*"
+build-frontend = "build"
+# Skip the niches: musllinux (Alpine) and 32-bit aren't worth the
+# build time for a CRC library; desktop/server/Pi are all glibc 64-bit.
+# piwheels covers exotic ARMv7 from the sdist for the rare 32-bit Pi.
+skip = ["*-musllinux_*", "*_i686", "*-win32"]
+# Run the C-extension parity suite inside each freshly-built wheel,
+# against the INSTALLED extension (not the source tree).  Override the
+# project's addopts (which pull in pytest-cov / pytest-xdist) so the
+# isolated test venv only needs pytest.  cibuildwheel also re-runs this
+# on cp312/cp313 to prove the abi3 wheel works across versions.
+test-requires = "pytest"
+test-command = "python -m pytest {project}/tests/test_c_extension.py -o addopts='' -q"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=crcglot --cov-report=term-missing -n auto"
