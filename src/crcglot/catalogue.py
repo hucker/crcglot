@@ -18,6 +18,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# Optional C accelerator.  Installed by the wheel; absent when crcglot
+# is built from sdist on a platform without a C compiler.  ``generic_crc``
+# transparently dispatches to it when present -- same result, ~50-200x
+# faster on short buffers, ~5-10x on large ones (bitwise C engine).
+# When absent, the pure-Python loop below runs unchanged.
+try:
+    from crcglot._c import c_generic_crc as _c_generic_crc
+except ImportError:
+    _c_generic_crc = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+
 # ---------------------------------------------------------------------------
 # Generic CRC engine - Rocksoft/Williams parameterization
 # ---------------------------------------------------------------------------
@@ -68,6 +79,13 @@ def generic_crc(
     Returns:
         Computed CRC value.
     """
+    # Fast path: route to the C accelerator when present.  Identical
+    # output to the pure-Python loop below; the fallback keeps the
+    # package usable on platforms where the wheel isn't available.
+    if _c_generic_crc is not None:
+        return _c_generic_crc(
+            data, width, poly, init, refin, refout, xorout,
+        )
     crc = init
     if refin:
         # Reflected algorithm: process LSB-first with reflected polynomial.

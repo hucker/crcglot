@@ -11,7 +11,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -32,8 +31,33 @@ Repository = "https://github.com/hucker/crcglot"
 Issues = "https://github.com/hucker/crcglot/issues"
 
 [build-system]
-requires = ["uv_build"]
-build-backend = "uv_build"
+# setuptools chosen because crcglot now ships a small CPython C
+# extension (``crcglot._c``).  The previous ``uv_build`` backend is
+# pure-Python only.  setuptools is the most-documented PEP 517
+# backend for native extensions and abi3 wheel-building; cibuildwheel
+# tooling assumes it; mountains of examples online use it.
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Declare the C extension.  ``py-limited-api = true`` + Py_LIMITED_API
+# macro builds against CPython's *Stable ABI* pinned at 3.11: one wheel
+# per platform that works for every CPython 3.x from 3.11 onward,
+# including future versions.  3.11 (not 3.9) because the buffer
+# protocol the extension uses only entered the Stable ABI in 3.11 --
+# and crcglot's requires-python is >=3.11 regardless.  Crucial here
+# because the CRC algorithms are mathematically settled forever -- pay
+# the build matrix cost once, never rebuild on new Python releases.
+[[tool.setuptools.ext-modules]]
+name = "crcglot._c"
+sources = ["src/crcglot/_c.c"]
+define-macros = [["Py_LIMITED_API", "0x030B0000"]]
+py-limited-api = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
