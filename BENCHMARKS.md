@@ -87,31 +87,36 @@ Working files land under `benchmarks/<lang>/<variant>/<size>/`
 
 | Language     | Variant      |  Tables | 1 KiB (MB/s) | 1 MiB (MB/s) |
 |--------------|--------------|--------:|-------------:|-------------:|
-| C / C++      | bit-by-bit   |       — |         98.1 |        124.9 |
-| C / C++      | table-driven |   1 KiB |        345.6 |        385.2 |
-| C / C++      | slice-by-8   |   8 KiB |      1,603.4 |      1,762.5 |
-| Rust         | bit-by-bit   |       — |        348.9 |        369.6 |
-| Rust         | table-driven |   1 KiB |        368.0 |        395.4 |
-| Rust         | slice-by-8   |   8 KiB |      1,310.9 |      1,379.3 |
-| Go           | bit-by-bit   |       — |         43.2 |         22.7 |
-| Go           | table-driven |   1 KiB |        385.4 |        385.5 |
-| Go           | slice-by-8   |   8 KiB |      1,235.2 |      1,309.9 |
-| C#           | bit-by-bit   |       — |         29.2 |         23.9 |
-| C#           | table-driven |   1 KiB |        226.8 |        332.9 |
-| C#           | slice-by-8   |   8 KiB |        232.3 |        551.3 |
-| TypeScript   | bit-by-bit   |       — |         65.3 |         16.5 |
-| TypeScript   | table-driven |   1 KiB |        141.4 |         62.1 |
-| TypeScript   | slice-by-8   |   8 KiB |        329.7 |        240.2 |
-| Python       | bit-by-bit   |       — |          0.5 |          0.6 |
-| Python       | table-driven |   1 KiB |          3.4 |          3.4 |
+| C / C++      | bit-by-bit   |       — |        115.5 |        103.9 |
+| C / C++      | table-driven |   1 KiB |        396.5 |        423.6 |
+| C / C++      | slice-by-8   |   8 KiB |      1,617.9 |      1,816.7 |
+| Rust         | bit-by-bit   |       — |        372.0 |        378.0 |
+| Rust         | table-driven |   1 KiB |        380.3 |        447.7 |
+| Rust         | slice-by-8   |   8 KiB |      1,363.4 |      1,638.5 |
+| Go           | bit-by-bit   |       — |         56.0 |         27.4 |
+| Go           | table-driven |   1 KiB |        427.7 |        446.9 |
+| Go           | slice-by-8   |   8 KiB |      1,605.9 |      1,512.0 |
+| C#           | bit-by-bit   |       — |         35.0 |         28.2 |
+| C#           | table-driven |   1 KiB |        260.2 |        424.0 |
+| C#           | slice-by-8   |   8 KiB |        366.5 |        629.5 |
+| TypeScript   | bit-by-bit   |       — |         89.2 |         20.3 |
+| TypeScript   | table-driven |   1 KiB |        185.8 |         77.9 |
+| TypeScript   | slice-by-8   |   8 KiB |        420.9 |        281.0 |
+| Python       | bit-by-bit   |       — |          0.6 |          0.7 |
+| Python       | table-driven |   1 KiB |          4.8 |          4.6 |
 
 ## Runtime engines (`crcglot.generic_crc`)
 
-Throughput of crcglot's *runtime-parameterized* CRC engine on `crc32` -- the path `generic_crc(data, width, poly, ...)` takes at call time, NOT the generated pre-compiled code in the gallery above.  Pure Python is the always-available fallback; the C extension (`crcglot._c`, installed via the wheel / `crcglot[fast]`) is what `generic_crc` transparently dispatches to when present.  The extension auto-selects slice-by-8 for crc32 -- which is why a function *called from Python* lands in the same throughput band as the compiled-language slice-by-8 numbers above.
+Throughput of crcglot's *runtime* CRC paths on `crc32` -- what happens at call time, NOT the generated pre-compiled code in the gallery above.  Three rows:
+
+- **Pure Python** -- the always-available reference engine.
+- **C extension engine** -- `crcglot._c.c_generic_crc` (slice-by-8 for crc32); what the package uses when the wheel / `crcglot[fast]` is installed.  A function *called from Python* in the same throughput band as the compiled-language slice-by-8 numbers above.
+- **Public `generic_crc` dispatcher** -- for IEEE crc32 it delegates to the stdlib's hardware-accelerated `zlib.crc32` (PCLMULQDQ CRC folding), which is ~30x faster than any portable software engine.  No software CRC should try to out-run silicon, so crcglot borrows it for the one ubiquitous algorithm the stdlib accelerates, and uses its own C engine for the other 70.
 
 | Engine | 1 KiB (MB/s) | 1 MiB (MB/s) |
 |--------|-------------:|-------------:|
-| Pure Python (`_generic_crc_python`) |          0.7 |          0.8 |
-| C extension (`c_generic_crc`) |        708.8 |      1,152.0 |
+| Pure Python (`_generic_crc_python`) |          0.9 |          1.0 |
+| C extension engine (`c_generic_crc`) |        920.4 |      1,655.7 |
+| Public `generic_crc` (crc32 → `zlib.crc32`) |      1,875.5 |     48,248.3 |
 
-C extension speedup at 1 MiB: **~1,496x** over the pure-Python engine.
+C extension speedup at 1 MiB: **~1,712x** over the pure-Python engine.

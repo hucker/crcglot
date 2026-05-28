@@ -49,7 +49,7 @@ from crcglot import (
     generate_rust,
     generate_vhdl,
 )
-from crcglot.catalogue import generic_crc
+from crcglot.catalogue import _generic_crc_python, generic_crc
 
 
 # Reveng-derived canonical check values for the algorithms used in
@@ -273,6 +273,62 @@ class TestAlgorithmMetadata:
             assert 0 <= algo.init <= mask, f"{name}: init overflows width"
             assert 0 <= algo.xorout <= mask, f"{name}: xorout overflows width"
             assert 0 <= algo.check <= mask, f"{name}: check overflows width"
+
+
+class TestIeeeCrc32FastPath:
+    """``generic_crc`` delegates IEEE CRC-32 to the hardware-accelerated
+    stdlib ``zlib.crc32`` -- it must still return the correct value and
+    agree with the reference engine, across input shapes."""
+
+    def test_matches_reveng_check(self):
+        # Arrange -- the crc32 catalogue params.
+        algo = ALGORITHMS["crc32"]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        # Act
+        actual = generic_crc(b"123456789", *args)
+        # Assert
+        assert actual == 0xCBF43926, (
+            f"IEEE CRC-32 fast path gave {actual:#x}, expected 0xCBF43926"
+        )
+
+    def test_matches_stdlib_zlib(self):
+        # The delegated path must equal calling zlib directly.
+        import zlib
+        algo = ALGORITHMS["crc32"]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        for data in [b"", b"a", b"123456789", bytes(range(256)) * 10]:
+            actual = generic_crc(data, *args)
+            assert actual == zlib.crc32(data), (
+                f"delegated != zlib.crc32 for {len(data)}-byte input"
+            )
+
+    def test_matches_reference_engine(self):
+        # Delegation must agree with the pure-Python engine bit-for-bit
+        # -- proves zlib.crc32 really does compute the crc32 params.
+        algo = ALGORITHMS["crc32"]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        for data in [b"", b"\x00", b"123456789", b"The quick brown fox"]:
+            assert generic_crc(data, *args) == _generic_crc_python(data, *args)
+
+    def test_accepts_bytes_like(self):
+        # zlib.crc32 takes any buffer; the fast path must too.
+        algo = ALGORITHMS["crc32"]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        data = b"123456789"
+        assert generic_crc(bytearray(data), *args) == 0xCBF43926
+        assert generic_crc(memoryview(data), *args) == 0xCBF43926
 
 
 class TestGenerators:

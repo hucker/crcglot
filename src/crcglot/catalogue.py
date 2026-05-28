@@ -15,18 +15,30 @@ private so the public surface stays type-safe.
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 
 
 # Optional C accelerator.  Installed by the wheel; absent when crcglot
 # is built from sdist on a platform without a C compiler.  ``generic_crc``
-# transparently dispatches to it when present -- same result, ~50-200x
-# faster on short buffers, ~5-10x on large ones (bitwise C engine).
-# When absent, the pure-Python loop below runs unchanged.
+# transparently dispatches to it when present -- same result, slice-by-8
+# / table-driven speed (~1-2 GB/s).  When absent, the pure-Python loop
+# below runs unchanged.
 try:
     from crcglot._c import c_generic_crc as _c_generic_crc
 except ImportError:
     _c_generic_crc = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+
+# IEEE CRC-32 -- the parameters of the ``crc32`` catalogue entry.
+# ``zlib.crc32`` computes exactly this, and CPython's zlib is
+# hardware-accelerated on modern CPUs (PCLMULQDQ / VPCLMULQDQ CRC
+# folding), reaching tens of GB/s -- ~30x faster than our portable
+# software slice-by-8 and unbeatable without our own hardware paths.
+# So for this one (extremely common) algorithm we delegate to the
+# stdlib regardless of whether our C extension is built.  No software
+# CRC engine should try to out-run silicon.
+_IEEE_CRC32_PARAMS = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +64,7 @@ def _reflect(value: int, width: int) -> int:
 
 
 def generic_crc(
-    data: bytes,
+    data: bytes | bytearray | memoryview,
     width: int,
     poly: int,
     init: int,
@@ -67,12 +79,19 @@ def generic_crc(
     handing it to a ``generator_from_entry`` callable, or to verify a
     one-off CRC in the field without going through the catalogue.
 
-    Dispatches to the C accelerator (:func:`crcglot._c.c_generic_crc`)
-    when the extension is installed, otherwise runs the pure-Python
-    engine (:func:`_generic_crc_python`).  Both produce identical
-    output; the two are kept as separately-callable functions so the
-    speedup is measurable without uninstalling the extension and so
-    the test suite can assert C/Python parity directly.
+    Dispatch order (fastest applicable path wins):
+
+    1. IEEE CRC-32 -> :func:`zlib.crc32` (stdlib, hardware-accelerated,
+       tens of GB/s).  Applies even when our C extension is built --
+       silicon CRC folding beats portable software slice-by-8 ~30x.
+    2. Any other algorithm, C extension built -> ``c_generic_crc``
+       (slice-by-8 / table-driven, ~1-2 GB/s).
+    3. Otherwise -> :func:`_generic_crc_python` (the reference loop).
+
+    All three produce identical output.  The pure-Python and C engines
+    are kept as separately-callable functions so the speedup is
+    measurable without uninstalling the extension and so the test suite
+    can assert parity directly.
 
     Args:
         data: Payload bytes.
@@ -86,13 +105,15 @@ def generic_crc(
     Returns:
         Computed CRC value.
     """
+    if (width, poly, init, refin, refout, xorout) == _IEEE_CRC32_PARAMS:
+        return zlib.crc32(data)
     if _c_generic_crc is not None:
         return _c_generic_crc(data, width, poly, init, refin, refout, xorout)
     return _generic_crc_python(data, width, poly, init, refin, refout, xorout)
 
 
 def _generic_crc_python(
-    data: bytes,
+    data: bytes | bytearray | memoryview,
     width: int,
     poly: int,
     init: int,

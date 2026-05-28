@@ -59,7 +59,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from crcglot import ALGORITHMS, LANGUAGES  # noqa: E402
+from crcglot import ALGORITHMS, LANGUAGES, generic_crc  # noqa: E402
 # catalogue.py already resolves the C accelerator: ``_c_generic_crc``
 # is the C function when the extension is built, else None.  We read
 # it straight from there rather than re-doing the optional import.
@@ -869,14 +869,20 @@ def _time_inproc(fn, buf: bytes, args: tuple) -> float:
 
 
 def _run_runtime_engines() -> list[CellResult]:
-    """Benchmark crcglot's runtime-parameterized generic_crc on crc32:
-    the pure-Python engine and (if built) the C extension."""
+    """Benchmark crcglot's runtime CRC paths on crc32:
+
+    - the pure-Python engine,
+    - the C extension engine (if built),
+    - the public ``generic_crc`` dispatcher, which for IEEE crc32
+      delegates to hardware-accelerated ``zlib.crc32``.
+    """
     algo = ALGORITHMS[_ALGORITHM]
     tail = (algo.width, algo.poly, algo.init,
             algo.refin, algo.refout, algo.xorout)
     engines: list[tuple[str, object]] = [("python-runtime", _generic_crc_python)]
     if _c_generic_crc is not None:
         engines.append(("cpython-ext", _c_generic_crc))
+    engines.append(("dispatch", generic_crc))
 
     results: list[CellResult] = []
     for lang, fn in engines:
@@ -893,7 +899,8 @@ def _run_runtime_engines() -> list[CellResult]:
 
 _RUNTIME_LABEL = {
     "python-runtime": "Pure Python (`_generic_crc_python`)",
-    "cpython-ext": "C extension (`c_generic_crc`)",
+    "cpython-ext": "C extension engine (`c_generic_crc`)",
+    "dispatch": "Public `generic_crc` (crc32 → `zlib.crc32`)",
 }
 
 
@@ -905,21 +912,27 @@ def _render_runtime_section(results: list[CellResult]) -> str:
         "",
         "## Runtime engines (`crcglot.generic_crc`)",
         "",
-        "Throughput of crcglot's *runtime-parameterized* CRC engine on "
-        "`crc32` -- the path `generic_crc(data, width, poly, ...)` takes "
-        "at call time, NOT the generated pre-compiled code in the gallery "
-        "above.  Pure Python is the always-available fallback; the C "
-        "extension (`crcglot._c`, installed via the wheel / "
-        "`crcglot[fast]`) is what `generic_crc` transparently dispatches "
-        "to when present.  The extension auto-selects slice-by-8 for "
-        "crc32 -- which is why a function *called from Python* lands in "
-        "the same throughput band as the compiled-language slice-by-8 "
-        "numbers above.",
+        "Throughput of crcglot's *runtime* CRC paths on `crc32` -- what "
+        "happens at call time, NOT the generated pre-compiled code in the "
+        "gallery above.  Three rows:\n"
+        "\n"
+        "- **Pure Python** -- the always-available reference engine.\n"
+        "- **C extension engine** -- `crcglot._c.c_generic_crc` "
+        "(slice-by-8 for crc32); what the package uses when the wheel / "
+        "`crcglot[fast]` is installed.  A function *called from Python* "
+        "in the same throughput band as the compiled-language slice-by-8 "
+        "numbers above.\n"
+        "- **Public `generic_crc` dispatcher** -- for IEEE crc32 it "
+        "delegates to the stdlib's hardware-accelerated `zlib.crc32` "
+        "(PCLMULQDQ CRC folding), which is ~30x faster than any portable "
+        "software engine.  No software CRC should try to out-run silicon, "
+        "so crcglot borrows it for the one ubiquitous algorithm the stdlib "
+        "accelerates, and uses its own C engine for the other 70.",
         "",
         "| Engine | 1 KiB (MB/s) | 1 MiB (MB/s) |",
         "|--------|-------------:|-------------:|",
     ]
-    for lang in ("python-runtime", "cpython-ext"):
+    for lang in ("python-runtime", "cpython-ext", "dispatch"):
         r1k = next((r for r in rt if r.lang == lang and r.size == 1024), None)
         r1m = next(
             (r for r in rt if r.lang == lang and r.size == 1024 * 1024), None
