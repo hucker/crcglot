@@ -87,7 +87,13 @@ skip = ["*_i686", "*-win32"]
 # isolated test venv only needs pytest.  cibuildwheel also re-runs this
 # on cp312/cp313 to prove the abi3 wheel works across versions.
 test-requires = "pytest"
-test-command = "python -m pytest {project}/tests/test_c_extension.py -o addopts='' -q"
+# Clear the project's addopts (which pull in pytest-cov / pytest-xdist,
+# absent from this minimal test env) with an UNQUOTED empty value.
+# ``addopts=''`` would be bash-only -- cmd.exe on the Windows runners
+# keeps the quotes literal, mangling the invocation so pytest mis-scopes
+# and trips cibuildwheel's {project} sentinel.  ``addopts=`` is portable
+# across sh and cmd.
+test-command = "python -m pytest {project}/tests/test_c_extension.py -o addopts= -q"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
