@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.8.0 — 2026-05-28
+
+A fast **runtime CRC** engine ships as an optional C extension
+(`crcglot._c`), `--small` / `--fast` become the front door for picking an
+implementation, and releasing now publishes a cross-platform wheel matrix.
+
+### NEW: fast runtime CRC via `crcglot._c` ⚙️
+
+Until now crcglot only *generated* source code.  It now also computes
+CRCs directly — fast — for all 71 catalogue algorithms:
+
+```python
+from crcglot import generic_crc
+
+# CRC-32/ISO-HDLC over any bytes-like object
+crc = generic_crc(b"123456789", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+```
+
+`generic_crc` picks the fastest available path automatically — you don't
+choose:
+
+1. **zlib hardware** for IEEE CRC-32 and JAMCRC (PCLMULQDQ on x86, the
+   `crc32`/PMULL instructions on ARM),
+2. the **C extension** for every other algorithm — bit-by-bit, 256-entry
+   table, or slice-by-8 selected by width, with a per-`(width, poly,
+   refin)` table cache, releasing the GIL on large buffers,
+3. a **pure-Python** fallback when the extension isn't built — identical
+   results.
+
+The extension also exposes incremental and batch APIs:
+
+- `CrcStream(...)` — `update()` / `digest()` / `reset()` / `copy()` for
+  streaming,
+- `c_crc_many(...)` — checksum many buffers in one call.
+
+It ships as a single **abi3 wheel per platform** (one wheel covers
+CPython 3.11+, no per-version rebuilds), built and parity-tested across
+Linux (x86-64 + aarch64, glibc + musl), Windows (x64 + arm64), and macOS
+(arm64).
+
+### NEW: `--small` / `--fast` intent flags 🎛️
+
+Express *what you want*, not which table layout:
+
+```bash
+crcglot c crc32 --fast        # fastest the target + width support
+crcglot c crc32 --small       # smallest code (bit-by-bit; the default)
+```
+
+`--fast` resolves to slice-by-8 for width 32/64 where the language
+supports it, else a 256-entry table, else bit-by-bit.  `--table` and
+`--slice8` remain as explicit expert overrides, and default output is
+unchanged.
+
+### Release + publishing pipeline
+
+- Two-stage release scripts — `scripts/release_prep.py` and
+  `scripts/release_publish.py` — with a runbook (`scripts/RELEASE.md`).
+- Tagging a release triggers `wheels.yml` to build and publish every
+  platform wheel + the sdist to PyPI via OIDC trusted publishing; the old
+  single-platform `publish.yml` is gone.
+
+### Benchmarks
+
+`BENCHMARKS.md` gains a cross-language crc32 matrix (1 KiB / 1 MiB,
+release builds) plus pure-Python vs C-extension vs `generic_crc`
+runtime-engine comparisons.
+
 ## v0.7.0 — 2026-05-26
 
 Two new targets (TypeScript and Verilog), display metadata on
