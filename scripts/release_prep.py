@@ -11,7 +11,7 @@ Usage:
 What it does:
     1. Sanity-check git state (on main, clean, synced) + lint gate (ruff, ty)
     2. Cut rel/v<version> branch from main
-    3. Bump version in pyproject.toml; refresh uv.lock
+    3. Bump version in pyproject.toml
     4. Regenerate EXAMPLES.md (the generated gallery)
     5. Run the FULL pytest suite; refresh the README test-count + coverage badges
     6. Insert a CHANGELOG stub (raw git-log bullets + a TODO marker)
@@ -93,11 +93,6 @@ def bump_pyproject(version: str) -> None:
         die('could not find a single `version = "..."` line in pyproject.toml')
     path.write_text(new_text, encoding="utf-8")
     ok(f"pyproject.toml -> {version}")
-
-
-def refresh_uv_lock() -> None:
-    run(["uv", "lock"])
-    ok("uv.lock refreshed")
 
 
 # ── generated docs ──────────────────────────────────────────────────────────────
@@ -268,10 +263,14 @@ def cut_release_branch(version: str) -> None:
 
 
 def commit_release(version: str) -> None:
-    """Stage the release files and commit as ``Release v<version>``."""
+    """Stage the release files and commit as ``Release v<version>``.
+
+    Note: uv.lock is intentionally absent -- crcglot gitignores it (it is
+    a published library, not a pinned application), so staging it would
+    fail ``git add``.
+    """
     files = [
         "pyproject.toml",
-        "uv.lock",
         "EXAMPLES.md",
         "README.md",
         "CHANGELOG.md",
@@ -315,9 +314,8 @@ def main() -> None:
     step(2, "Cutting release branch...")
     cut_release_branch(version)
 
-    step(3, "Bumping version + refreshing uv.lock...")
+    step(3, "Bumping version...")
     bump_pyproject(version)
-    refresh_uv_lock()
 
     step(4, "Regenerating EXAMPLES.md...")
     regenerate_examples()
