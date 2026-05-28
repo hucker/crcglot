@@ -191,6 +191,52 @@ algo = AlgorithmInfo(
 code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 ```
 
+## Fast runtime CRC (optional C extension)
+
+Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.  `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` computes any of the 71 catalogue algorithms (or any custom polynomial) and transparently picks the fastest available path:
+
+1. **IEEE CRC-32 / JAMCRC → stdlib `zlib.crc32`** (hardware CRC folding — PCLMULQDQ on x86, PMULL / `crc32` instructions on ARM): tens of GB/s.  No software CRC out-runs silicon, so crcglot borrows the stdlib's path for the algorithms it covers.
+2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s, ~2,000× over pure Python.
+3. **No extension built → pure Python**: always works, just slow.
+
+The extension ships in the prebuilt wheels (`pip install crcglot` gets it on common platforms).  To force it / pull the build deps explicitly:
+
+```bash
+uv tool install "crcglot[fast]"     # or: pip install "crcglot[fast]"
+```
+
+It's a single abi3 wheel per platform (CPython 3.11+), and crcglot stays fully functional in pure Python if no wheel matches your platform.
+
+```python
+from crcglot import generic_crc
+
+# One-shot.  crc32 here rides the zlib hardware path automatically.
+crc = generic_crc(b"123456789", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+```
+
+### Streaming and batch (C extension)
+
+For chunked data and high-volume small-buffer workloads, the extension exposes two more shapes:
+
+```python
+from crcglot import _c   # present iff the extension is installed
+
+# Streaming -- bind the algorithm once, feed chunks, digest on demand
+# (hashlib idiom: update / digest / reset / copy).
+s = _c.CrcStream(width=32, poly=0x04C11DB7, init=0xFFFFFFFF,
+                 refin=True, refout=True, xorout=0xFFFFFFFF)
+for chunk in stream:
+    s.update(chunk)
+result = s.digest()
+
+# Batch -- CRC many buffers, paying the Python↔C transition once
+# (the win for framed protocols / packet streams).
+results = _c.c_crc_many(list_of_packets, 32, 0x04C11DB7, 0xFFFFFFFF,
+                        True, True, 0xFFFFFFFF)
+```
+
+See [BENCHMARKS.md](BENCHMARKS.md) for measured throughput of each runtime path against the generated-code gallery.
+
 ## Example output
 
 See [EXAMPLES.md](EXAMPLES.md) for the actual generated source for `crc32` across every language × implementation combination (C / Rust / Python / VHDL / Verilog / Go / C# / TypeScript crossed with bit-by-bit, table-driven, and slice-by-8 where supported).  Every block is reproducible with one CLI command.
