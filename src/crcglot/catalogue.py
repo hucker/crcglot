@@ -30,15 +30,35 @@ except ImportError:
     _c_generic_crc = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
-# IEEE CRC-32 -- the parameters of the ``crc32`` catalogue entry.
-# ``zlib.crc32`` computes exactly this, and CPython's zlib is
-# hardware-accelerated on modern CPUs (PCLMULQDQ / VPCLMULQDQ CRC
-# folding), reaching tens of GB/s -- ~30x faster than our portable
-# software slice-by-8 and unbeatable without our own hardware paths.
-# So for this one (extremely common) algorithm we delegate to the
-# stdlib regardless of whether our C extension is built.  No software
-# CRC engine should try to out-run silicon.
+# zlib hardware fast-paths.  CPython's ``zlib.crc32`` is hardware-
+# accelerated on modern CPUs (PCLMULQDQ / VPCLMULQDQ on x86, PMULL /
+# crc32 instructions on ARM), reaching tens of GB/s -- ~30x faster
+# than our portable software slice-by-8, and on every platform zlib
+# supports.  No software CRC engine should try to out-run silicon, so
+# ``generic_crc`` delegates to zlib for the algorithms it can compute,
+# regardless of whether our own C extension is built.
+#
+# ``zlib.crc32`` computes IEEE CRC-32 exactly: reflected, poly
+# 0x04C11DB7, init 0xFFFFFFFF, with a final XOR of 0xFFFFFFFF baked in.
+# That covers two catalogue algorithms cheaply:
+#
+#   - ``crc32`` (IEEE): zlib.crc32(data) verbatim.
+#   - ``crc32-jamcrc``: identical to IEEE-32 but xorout=0.  Since zlib
+#     applies xorout=0xFFFFFFFF internally, XOR it back out -- one
+#     extra op, still the full hardware path.
+#
+# The other 0x04C11DB7 variants (bzip2, mpeg-2, cksum) are
+# *non-reflected*; mapping them to zlib's reflected core needs a
+# per-byte bit-reversal pass that costs as much as just computing the
+# CRC, so they go through the C engine instead.  Keyed by the full
+# (width, poly, init, refin, refout, xorout) tuple -> transform fn.
 _IEEE_CRC32_PARAMS = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+_JAMCRC_PARAMS = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0x00000000)
+
+_ZLIB_FAST_PATHS = {
+    _IEEE_CRC32_PARAMS: zlib.crc32,
+    _JAMCRC_PARAMS: lambda data: zlib.crc32(data) ^ 0xFFFFFFFF,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -81,14 +101,15 @@ def generic_crc(
 
     Dispatch order (fastest applicable path wins):
 
-    1. IEEE CRC-32 -> :func:`zlib.crc32` (stdlib, hardware-accelerated,
-       tens of GB/s).  Applies even when our C extension is built --
-       silicon CRC folding beats portable software slice-by-8 ~30x.
+    1. A zlib hardware fast-path (IEEE crc32, crc32-jamcrc) ->
+       :func:`zlib.crc32` (stdlib, hardware-accelerated, tens of GB/s).
+       Applies even when our C extension is built -- silicon CRC
+       folding beats portable software slice-by-8 ~30x.
     2. Any other algorithm, C extension built -> ``c_generic_crc``
        (slice-by-8 / table-driven, ~1-2 GB/s).
     3. Otherwise -> :func:`_generic_crc_python` (the reference loop).
 
-    All three produce identical output.  The pure-Python and C engines
+    All paths produce identical output.  The pure-Python and C engines
     are kept as separately-callable functions so the speedup is
     measurable without uninstalling the extension and so the test suite
     can assert parity directly.
@@ -105,8 +126,11 @@ def generic_crc(
     Returns:
         Computed CRC value.
     """
-    if (width, poly, init, refin, refout, xorout) == _IEEE_CRC32_PARAMS:
-        return zlib.crc32(data)
+    fast_path = _ZLIB_FAST_PATHS.get(
+        (width, poly, init, refin, refout, xorout)
+    )
+    if fast_path is not None:
+        return fast_path(data)
     if _c_generic_crc is not None:
         return _c_generic_crc(data, width, poly, init, refin, refout, xorout)
     return _generic_crc_python(data, width, poly, init, refin, refout, xorout)

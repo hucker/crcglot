@@ -79,6 +79,7 @@
         "opensafety",
         "perfcounter",
         "PCLMULQDQ",
+        "PMULL",
         "PROFIBUS",
         "pytest",
         "refin",
