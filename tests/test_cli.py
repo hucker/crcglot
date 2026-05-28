@@ -354,6 +354,88 @@ class TestCodegenOptions:
         assert "slice8=True requires width" in err
 
 
+class TestCodegenIntentFlags:
+    """``--small`` / ``--fast`` are the intent front door: the user says
+    what they want and crcglot picks the implementation for the
+    (language, width).  ``--table`` / ``--slice8`` remain expert overrides."""
+
+    def test_fast_c_crc32_picks_slice8(self, capsys):
+        # width 32 + a slice8-capable language -> slice-by-8.
+        rc = main(["c", "crc32", "--fast"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc_slice_tables[8][256]" in out, "fast crc32 should be slice-by-8"
+
+    def test_fast_rust_crc64_picks_slice8(self, capsys):
+        # width 64 also gets slice-by-8.
+        rc = main(["rust", "crc64-xz", "--fast"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "CRC_SLICE_TABLES" in out, "fast crc64 should be slice-by-8"
+
+    def test_fast_narrow_width_picks_table(self, capsys):
+        # width 16 can't use slice-by-8, so --fast falls to table-driven --
+        # and must NOT error (unlike an explicit --slice8 on width 16).
+        rc = main(["c", "crc16-modbus", "--fast"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc_table[256]" in out, "fast crc16 should be table-driven"
+        assert "slice_tables" not in out, "width 16 has no slice-by-8"
+
+    def test_fast_python_picks_table(self, capsys):
+        # Python lists no slice8 variant, so --fast is table-driven, silently
+        # (no fallback note -- --fast never asks for an unsupported variant).
+        rc = main(["python", "crc32", "--fast"])
+        out, err = capsys.readouterr()
+        assert rc == 0
+        assert "_TABLE = (" in out, "fast python should be table-driven"
+        assert err == "", "--fast should not emit a fallback note"
+
+    def test_small_is_bit_by_bit(self, capsys):
+        rc = main(["c", "crc32", "--small"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc_table" not in out and "slice_tables" not in out, (
+            "--small should be bit-by-bit, no tables"
+        )
+
+    def test_small_matches_default(self, capsys):
+        # --small is the default; output must be byte-identical to no flag.
+        rc1 = main(["c", "crc32", "--small"])
+        small_out, _ = capsys.readouterr()
+        rc2 = main(["c", "crc32"])
+        default_out, _ = capsys.readouterr()
+        assert rc1 == 0 and rc2 == 0
+        assert small_out == default_out, "--small must equal the default output"
+
+    @pytest.mark.parametrize(
+        "flags",
+        [
+            ["--small", "--fast"],
+            ["--small", "--table"],
+            ["--fast", "--slice8"],
+            ["--fast", "--table"],
+            ["--small", "--fast", "--table", "--slice8"],
+        ],
+    )
+    def test_selectors_mutually_exclusive(self, flags, capsys):
+        rc = main(["c", "crc32", *flags])
+        _out, err = capsys.readouterr()
+        assert rc == 2, f"{flags} should be rejected"
+        assert "mutually exclusive" in err
+
+    def test_fast_custom_width32_picks_slice8(self, capsys):
+        # --fast resolves off the custom width= token too.
+        rc = main([
+            "c", "--custom", "--fast",
+            "width=32", "poly=0x04C11DB7", "init=0xFFFFFFFF",
+            "refin=true", "refout=true", "xorout=0xFFFFFFFF",
+        ])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert "crc_slice_tables[8][256]" in out
+
+
 class TestCodegenSymbolOverride:
     def test_symbol_overrides_function_name(self, capsys):
         rc = main(["python", "crc16-modbus", "symbol=my_check"])
