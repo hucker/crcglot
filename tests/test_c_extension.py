@@ -1,16 +1,20 @@
 """Tests for the C extension ``crcglot._c``.
 
-The extension is optional -- the pure-Python ``generic_crc`` in
-``crcglot.catalogue`` is always available.  All tests skip cleanly
+The extension is optional -- the pure-Python ``_generic_crc_python``
+in ``crcglot.catalogue`` is always available.  All tests skip cleanly
 when the extension isn't built (e.g. on a platform without a C
 compiler when installing from sdist).
 
 Two layers:
 
 * **Parity** (this file's core): every catalogue algorithm AND every
-  hardcoded reveng-canonical vector is computed via both the Python
-  ``generic_crc`` and the C ``c_generic_crc``, then asserted equal.
-  Drift in either direction surfaces here.
+  hardcoded reveng-canonical vector is computed via both
+  ``_generic_crc_python`` (the reference loop) and ``c_generic_crc``
+  (the C engine), then asserted equal.  We compare the two engines
+  *directly* rather than through the public ``generic_crc``, which
+  dispatches to C when the extension is present -- comparing through
+  it would silently compare C against itself.  Drift in either
+  direction surfaces here.
 
 * **Edge cases**: empty input, single byte, width boundaries (8 / 64),
   invalid width (out of range), and the buffer protocol acceptance
@@ -21,7 +25,8 @@ from __future__ import annotations
 
 import pytest
 
-from crcglot import ALGORITHMS, generic_crc
+from crcglot import ALGORITHMS
+from crcglot.catalogue import _generic_crc_python
 
 try:
     from crcglot import _c
@@ -46,29 +51,32 @@ _CHECK_INPUT = b"123456789"
 
 
 class TestCExtensionParityWithPython:
-    """The C extension must produce the same value as ``generic_crc``
-    for every algorithm in the catalogue, on the canonical reveng
-    check input.  Asserts on the catalogue's ``check`` field too --
-    so an off-by-one in the C engine surfaces both as a Python/C
-    disagreement AND as a reveng disagreement.
+    """The C extension must produce the same value as the pure-Python
+    engine for every catalogue algorithm, on the canonical reveng
+    check input.
+
+    Compares ``_generic_crc_python`` (the reference loop) directly
+    against ``_c.c_generic_crc`` -- NOT via the public ``generic_crc``,
+    which dispatches to C when the extension is present and would
+    otherwise have us comparing C against itself.  Also asserts both
+    against the catalogue's hardcoded ``check`` field, so an off-by-one
+    in either implementation surfaces as a real failure.
     """
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_c_matches_python_and_reveng(self, name):
         # Arrange
         algo = ALGORITHMS[name]
-
-        # Act
-        py_result = generic_crc(
-            _CHECK_INPUT, algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
-        )
-        c_result = _c.c_generic_crc(
+        args = (
             _CHECK_INPUT, algo.width, algo.poly, algo.init,
             algo.refin, algo.refout, algo.xorout,
         )
 
-        # Assert -- three-way: C == Python == reveng catalogue.
+        # Act -- run BOTH engines explicitly.
+        py_result = _generic_crc_python(*args)
+        c_result = _c.c_generic_crc(*args)
+
+        # Assert -- three-way: C == pure-Python == reveng catalogue.
         assert c_result == py_result, (
             f"{name}: C ({c_result:#x}) != Python ({py_result:#x})"
         )
@@ -128,7 +136,7 @@ class TestCExtensionEdgeCases:
             b"", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF,
         )
         # Assert -- matches the Python engine on the same empty input.
-        expected = generic_crc(
+        expected = _generic_crc_python(
             b"", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF,
         )
         assert actual == expected
@@ -140,7 +148,7 @@ class TestCExtensionEdgeCases:
         params = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
         # Act
         actual = _c.c_generic_crc(b"\x01", *params)
-        expected = generic_crc(b"\x01", *params)
+        expected = _generic_crc_python(b"\x01", *params)
         # Assert
         assert actual == expected
 
@@ -189,6 +197,6 @@ class TestCExtensionEdgeCases:
         # Act
         params = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
         actual = _c.c_generic_crc(buf, *params)
-        expected = generic_crc(buf, *params)
+        expected = _generic_crc_python(buf, *params)
         # Assert
         assert actual == expected

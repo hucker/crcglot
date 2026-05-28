@@ -67,6 +67,13 @@ def generic_crc(
     handing it to a ``generator_from_entry`` callable, or to verify a
     one-off CRC in the field without going through the catalogue.
 
+    Dispatches to the C accelerator (:func:`crcglot._c.c_generic_crc`)
+    when the extension is installed, otherwise runs the pure-Python
+    engine (:func:`_generic_crc_python`).  Both produce identical
+    output; the two are kept as separately-callable functions so the
+    speedup is measurable without uninstalling the extension and so
+    the test suite can assert C/Python parity directly.
+
     Args:
         data: Payload bytes.
         width: CRC bit width (8, 16, 32, etc.).
@@ -79,13 +86,28 @@ def generic_crc(
     Returns:
         Computed CRC value.
     """
-    # Fast path: route to the C accelerator when present.  Identical
-    # output to the pure-Python loop below; the fallback keeps the
-    # package usable on platforms where the wheel isn't available.
     if _c_generic_crc is not None:
-        return _c_generic_crc(
-            data, width, poly, init, refin, refout, xorout,
-        )
+        return _c_generic_crc(data, width, poly, init, refin, refout, xorout)
+    return _generic_crc_python(data, width, poly, init, refin, refout, xorout)
+
+
+def _generic_crc_python(
+    data: bytes,
+    width: int,
+    poly: int,
+    init: int,
+    refin: bool,
+    refout: bool,
+    xorout: int,
+) -> int:
+    """Pure-Python Rocksoft/Williams CRC engine.
+
+    The reference implementation -- always callable regardless of
+    whether the C extension is installed.  :func:`generic_crc`
+    dispatches to the C version when available; this is what it falls
+    back to, and what the parity tests / benchmarks compare against
+    directly.  Bit-identical to ``crcglot._c.c_generic_crc``.
+    """
     crc = init
     if refin:
         # Reflected algorithm: process LSB-first with reflected polynomial.
