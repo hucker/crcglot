@@ -11,7 +11,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -32,8 +31,69 @@ Repository = "https://github.com/hucker/crcglot"
 Issues = "https://github.com/hucker/crcglot/issues"
 
 [build-system]
-requires = ["uv_build"]
-build-backend = "uv_build"
+# setuptools chosen because crcglot now ships a small CPython C
+# extension (``crcglot._c``).  The previous ``uv_build`` backend is
+# pure-Python only.  setuptools is the most-documented PEP 517
+# backend for native extensions and abi3 wheel-building; cibuildwheel
+# tooling assumes it; mountains of examples online use it.
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Declare the C extension.  ``py-limited-api = true`` + Py_LIMITED_API
+# macro builds against CPython's *Stable ABI* pinned at 3.11: one wheel
+# per platform that works for every CPython 3.x from 3.11 onward,
+# including future versions.  3.11 (not 3.9) because the buffer
+# protocol the extension uses only entered the Stable ABI in 3.11 --
+# and crcglot's requires-python is >=3.11 regardless.  Crucial here
+# because the CRC algorithms are mathematically settled forever -- pay
+# the build matrix cost once, never rebuild on new Python releases.
+[[tool.setuptools.ext-modules]]
+name = "crcglot._c"
+sources = ["src/crcglot/_c.c"]
+define-macros = [["Py_LIMITED_API", "0x030B0000"]]
+py-limited-api = true
+
+# Tag the built wheel ``cp311-abi3`` (not ``cpXYZ-cpXYZ``).  The
+# ext-module's ``py-limited-api`` compiles against the Stable ABI; this
+# tells ``bdist_wheel`` to *tag* the wheel abi3 so pip on any CPython
+# 3.11+ accepts the single artifact.  Both must agree on cp311.
+[tool.distutils.bdist_wheel]
+py-limited-api = "cp311"
+
+[tool.cibuildwheel]
+# Build ONE abi3 wheel per platform on CPython 3.11.  Because the
+# extension is py-limited-api (Py_LIMITED_API=3.11), that single wheel
+# tagged ``cp311-abi3`` satisfies 3.11, 3.12, 3.13, 3.14, ... -- no
+# per-version builds.  cibuildwheel auto-detects the abi3 tag and
+# won't rebuild for cp312+.
+build = "cp311-*"
+build-frontend = "build"
+# Production coverage: build glibc (manylinux) AND musl (musllinux)
+# Linux wheels so Alpine / minimal-Docker users get a binary too.
+# Only 32-bit targets are skipped -- i686 (32-bit x86) and win32 are
+# legacy; no modern CRC workload runs there, and supporting them would
+# pull in EOL toolchains.  The rare 32-bit ARMv7 Raspberry Pi is
+# covered by piwheels building from the sdist.
+skip = ["*_i686", "*-win32"]
+# Run the C-extension parity suite inside each freshly-built wheel,
+# against the INSTALLED extension (not the source tree).  Override the
+# project's addopts (which pull in pytest-cov / pytest-xdist) so the
+# isolated test venv only needs pytest.  cibuildwheel also re-runs this
+# on cp312/cp313 to prove the abi3 wheel works across versions.
+test-requires = "pytest"
+# Clear the project's addopts (which pull in pytest-cov / pytest-xdist,
+# absent from this minimal test env) with an UNQUOTED empty value.
+# ``addopts=''`` would be bash-only -- cmd.exe on the Windows runners
+# keeps the quotes literal, mangling the invocation so pytest mis-scopes
+# and trips cibuildwheel's {project} sentinel.  ``addopts=`` is portable
+# across sh and cmd.
+test-command = "python -m pytest {project}/tests/test_c_extension.py -o addopts= -q"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

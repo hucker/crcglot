@@ -15,7 +15,50 @@ private so the public surface stays type-safe.
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
+
+
+# Optional C accelerator.  Installed by the wheel; absent when crcglot
+# is built from sdist on a platform without a C compiler.  ``generic_crc``
+# transparently dispatches to it when present -- same result, slice-by-8
+# / table-driven speed (~1-2 GB/s).  When absent, the pure-Python loop
+# below runs unchanged.
+try:
+    from crcglot._c import c_generic_crc as _c_generic_crc
+except ImportError:
+    _c_generic_crc = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+
+# zlib hardware fast-paths.  CPython's ``zlib.crc32`` is hardware-
+# accelerated on modern CPUs (PCLMULQDQ / VPCLMULQDQ on x86, PMULL /
+# crc32 instructions on ARM), reaching tens of GB/s -- ~30x faster
+# than our portable software slice-by-8, and on every platform zlib
+# supports.  No software CRC engine should try to out-run silicon, so
+# ``generic_crc`` delegates to zlib for the algorithms it can compute,
+# regardless of whether our own C extension is built.
+#
+# ``zlib.crc32`` computes IEEE CRC-32 exactly: reflected, poly
+# 0x04C11DB7, init 0xFFFFFFFF, with a final XOR of 0xFFFFFFFF baked in.
+# That covers two catalogue algorithms cheaply:
+#
+#   - ``crc32`` (IEEE): zlib.crc32(data) verbatim.
+#   - ``crc32-jamcrc``: identical to IEEE-32 but xorout=0.  Since zlib
+#     applies xorout=0xFFFFFFFF internally, XOR it back out -- one
+#     extra op, still the full hardware path.
+#
+# The other 0x04C11DB7 variants (bzip2, mpeg-2, cksum) are
+# *non-reflected*; mapping them to zlib's reflected core needs a
+# per-byte bit-reversal pass that costs as much as just computing the
+# CRC, so they go through the C engine instead.  Keyed by the full
+# (width, poly, init, refin, refout, xorout) tuple -> transform fn.
+_IEEE_CRC32_PARAMS = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+_JAMCRC_PARAMS = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0x00000000)
+
+_ZLIB_FAST_PATHS = {
+    _IEEE_CRC32_PARAMS: zlib.crc32,
+    _JAMCRC_PARAMS: lambda data: zlib.crc32(data) ^ 0xFFFFFFFF,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +84,7 @@ def _reflect(value: int, width: int) -> int:
 
 
 def generic_crc(
-    data: bytes,
+    data: bytes | bytearray | memoryview,
     width: int,
     poly: int,
     init: int,
@@ -56,6 +99,21 @@ def generic_crc(
     handing it to a ``generator_from_entry`` callable, or to verify a
     one-off CRC in the field without going through the catalogue.
 
+    Dispatch order (fastest applicable path wins):
+
+    1. A zlib hardware fast-path (IEEE crc32, crc32-jamcrc) ->
+       :func:`zlib.crc32` (stdlib, hardware-accelerated, tens of GB/s).
+       Applies even when our C extension is built -- silicon CRC
+       folding beats portable software slice-by-8 ~30x.
+    2. Any other algorithm, C extension built -> ``c_generic_crc``
+       (slice-by-8 / table-driven, ~1-2 GB/s).
+    3. Otherwise -> :func:`_generic_crc_python` (the reference loop).
+
+    All paths produce identical output.  The pure-Python and C engines
+    are kept as separately-callable functions so the speedup is
+    measurable without uninstalling the extension and so the test suite
+    can assert parity directly.
+
     Args:
         data: Payload bytes.
         width: CRC bit width (8, 16, 32, etc.).
@@ -67,6 +125,33 @@ def generic_crc(
 
     Returns:
         Computed CRC value.
+    """
+    fast_path = _ZLIB_FAST_PATHS.get(
+        (width, poly, init, refin, refout, xorout)
+    )
+    if fast_path is not None:
+        return fast_path(data)
+    if _c_generic_crc is not None:
+        return _c_generic_crc(data, width, poly, init, refin, refout, xorout)
+    return _generic_crc_python(data, width, poly, init, refin, refout, xorout)
+
+
+def _generic_crc_python(
+    data: bytes | bytearray | memoryview,
+    width: int,
+    poly: int,
+    init: int,
+    refin: bool,
+    refout: bool,
+    xorout: int,
+) -> int:
+    """Pure-Python Rocksoft/Williams CRC engine.
+
+    The reference implementation -- always callable regardless of
+    whether the C extension is installed.  :func:`generic_crc`
+    dispatches to the C version when available; this is what it falls
+    back to, and what the parity tests / benchmarks compare against
+    directly.  Bit-identical to ``crcglot._c.c_generic_crc``.
     """
     crc = init
     if refin:

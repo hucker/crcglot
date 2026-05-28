@@ -191,6 +191,56 @@ algo = AlgorithmInfo(
 code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 ```
 
+## Fast runtime CRC (optional C extension)
+
+Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.
+
+> **Performance, stated honestly:** with the C extension, crcglot computes any of the 71 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
+
+`crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` computes any catalogue algorithm (or custom polynomial) and transparently picks the fastest available path:
+
+1. **IEEE CRC-32 / JAMCRC → stdlib `zlib.crc32`** (hardware CRC folding — PCLMULQDQ on x86, PMULL / `crc32` instructions on ARM): tens of GB/s.  No software CRC out-runs silicon, so crcglot borrows the stdlib's path for the algorithms it covers.
+2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s, ~2,000× over pure Python.
+3. **No extension built → pure Python**: always works, just slow.
+
+The extension ships in the prebuilt wheels (`pip install crcglot` gets it on common platforms).  To force it / pull the build deps explicitly:
+
+```bash
+uv tool install "crcglot[fast]"     # or: pip install "crcglot[fast]"
+```
+
+It's a single abi3 wheel per platform (CPython 3.11+), and crcglot stays fully functional in pure Python if no wheel matches your platform.
+
+```python
+from crcglot import generic_crc
+
+# One-shot.  crc32 here rides the zlib hardware path automatically.
+crc = generic_crc(b"123456789", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+```
+
+### Streaming and batch (C extension)
+
+For chunked data and high-volume small-buffer workloads, the extension exposes two more shapes:
+
+```python
+from crcglot import _c   # present iff the extension is installed
+
+# Streaming -- bind the algorithm once, feed chunks, digest on demand
+# (hashlib idiom: update / digest / reset / copy).
+s = _c.CrcStream(width=32, poly=0x04C11DB7, init=0xFFFFFFFF,
+                 refin=True, refout=True, xorout=0xFFFFFFFF)
+for chunk in stream:
+    s.update(chunk)
+result = s.digest()
+
+# Batch -- CRC many buffers, paying the Python↔C transition once
+# (the win for framed protocols / packet streams).
+results = _c.c_crc_many(list_of_packets, 32, 0x04C11DB7, 0xFFFFFFFF,
+                        True, True, 0xFFFFFFFF)
+```
+
+See [BENCHMARKS.md](BENCHMARKS.md) for measured throughput of each runtime path against the generated-code gallery.
+
 ## Example output
 
 See [EXAMPLES.md](EXAMPLES.md) for the actual generated source for `crc32` across every language × implementation combination (C / Rust / Python / VHDL / Verilog / Go / C# / TypeScript crossed with bit-by-bit, table-driven, and slice-by-8 where supported).  Every block is reproducible with one CLI command.

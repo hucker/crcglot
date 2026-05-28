@@ -59,7 +59,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from crcglot import LANGUAGES  # noqa: E402
+from crcglot import ALGORITHMS, LANGUAGES, generic_crc  # noqa: E402
+# catalogue.py already resolves the C accelerator: ``_c_generic_crc``
+# is the C function when the extension is built, else None.  We read
+# it straight from there rather than re-doing the optional import.
+from crcglot.catalogue import (  # noqa: E402
+    _c_generic_crc,
+    _generic_crc_python,
+)
 
 
 def _fix_windows_path() -> None:
@@ -677,6 +684,13 @@ references for hardware datapaths, not software runtime; comparing
 GHDL or iverilog simulation throughput to `gcc -O3` is not a
 meaningful axis.
 
+Two sections below: the **Results** gallery times the *generated*
+standalone `crc32` source in each language (what `crcglot <lang>
+crc32` emits, compiled per-language); the **Runtime engines** section
+times crcglot's own in-process `generic_crc` -- the pure-Python
+fallback and the C extension it dispatches to -- so you can see how
+the Python package itself performs against the generated-code band.
+
 ## How to read
 
 - One row per (language, variant).  Compiled software targets get all
@@ -822,6 +836,134 @@ def _render_table(results: list[CellResult]) -> str:
 # --------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------
+# In-process runtime engines (crcglot.generic_crc): pure-Python vs C
+# --------------------------------------------------------------------
+
+
+def _make_buffer(size: int) -> bytes:
+    if size < 4096:
+        return bytes(i & 0xFF for i in range(size))
+    return bytes(range(256)) * (size // 256)
+
+
+def _time_inproc(fn, buf: bytes, args: tuple) -> float:
+    """Adaptive-loop throughput (MB/s) for an in-process ``fn(buf, *args)``.
+
+    Same methodology as the compiled cells: 5 warm-up calls, then loop
+    until elapsed > the inner-loop target (min 3 iterations).  No
+    subprocess -- these engines run inside this interpreter.
+    """
+    for _ in range(5):
+        fn(buf, *args)
+    target_ns = _INNER_LOOP_TARGET_MS * 1_000_000
+    start = time.perf_counter_ns()
+    iters = 0
+    while True:
+        fn(buf, *args)
+        iters += 1
+        if iters >= 3 and time.perf_counter_ns() - start > target_ns:
+            break
+    ns = time.perf_counter_ns() - start
+    return len(buf) * iters / (ns / 1e9) / 1e6
+
+
+def _run_runtime_engines() -> list[CellResult]:
+    """Benchmark crcglot's runtime CRC paths on crc32:
+
+    - the pure-Python engine,
+    - the C extension engine (if built),
+    - the public ``generic_crc`` dispatcher, which for IEEE crc32
+      delegates to hardware-accelerated ``zlib.crc32``.
+    """
+    algo = ALGORITHMS[_ALGORITHM]
+    tail = (algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout)
+    engines: list[tuple[str, object]] = [("python-runtime", _generic_crc_python)]
+    if _c_generic_crc is not None:
+        engines.append(("cpython-ext", _c_generic_crc))
+    engines.append(("dispatch", generic_crc))
+
+    results: list[CellResult] = []
+    for lang, fn in engines:
+        for size in _SIZES:
+            buf = _make_buffer(size)
+            print(f"  runtime/{lang}/{size} ...", end="", flush=True,
+                  file=sys.stderr)
+            runs = [_time_inproc(fn, buf, tail) for _ in range(_REPEATS)]
+            r = CellResult(lang, "runtime", size, runs)
+            print(f" {r.median_mbps:,.1f} MB/s", file=sys.stderr)
+            results.append(r)
+    return results
+
+
+_RUNTIME_LABEL = {
+    "python-runtime": "Pure Python (`_generic_crc_python`)",
+    "cpython-ext": "C extension engine (`c_generic_crc`)",
+    "dispatch": "Public `generic_crc` (crc32 → `zlib.crc32`)",
+}
+
+
+def _render_runtime_section(results: list[CellResult]) -> str:
+    rt = [r for r in results if r.lang in _RUNTIME_LABEL]
+    if not rt:
+        return ""
+    lines = [
+        "",
+        "## Runtime engines (`crcglot.generic_crc`)",
+        "",
+        "Throughput of crcglot's *runtime* CRC paths on `crc32` -- what "
+        "happens at call time, NOT the generated pre-compiled code in the "
+        "gallery above.  Three rows:\n"
+        "\n"
+        "- **Pure Python** -- the always-available reference engine.\n"
+        "- **C extension engine** -- `crcglot._c.c_generic_crc` "
+        "(slice-by-8 for crc32); what the package uses when the wheel / "
+        "`crcglot[fast]` is installed.  A function *called from Python* "
+        "in the same throughput band as the compiled-language slice-by-8 "
+        "numbers above.\n"
+        "- **Public `generic_crc` dispatcher** -- for IEEE crc32 it "
+        "delegates to the stdlib's hardware-accelerated `zlib.crc32` "
+        "(PCLMULQDQ CRC folding), which is ~30x faster than any portable "
+        "software engine.  No software CRC should try to out-run silicon, "
+        "so crcglot borrows it for the one ubiquitous algorithm the stdlib "
+        "accelerates, and uses its own C engine for the other 70.",
+        "",
+        "| Engine | 1 KiB (MB/s) | 1 MiB (MB/s) |",
+        "|--------|-------------:|-------------:|",
+    ]
+    for lang in ("python-runtime", "cpython-ext", "dispatch"):
+        r1k = next((r for r in rt if r.lang == lang and r.size == 1024), None)
+        r1m = next(
+            (r for r in rt if r.lang == lang and r.size == 1024 * 1024), None
+        )
+        if r1k is None or r1m is None:
+            continue
+        lines.append(
+            f"| {_RUNTIME_LABEL[lang]} | "
+            f"{_fmt_mbps(r1k):>12} | {_fmt_mbps(r1m):>12} |"
+        )
+    py = next((r.median_mbps for r in rt
+               if r.lang == "python-runtime" and r.size == 1024 * 1024), None)
+    cx = next((r.median_mbps for r in rt
+               if r.lang == "cpython-ext" and r.size == 1024 * 1024), None)
+    if py and cx:
+        lines += [
+            "",
+            f"C extension speedup at 1 MiB: **~{cx / py:,.0f}x** over the "
+            "pure-Python engine.",
+        ]
+    elif cx is None:
+        lines += [
+            "",
+            "_(C extension not built in this run -- only the pure-Python "
+            "engine was measured.  Build it with `uv sync` or "
+            "`pip install crcglot[fast]`.)_",
+        ]
+    lines.append("")
+    return "\n".join(lines)
+
+
 def main() -> int:
     _BENCH_ROOT.mkdir(parents=True, exist_ok=True)
     print(f"crcglot benchmark -- writing under {_BENCH_ROOT}/", file=sys.stderr)
@@ -856,6 +998,9 @@ def main() -> int:
                         file=sys.stderr,
                     )
                 results.append(r)
+    # In-process runtime engines (crcglot.generic_crc): pure-Python + C.
+    runtime_results = _run_runtime_engines()
+
     print(
         f"Total: {time.monotonic() - t_start:.1f}s",
         file=sys.stderr,
@@ -868,7 +1013,11 @@ def main() -> int:
         for w in warns:
             print(w, file=sys.stderr)
 
-    body = _DOC_HEADER.format(inner_target_ms=_INNER_LOOP_TARGET_MS) + _render_table(results)
+    body = (
+        _DOC_HEADER.format(inner_target_ms=_INNER_LOOP_TARGET_MS)
+        + _render_table(results)
+        + _render_runtime_section(runtime_results)
+    )
     _BENCHMARKS_MD.write_text(body, encoding="utf-8")
     print(f"\nWrote {_BENCHMARKS_MD}", file=sys.stderr)
     return 0

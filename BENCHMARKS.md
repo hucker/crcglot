@@ -20,6 +20,13 @@ references for hardware datapaths, not software runtime; comparing
 GHDL or iverilog simulation throughput to `gcc -O3` is not a
 meaningful axis.
 
+Two sections below: the **Results** gallery times the *generated*
+standalone `crc32` source in each language (what `crcglot <lang>
+crc32` emits, compiled per-language); the **Runtime engines** section
+times crcglot's own in-process `generic_crc` -- the pure-Python
+fallback and the C extension it dispatches to -- so you can see how
+the Python package itself performs against the generated-code band.
+
 ## How to read
 
 - One row per (language, variant).  Compiled software targets get all
@@ -80,20 +87,36 @@ Working files land under `benchmarks/<lang>/<variant>/<size>/`
 
 | Language     | Variant      |  Tables | 1 KiB (MB/s) | 1 MiB (MB/s) |
 |--------------|--------------|--------:|-------------:|-------------:|
-| C / C++      | bit-by-bit   |       — |        113.0 |        118.1 |
-| C / C++      | table-driven |   1 KiB |        357.3 |        366.4 |
-| C / C++      | slice-by-8   |   8 KiB |      1,543.0 |      1,386.1 |
-| Rust         | bit-by-bit   |       — |        373.1 |        362.2 |
-| Rust         | table-driven |   1 KiB |        386.2 |        371.1 |
-| Rust         | slice-by-8   |   8 KiB |      1,290.1 |      1,270.3 |
-| Go           | bit-by-bit   |       — |         45.0 |         23.5 |
-| Go           | table-driven |   1 KiB |        386.6 |        340.0 |
-| Go           | slice-by-8   |   8 KiB |      1,165.3 |      1,300.3 |
-| C#           | bit-by-bit   |       — |         26.0 |         25.8 |
-| C#           | table-driven |   1 KiB |        220.9 |        341.8 |
-| C#           | slice-by-8   |   8 KiB |        262.7 |        443.5 |
-| TypeScript   | bit-by-bit   |       — |         75.4 |         16.4 |
-| TypeScript   | table-driven |   1 KiB |        157.8 |         60.1 |
-| TypeScript   | slice-by-8   |   8 KiB |        343.5 |        220.2 |
-| Python       | bit-by-bit   |       — |          0.6 |          0.6 |
-| Python       | table-driven |   1 KiB |          3.6 |          3.6 |
+| C / C++      | bit-by-bit   |       — |        115.5 |        103.9 |
+| C / C++      | table-driven |   1 KiB |        396.5 |        423.6 |
+| C / C++      | slice-by-8   |   8 KiB |      1,617.9 |      1,816.7 |
+| Rust         | bit-by-bit   |       — |        372.0 |        378.0 |
+| Rust         | table-driven |   1 KiB |        380.3 |        447.7 |
+| Rust         | slice-by-8   |   8 KiB |      1,363.4 |      1,638.5 |
+| Go           | bit-by-bit   |       — |         56.0 |         27.4 |
+| Go           | table-driven |   1 KiB |        427.7 |        446.9 |
+| Go           | slice-by-8   |   8 KiB |      1,605.9 |      1,512.0 |
+| C#           | bit-by-bit   |       — |         35.0 |         28.2 |
+| C#           | table-driven |   1 KiB |        260.2 |        424.0 |
+| C#           | slice-by-8   |   8 KiB |        366.5 |        629.5 |
+| TypeScript   | bit-by-bit   |       — |         89.2 |         20.3 |
+| TypeScript   | table-driven |   1 KiB |        185.8 |         77.9 |
+| TypeScript   | slice-by-8   |   8 KiB |        420.9 |        281.0 |
+| Python       | bit-by-bit   |       — |          0.6 |          0.7 |
+| Python       | table-driven |   1 KiB |          4.8 |          4.6 |
+
+## Runtime engines (`crcglot.generic_crc`)
+
+Throughput of crcglot's *runtime* CRC paths on `crc32` -- what happens at call time, NOT the generated pre-compiled code in the gallery above.  Three rows:
+
+- **Pure Python** -- the always-available reference engine.
+- **C extension engine** -- `crcglot._c.c_generic_crc` (slice-by-8 for crc32); what the package uses when the wheel / `crcglot[fast]` is installed.  A function *called from Python* in the same throughput band as the compiled-language slice-by-8 numbers above.
+- **Public `generic_crc` dispatcher** -- for IEEE crc32 it delegates to the stdlib's hardware-accelerated `zlib.crc32` (PCLMULQDQ CRC folding), which is ~30x faster than any portable software engine.  No software CRC should try to out-run silicon, so crcglot borrows it for the one ubiquitous algorithm the stdlib accelerates, and uses its own C engine for the other 70.
+
+| Engine | 1 KiB (MB/s) | 1 MiB (MB/s) |
+|--------|-------------:|-------------:|
+| Pure Python (`_generic_crc_python`) |          0.9 |          1.0 |
+| C extension engine (`c_generic_crc`) |        920.4 |      1,655.7 |
+| Public `generic_crc` (crc32 → `zlib.crc32`) |      1,875.5 |     48,248.3 |
+
+C extension speedup at 1 MiB: **~1,712x** over the pure-Python engine.

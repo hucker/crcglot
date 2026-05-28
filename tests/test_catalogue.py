@@ -49,7 +49,7 @@ from crcglot import (
     generate_rust,
     generate_vhdl,
 )
-from crcglot.catalogue import generic_crc
+from crcglot.catalogue import _generic_crc_python, generic_crc
 
 
 # Reveng-derived canonical check values for the algorithms used in
@@ -273,6 +273,81 @@ class TestAlgorithmMetadata:
             assert 0 <= algo.init <= mask, f"{name}: init overflows width"
             assert 0 <= algo.xorout <= mask, f"{name}: xorout overflows width"
             assert 0 <= algo.check <= mask, f"{name}: check overflows width"
+
+
+class TestZlibFastPaths:
+    """``generic_crc`` delegates the zlib-computable algorithms (IEEE
+    crc32 and crc32-jamcrc) to the hardware-accelerated stdlib
+    ``zlib.crc32`` -- they must still return the correct value and
+    agree with the reference engine, across input shapes."""
+
+    @pytest.mark.parametrize("name", ["crc32", "crc32-jamcrc"])
+    def test_fast_path_matches_reveng_check(self, name):
+        # Arrange -- the catalogue params for a zlib-delegated algorithm.
+        algo = ALGORITHMS[name]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        # Act
+        actual = generic_crc(b"123456789", *args)
+        # Assert
+        assert actual == algo.check, (
+            f"{name} fast path gave {actual:#x}, expected {algo.check:#x}"
+        )
+
+    @pytest.mark.parametrize("name", ["crc32", "crc32-jamcrc"])
+    def test_fast_path_agrees_with_reference_engine(self, name):
+        # The zlib-delegated result must equal the pure-Python engine
+        # bit-for-bit across input shapes -- proves the delegation
+        # (and jamcrc's xorout fix-up) is correct.
+        algo = ALGORITHMS[name]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        for data in [b"", b"\x00", b"123456789", b"The quick brown fox", bytes(range(256))]:
+            assert generic_crc(data, *args) == _generic_crc_python(data, *args), (
+                f"{name}: zlib fast path disagrees with reference on "
+                f"{len(data)}-byte input"
+            )
+
+    def test_jamcrc_is_ieee_with_xorout_flipped(self):
+        # JAMCRC == IEEE-32 with xorout=0; since zlib bakes in
+        # xorout=0xFFFFFFFF, jamcrc = zlib.crc32(data) ^ 0xFFFFFFFF.
+        import zlib
+        data = b"123456789"
+        algo = ALGORITHMS["crc32-jamcrc"]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        assert generic_crc(data, *args) == (zlib.crc32(data) ^ 0xFFFFFFFF)
+
+    def test_matches_stdlib_zlib(self):
+        # The delegated path must equal calling zlib directly.
+        import zlib
+        algo = ALGORITHMS["crc32"]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        for data in [b"", b"a", b"123456789", bytes(range(256)) * 10]:
+            actual = generic_crc(data, *args)
+            assert actual == zlib.crc32(data), (
+                f"delegated != zlib.crc32 for {len(data)}-byte input"
+            )
+
+    def test_accepts_bytes_like(self):
+        # zlib.crc32 takes any buffer; the fast path must too.
+        algo = ALGORITHMS["crc32"]
+        args = (
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        )
+        data = b"123456789"
+        assert generic_crc(bytearray(data), *args) == 0xCBF43926
+        assert generic_crc(memoryview(data), *args) == 0xCBF43926
 
 
 class TestGenerators:
