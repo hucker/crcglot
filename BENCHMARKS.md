@@ -20,6 +20,13 @@ references for hardware datapaths, not software runtime; comparing
 GHDL or iverilog simulation throughput to `gcc -O3` is not a
 meaningful axis.
 
+Two sections below: the **Results** gallery times the *generated*
+standalone `crc32` source in each language (what `crcglot <lang>
+crc32` emits, compiled per-language); the **Runtime engines** section
+times crcglot's own in-process `generic_crc` -- the pure-Python
+fallback and the C extension it dispatches to -- so you can see how
+the Python package itself performs against the generated-code band.
+
 ## How to read
 
 - One row per (language, variant).  Compiled software targets get all
@@ -80,20 +87,31 @@ Working files land under `benchmarks/<lang>/<variant>/<size>/`
 
 | Language     | Variant      |  Tables | 1 KiB (MB/s) | 1 MiB (MB/s) |
 |--------------|--------------|--------:|-------------:|-------------:|
-| C / C++      | bit-by-bit   |       — |        113.0 |        118.1 |
-| C / C++      | table-driven |   1 KiB |        357.3 |        366.4 |
-| C / C++      | slice-by-8   |   8 KiB |      1,543.0 |      1,386.1 |
-| Rust         | bit-by-bit   |       — |        373.1 |        362.2 |
-| Rust         | table-driven |   1 KiB |        386.2 |        371.1 |
-| Rust         | slice-by-8   |   8 KiB |      1,290.1 |      1,270.3 |
-| Go           | bit-by-bit   |       — |         45.0 |         23.5 |
-| Go           | table-driven |   1 KiB |        386.6 |        340.0 |
-| Go           | slice-by-8   |   8 KiB |      1,165.3 |      1,300.3 |
-| C#           | bit-by-bit   |       — |         26.0 |         25.8 |
-| C#           | table-driven |   1 KiB |        220.9 |        341.8 |
-| C#           | slice-by-8   |   8 KiB |        262.7 |        443.5 |
-| TypeScript   | bit-by-bit   |       — |         75.4 |         16.4 |
-| TypeScript   | table-driven |   1 KiB |        157.8 |         60.1 |
-| TypeScript   | slice-by-8   |   8 KiB |        343.5 |        220.2 |
-| Python       | bit-by-bit   |       — |          0.6 |          0.6 |
-| Python       | table-driven |   1 KiB |          3.6 |          3.6 |
+| C / C++      | bit-by-bit   |       — |         98.1 |        124.9 |
+| C / C++      | table-driven |   1 KiB |        345.6 |        385.2 |
+| C / C++      | slice-by-8   |   8 KiB |      1,603.4 |      1,762.5 |
+| Rust         | bit-by-bit   |       — |        348.9 |        369.6 |
+| Rust         | table-driven |   1 KiB |        368.0 |        395.4 |
+| Rust         | slice-by-8   |   8 KiB |      1,310.9 |      1,379.3 |
+| Go           | bit-by-bit   |       — |         43.2 |         22.7 |
+| Go           | table-driven |   1 KiB |        385.4 |        385.5 |
+| Go           | slice-by-8   |   8 KiB |      1,235.2 |      1,309.9 |
+| C#           | bit-by-bit   |       — |         29.2 |         23.9 |
+| C#           | table-driven |   1 KiB |        226.8 |        332.9 |
+| C#           | slice-by-8   |   8 KiB |        232.3 |        551.3 |
+| TypeScript   | bit-by-bit   |       — |         65.3 |         16.5 |
+| TypeScript   | table-driven |   1 KiB |        141.4 |         62.1 |
+| TypeScript   | slice-by-8   |   8 KiB |        329.7 |        240.2 |
+| Python       | bit-by-bit   |       — |          0.5 |          0.6 |
+| Python       | table-driven |   1 KiB |          3.4 |          3.4 |
+
+## Runtime engines (`crcglot.generic_crc`)
+
+Throughput of crcglot's *runtime-parameterized* CRC engine on `crc32` -- the path `generic_crc(data, width, poly, ...)` takes at call time, NOT the generated pre-compiled code in the gallery above.  Pure Python is the always-available fallback; the C extension (`crcglot._c`, installed via the wheel / `crcglot[fast]`) is what `generic_crc` transparently dispatches to when present.  The extension auto-selects slice-by-8 for crc32 -- which is why a function *called from Python* lands in the same throughput band as the compiled-language slice-by-8 numbers above.
+
+| Engine | 1 KiB (MB/s) | 1 MiB (MB/s) |
+|--------|-------------:|-------------:|
+| Pure Python (`_generic_crc_python`) |          0.7 |          0.8 |
+| C extension (`c_generic_crc`) |        708.8 |      1,152.0 |
+
+C extension speedup at 1 MiB: **~1,496x** over the pure-Python engine.
