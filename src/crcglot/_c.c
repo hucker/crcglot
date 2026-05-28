@@ -339,51 +339,69 @@ static uint64_t (*get_tables(
  * cost dominates for tiny inputs). */
 #define GIL_RELEASE_THRESHOLD 65536
 
+/* Engine code for a width: 0 bit-by-bit, 1 table-driven, 2 slice-by-8. */
+static int pick_engine(int width) {
+    int byte_aligned = (width % 8) == 0;
+    if (byte_aligned && (width == 32 || width == 64)) {
+        return 2;
+    }
+    if (byte_aligned) {
+        return 1;
+    }
+    return 0;
+}
+
+/* Full init -> engine -> finalize for one buffer, given a pre-selected
+ * engine and (for table/slice8) pre-fetched tables.  Pure C -- safe to
+ * call inside Py_BEGIN_ALLOW_THREADS. */
+static uint64_t crc_compute(
+    const uint8_t *data, size_t len,
+    int width, uint64_t poly, uint64_t init,
+    int refin, int refout, uint64_t xorout,
+    int engine, uint64_t (*tables)[256]
+) {
+    uint64_t crc = crc_init_state(width, init, refin);
+    if (engine == 2) {
+        crc = engine_slice8(data, len, width, refin, tables, crc);
+    } else if (engine == 1) {
+        crc = engine_table(data, len, width, tables[0], refin, crc);
+    } else {
+        crc = engine_bitwise(data, len, width, poly, refin, crc);
+    }
+    return crc_finalize(crc, width, refin, refout, xorout);
+}
+
 static int crcglot_crc_dispatch(
     const uint8_t *data, size_t len,
     int width, uint64_t poly, uint64_t init,
     int refin, int refout, uint64_t xorout,
     uint64_t *out
 ) {
-    uint64_t crc = crc_init_state(width, init, refin);
-    int byte_aligned = (width % 8) == 0;
-    int use_slice8 = byte_aligned && (width == 32 || width == 64);
-    int use_table = byte_aligned && !use_slice8;
-    int big = len >= GIL_RELEASE_THRESHOLD;
-
-    if (use_slice8 || use_table) {
-        int needs_free = 0;
-        uint64_t (*t)[256] = get_tables(width, poly, refin, use_slice8,
-                                        &needs_free);
-        if (t == NULL) {
+    int engine = pick_engine(width);
+    uint64_t (*tables)[256] = NULL;
+    int needs_free = 0;
+    if (engine != 0) {
+        tables = get_tables(width, poly, refin, engine == 2, &needs_free);
+        if (tables == NULL) {
             return -1;  /* OOM */
-        }
-        if (big) {
-            Py_BEGIN_ALLOW_THREADS
-            crc = use_slice8
-                ? engine_slice8(data, len, width, refin, t, crc)
-                : engine_table(data, len, width, t[0], refin, crc);
-            Py_END_ALLOW_THREADS
-        } else {
-            crc = use_slice8
-                ? engine_slice8(data, len, width, refin, t, crc)
-                : engine_table(data, len, width, t[0], refin, crc);
-        }
-        if (needs_free) {
-            free(t);
-        }
-    } else {
-        /* non-byte-aligned width: bit-by-bit */
-        if (big) {
-            Py_BEGIN_ALLOW_THREADS
-            crc = engine_bitwise(data, len, width, poly, refin, crc);
-            Py_END_ALLOW_THREADS
-        } else {
-            crc = engine_bitwise(data, len, width, poly, refin, crc);
         }
     }
 
-    *out = crc_finalize(crc, width, refin, refout, xorout);
+    uint64_t crc;
+    if (len >= GIL_RELEASE_THRESHOLD) {
+        Py_BEGIN_ALLOW_THREADS
+        crc = crc_compute(data, len, width, poly, init,
+                          refin, refout, xorout, engine, tables);
+        Py_END_ALLOW_THREADS
+    } else {
+        crc = crc_compute(data, len, width, poly, init,
+                          refin, refout, xorout, engine, tables);
+    }
+
+    if (needs_free) {
+        free(tables);
+    }
+    *out = crc;
     return 0;
 }
 
@@ -457,11 +475,352 @@ py_c_generic_crc(PyObject *self, PyObject *args)
 
 
 /* ------------------------------------------------------------------ */
+/* Batch API: c_crc_many                                               */
+/* ------------------------------------------------------------------ */
+
+PyDoc_STRVAR(c_crc_many_doc,
+"c_crc_many(buffers, width, poly, init, refin, refout, xorout, /) -> list[int]\n"
+"\n"
+"Compute the CRC of each bytes-like object in ``buffers`` (any\n"
+"sequence) and return a list of the results, in order.  Equivalent to\n"
+"``[c_generic_crc(b, ...) for b in buffers]`` but pays the Python->C\n"
+"transition once for the whole batch and fetches the lookup tables\n"
+"once -- the win for high-volume small-buffer workloads (packet\n"
+"streams, framed protocols) where per-call overhead would otherwise\n"
+"dominate.\n"
+"\n"
+"Raises:\n"
+"    ValueError: if width is not in [8, 64].\n"
+"    TypeError: if an element isn't bytes-like.\n"
+"    MemoryError: if a lookup-table allocation fails.\n");
+
+static PyObject *
+py_c_crc_many(PyObject *self, PyObject *args)
+{
+    (void)self;
+
+    PyObject *buffers;
+    int width;
+    unsigned long long poly, init, xorout;
+    int refin, refout;
+
+    if (!PyArg_ParseTuple(args, "OiKKppK",
+                          &buffers, &width, &poly, &init,
+                          &refin, &refout, &xorout)) {
+        return NULL;
+    }
+    if (width < 8 || width > 64) {
+        PyErr_Format(PyExc_ValueError,
+                     "width must be in [8, 64], got %d", width);
+        return NULL;
+    }
+
+    Py_ssize_t n = PySequence_Size(buffers);
+    if (n < 0) {
+        return NULL;  /* not a sequence; PySequence_Size set TypeError */
+    }
+
+    /* Select engine + fetch tables ONCE for the whole batch. */
+    int engine = pick_engine(width);
+    uint64_t (*tables)[256] = NULL;
+    int needs_free = 0;
+    if (engine != 0) {
+        tables = get_tables(width, poly, refin, engine == 2, &needs_free);
+        if (tables == NULL) {
+            return PyErr_NoMemory();
+        }
+    }
+
+    PyObject *result = PyList_New(n);
+    if (result == NULL) {
+        if (needs_free) {
+            free(tables);
+        }
+        return NULL;
+    }
+
+    for (Py_ssize_t i = 0; i < n; i++) {
+        PyObject *item = PySequence_GetItem(buffers, i);  /* new ref */
+        if (item == NULL) {
+            goto error;
+        }
+        Py_buffer view;
+        if (PyObject_GetBuffer(item, &view, PyBUF_SIMPLE) < 0) {
+            Py_DECREF(item);
+            goto error;
+        }
+        uint64_t crc = crc_compute(
+            (const uint8_t *)view.buf, (size_t)view.len,
+            width, poly, init, refin, refout, xorout, engine, tables);
+        PyBuffer_Release(&view);
+        Py_DECREF(item);
+
+        PyObject *num = PyLong_FromUnsignedLongLong((unsigned long long)crc);
+        if (num == NULL) {
+            goto error;
+        }
+        /* PyList_SetItem steals the reference to num. */
+        if (PyList_SetItem(result, i, num) < 0) {
+            goto error;
+        }
+    }
+
+    if (needs_free) {
+        free(tables);
+    }
+    return result;
+
+error:
+    if (needs_free) {
+        free(tables);
+    }
+    Py_DECREF(result);
+    return NULL;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* CrcStream -- incremental streaming CRC object                       */
+/*                                                                     */
+/* Defined as a heap type via PyType_FromSpec, the only mechanism for  */
+/* custom types under the Stable ABI (Py_LIMITED_API).  Binds the      */
+/* algorithm parameters once at construction; ``update`` then runs the */
+/* tight engine with only a buffer to parse per call (vs the 6 ints    */
+/* c_generic_crc re-parses every call), so high-volume small-chunk     */
+/* streaming is cheap.  Matches the hashlib idiom: update incrementally,*/
+/* digest() non-destructively, copy() to branch state, reset() to reuse.*/
+/*                                                                     */
+/* NOT thread-safe for concurrent mutation of a single object (same as */
+/* hashlib).  One stream per thread.                                   */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+    PyObject_HEAD
+    int width;
+    uint64_t poly;
+    uint64_t init_state;   /* pre-reflected init; reset() restores this */
+    int refin;
+    int refout;
+    uint64_t xorout;
+    uint64_t crc;          /* running state */
+    int engine;            /* 0 = bitwise, 1 = table, 2 = slice8 */
+    uint64_t (*tables)[256];  /* NULL for bitwise; else cache ptr or owned */
+    int owns_tables;       /* 1 iff this instance must free() tables */
+} CrcStreamObject;
+
+/* Populate the engine choice + tables for an instance whose width /
+ * poly / refin are already set.  Returns 0 on success, -1 on OOM (no
+ * Python error set -- caller raises). */
+static int crcstream_setup_engine(CrcStreamObject *s) {
+    int byte_aligned = (s->width % 8) == 0;
+    int use_slice8 = byte_aligned && (s->width == 32 || s->width == 64);
+    int use_table = byte_aligned && !use_slice8;
+    s->engine = use_slice8 ? 2 : (use_table ? 1 : 0);
+    s->tables = NULL;
+    s->owns_tables = 0;
+    if (s->engine == 0) {
+        return 0;  /* bitwise needs no tables */
+    }
+    int needs_free = 0;
+    uint64_t (*t)[256] = get_tables(s->width, s->poly, s->refin,
+                                    s->engine == 2, &needs_free);
+    if (t == NULL) {
+        return -1;
+    }
+    s->tables = t;
+    s->owns_tables = needs_free;
+    return 0;
+}
+
+static int
+CrcStream_init(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    CrcStreamObject *s = (CrcStreamObject *)self;
+    static char *kwlist[] = {
+        "width", "poly", "init", "refin", "refout", "xorout", NULL
+    };
+    int width;
+    unsigned long long poly, init;
+    int refin = 0, refout = 0;
+    unsigned long long xorout = 0;
+
+    if (!PyArg_ParseTupleAndKeywords(
+            args, kwds, "iKK|ppK", kwlist,
+            &width, &poly, &init, &refin, &refout, &xorout)) {
+        return -1;
+    }
+    if (width < 8 || width > 64) {
+        PyErr_Format(PyExc_ValueError,
+                     "width must be in [8, 64], got %d", width);
+        return -1;
+    }
+
+    /* If __init__ is called twice on the same object, release any
+     * previously-owned tables before rebinding. */
+    if (s->owns_tables && s->tables != NULL) {
+        free(s->tables);
+        s->tables = NULL;
+        s->owns_tables = 0;
+    }
+
+    s->width = width;
+    s->poly = poly;
+    s->refin = refin;
+    s->refout = refout;
+    s->xorout = xorout;
+    s->init_state = crc_init_state(width, init, refin);
+    s->crc = s->init_state;
+
+    if (crcstream_setup_engine(s) != 0) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    return 0;
+}
+
+static void
+CrcStream_dealloc(PyObject *self)
+{
+    CrcStreamObject *s = (CrcStreamObject *)self;
+    if (s->owns_tables && s->tables != NULL) {
+        free(s->tables);
+    }
+    PyTypeObject *tp = Py_TYPE(self);
+    freefunc free_self = (freefunc)PyType_GetSlot(tp, Py_tp_free);
+    free_self(self);
+    Py_DECREF(tp);  /* heap-type instances hold a ref to their type */
+}
+
+PyDoc_STRVAR(crcstream_update_doc,
+"update(data, /) -> None\n"
+"\n"
+"Feed bytes-like ``data`` into the running CRC state.");
+
+static PyObject *
+CrcStream_update(PyObject *self, PyObject *args)
+{
+    CrcStreamObject *s = (CrcStreamObject *)self;
+    Py_buffer view;
+    if (!PyArg_ParseTuple(args, "y*", &view)) {
+        return NULL;
+    }
+    const uint8_t *d = (const uint8_t *)view.buf;
+    size_t n = (size_t)view.len;
+    if (s->engine == 2) {
+        s->crc = engine_slice8(d, n, s->width, s->refin, s->tables, s->crc);
+    } else if (s->engine == 1) {
+        s->crc = engine_table(d, n, s->width, s->tables[0], s->refin, s->crc);
+    } else {
+        s->crc = engine_bitwise(d, n, s->width, s->poly, s->refin, s->crc);
+    }
+    PyBuffer_Release(&view);
+    Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(crcstream_digest_doc,
+"digest() -> int\n"
+"\n"
+"Return the finalized CRC of everything fed so far (output reflection\n"
+"+ xorout applied).  Non-destructive -- the stream can keep updating.");
+
+static PyObject *
+CrcStream_digest(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    CrcStreamObject *s = (CrcStreamObject *)self;
+    uint64_t v = crc_finalize(s->crc, s->width, s->refin, s->refout, s->xorout);
+    return PyLong_FromUnsignedLongLong((unsigned long long)v);
+}
+
+PyDoc_STRVAR(crcstream_reset_doc,
+"reset() -> None\n"
+"\n"
+"Reset the running state to the initial value; reuse with the same\n"
+"parameters.");
+
+static PyObject *
+CrcStream_reset(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    CrcStreamObject *s = (CrcStreamObject *)self;
+    s->crc = s->init_state;
+    Py_RETURN_NONE;
+}
+
+PyDoc_STRVAR(crcstream_copy_doc,
+"copy() -> CrcStream\n"
+"\n"
+"Return an independent CrcStream with the same parameters and the\n"
+"current running state -- useful to compute the CRC of a prefix while\n"
+"continuing to feed the original.");
+
+static PyObject *
+CrcStream_copy(PyObject *self, PyObject *Py_UNUSED(ignored))
+{
+    CrcStreamObject *s = (CrcStreamObject *)self;
+    PyTypeObject *tp = Py_TYPE(self);
+    allocfunc alloc = (allocfunc)PyType_GetSlot(tp, Py_tp_alloc);
+    CrcStreamObject *c = (CrcStreamObject *)alloc(tp, 0);
+    if (c == NULL) {
+        return NULL;
+    }
+    c->width = s->width;
+    c->poly = s->poly;
+    c->init_state = s->init_state;
+    c->refin = s->refin;
+    c->refout = s->refout;
+    c->xorout = s->xorout;
+    c->crc = s->crc;  /* current state, not init */
+    /* Re-fetch tables for the copy so ownership is per-instance (no
+     * shared free).  Usually a cache hit -> shared, owns_tables=0. */
+    if (crcstream_setup_engine(c) != 0) {
+        Py_DECREF(c);
+        return PyErr_NoMemory();
+    }
+    return (PyObject *)c;
+}
+
+static PyMethodDef crcstream_methods[] = {
+    {"update", CrcStream_update, METH_VARARGS, crcstream_update_doc},
+    {"digest", CrcStream_digest, METH_NOARGS, crcstream_digest_doc},
+    {"reset", CrcStream_reset, METH_NOARGS, crcstream_reset_doc},
+    {"copy", CrcStream_copy, METH_NOARGS, crcstream_copy_doc},
+    {NULL, NULL, 0, NULL}
+};
+
+PyDoc_STRVAR(crcstream_doc,
+"CrcStream(*, width, poly, init, refin=False, refout=False, xorout=0)\n"
+"\n"
+"Incremental CRC over chunked data, parameterized by the\n"
+"Rocksoft/Williams fields.  Bind the algorithm once, then update()\n"
+"cheaply per chunk; digest() returns the finalized value at any point.\n"
+"Auto-selects slice-by-8 / table-driven / bit-by-bit by width.\n"
+"\n"
+"Not thread-safe for concurrent mutation of one object (like hashlib).");
+
+static PyType_Slot crcstream_slots[] = {
+    {Py_tp_doc, (void *)crcstream_doc},
+    {Py_tp_new, PyType_GenericNew},
+    {Py_tp_init, CrcStream_init},
+    {Py_tp_dealloc, CrcStream_dealloc},
+    {Py_tp_methods, crcstream_methods},
+    {0, NULL}
+};
+
+static PyType_Spec crcstream_spec = {
+    "crcglot._c.CrcStream",      /* name */
+    sizeof(CrcStreamObject),     /* basicsize */
+    0,                           /* itemsize */
+    Py_TPFLAGS_DEFAULT,          /* flags */
+    crcstream_slots,             /* slots */
+};
+
+
+/* ------------------------------------------------------------------ */
 /* Module definition                                                   */
 /* ------------------------------------------------------------------ */
 
 static PyMethodDef crcglot_c_methods[] = {
     {"c_generic_crc", py_c_generic_crc, METH_VARARGS, c_generic_crc_doc},
+    {"c_crc_many", py_c_crc_many, METH_VARARGS, c_crc_many_doc},
     {NULL, NULL, 0, NULL}
 };
 
@@ -487,5 +846,21 @@ static struct PyModuleDef crcglot_c_module = {
 PyMODINIT_FUNC
 PyInit__c(void)
 {
-    return PyModule_Create(&crcglot_c_module);
+    PyObject *module = PyModule_Create(&crcglot_c_module);
+    if (module == NULL) {
+        return NULL;
+    }
+
+    PyObject *crcstream_type = PyType_FromSpec(&crcstream_spec);
+    if (crcstream_type == NULL) {
+        Py_DECREF(module);
+        return NULL;
+    }
+    if (PyModule_AddObject(module, "CrcStream", crcstream_type) < 0) {
+        Py_DECREF(crcstream_type);
+        Py_DECREF(module);
+        return NULL;
+    }
+
+    return module;
 }

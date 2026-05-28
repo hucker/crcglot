@@ -202,6 +202,207 @@ class TestCExtensionEdgeCases:
         assert actual == expected
 
 
+def _stream_params(algo):
+    return {
+        "width": algo.width,
+        "poly": algo.poly,
+        "init": algo.init,
+        "refin": algo.refin,
+        "refout": algo.refout,
+        "xorout": algo.xorout,
+    }
+
+
+class TestCrcStream:
+    """The incremental CrcStream object: chunked updates must match the
+    one-shot result, digest() is non-destructive, reset()/copy() behave."""
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    def test_chunked_matches_oneshot(self, name):
+        # Arrange -- feed "123456789" split at byte 4.
+        algo = ALGORITHMS[name]
+        expected = algo.check
+
+        # Act -- streamed in two chunks.
+        s = _c.CrcStream(**_stream_params(algo))
+        s.update(b"1234")
+        s.update(b"56789")
+        streamed = s.digest()
+
+        # Assert -- matches the catalogue check value.
+        assert streamed == expected, (
+            f"{name}: streamed {streamed:#x} != check {expected:#x}"
+        )
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    def test_splittability_invariant(self, name):
+        # Arrange -- the same input split three different ways (incl.
+        # empty chunks) must all produce the catalogue check value.
+        algo = ALGORITHMS[name]
+        expected = algo.check
+        splits = [
+            [b"123456789"],
+            [b"", b"123456789"],
+            [b"123456789", b""],
+            [b"1", b"2", b"3", b"4", b"5", b"6", b"7", b"8", b"9"],
+            [b"12345", b"6789"],
+        ]
+        # Act + Assert
+        for chunks in splits:
+            s = _c.CrcStream(**_stream_params(algo))
+            for ch in chunks:
+                s.update(ch)
+            actual = s.digest()
+            assert actual == expected, (
+                f"{name}: split {[len(c) for c in chunks]} gave "
+                f"{actual:#x}, expected {expected:#x}"
+            )
+
+    def test_digest_is_non_destructive(self):
+        # Arrange
+        algo = ALGORITHMS["crc32"]
+        s = _c.CrcStream(**_stream_params(algo))
+        s.update(b"12345")
+        # Act -- digest mid-stream, then keep feeding.
+        mid = s.digest()
+        mid_again = s.digest()
+        s.update(b"6789")
+        final = s.digest()
+        # Assert -- digest didn't disturb state; final is the full CRC.
+        assert mid == mid_again, "digest() mutated state"
+        assert final == algo.check, f"final {final:#x} != {algo.check:#x}"
+        assert mid != final, "mid-stream digest should differ from final"
+
+    def test_reset_reuses_params(self):
+        # Arrange
+        algo = ALGORITHMS["crc32"]
+        s = _c.CrcStream(**_stream_params(algo))
+        s.update(b"garbage")
+        # Act
+        s.reset()
+        s.update(b"123456789")
+        # Assert
+        assert s.digest() == algo.check, "reset() didn't restore init state"
+
+    def test_copy_branches_state(self):
+        # Arrange
+        algo = ALGORITHMS["crc32"]
+        s = _c.CrcStream(**_stream_params(algo))
+        s.update(b"12345")
+        # Act -- branch: copy finishes the input, original stays at prefix.
+        c = s.copy()
+        c.update(b"6789")
+        # Assert -- copy reached the full check value; original is still
+        # at the 5-byte prefix (a different, non-final value).
+        assert c.digest() == algo.check, "copy() didn't carry state forward"
+        assert s.digest() != algo.check, "original advanced unexpectedly"
+
+    def test_copy_is_independent(self):
+        # Mutating the copy must not affect the original and vice versa.
+        # Arrange
+        algo = ALGORITHMS["crc32"]
+        s = _c.CrcStream(**_stream_params(algo))
+        s.update(b"123456789")
+        snapshot = s.digest()
+        # Act
+        c = s.copy()
+        c.update(b"more data")
+        # Assert -- original unchanged after copy mutated.
+        assert s.digest() == snapshot, "original changed when copy updated"
+
+    @pytest.mark.parametrize("name", ["crc64-xz", "crc16-modbus", "crc8"])
+    def test_stream_across_widths(self, name):
+        # Exercise the slice8 (64), table (16), table (8) engines through
+        # the streaming path.
+        algo = ALGORITHMS[name]
+        s = _c.CrcStream(**_stream_params(algo))
+        s.update(b"123456789")
+        assert s.digest() == algo.check
+
+    def test_large_chunked_matches_python(self):
+        # Arrange -- big buffer fed in awkward chunk sizes; compare to
+        # the pure-Python one-shot.
+        algo = ALGORITHMS["crc32"]
+        buf = bytes(range(256)) * 500  # 125 KiB
+        expected = _generic_crc_python(buf, *(
+            algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout,
+        ))
+        # Act -- feed in 7-byte chunks (not a multiple of the 8-byte
+        # slice-by-8 stride, so the tail path is exercised repeatedly).
+        s = _c.CrcStream(**_stream_params(algo))
+        for i in range(0, len(buf), 7):
+            s.update(buf[i:i + 7])
+        # Assert
+        assert s.digest() == expected
+
+    def test_invalid_width_raises(self):
+        with pytest.raises(ValueError, match="width must be in"):
+            _c.CrcStream(width=4, poly=0x3, init=0x0)
+
+    def test_init_defaults(self):
+        # refin/refout/xorout are optional; crc16-xmodem uses all defaults
+        # except width/poly/init.
+        # Arrange -- crc16-xmodem: refin=F, refout=F, xorout=0.
+        algo = ALGORITHMS["crc16-xmodem"]
+        # Act -- omit the defaulted kwargs.
+        s = _c.CrcStream(width=algo.width, poly=algo.poly, init=algo.init)
+        s.update(b"123456789")
+        # Assert
+        assert s.digest() == algo.check
+
+
+class TestCrcMany:
+    """The batch API: c_crc_many(buffers, ...) == per-element c_generic_crc."""
+
+    _PARAMS = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+
+    def test_matches_per_element(self):
+        # Arrange
+        bufs = [b"123456789", b"", b"a", b"hello world", bytes(range(256))]
+        # Act
+        batch = _c.c_crc_many(bufs, *self._PARAMS)
+        per = [_c.c_generic_crc(b, *self._PARAMS) for b in bufs]
+        # Assert
+        assert batch == per, f"batch {batch} != per-element {per}"
+
+    def test_preserves_order(self):
+        # Distinct inputs -> distinct, order-stable outputs.
+        bufs = [b"1", b"12", b"123", b"1234"]
+        batch = _c.c_crc_many(bufs, *self._PARAMS)
+        assert batch == [_c.c_generic_crc(b, *self._PARAMS) for b in bufs]
+
+    def test_empty_list(self):
+        assert _c.c_crc_many([], *self._PARAMS) == []
+
+    def test_first_element_is_reveng_check(self):
+        # crc32 of "123456789" is the canonical check value.
+        batch = _c.c_crc_many([b"123456789"], *self._PARAMS)
+        assert batch == [0xCBF43926]
+
+    def test_accepts_tuple_and_mixed_buffer_types(self):
+        # Any sequence of any bytes-like works.
+        bufs = (b"123456789", bytearray(b"123456789"), memoryview(b"123456789"))
+        batch = _c.c_crc_many(bufs, *self._PARAMS)
+        assert batch == [0xCBF43926, 0xCBF43926, 0xCBF43926]
+
+    @pytest.mark.parametrize("name", ["crc64-xz", "crc16-modbus", "crc8"])
+    def test_batch_across_widths(self, name):
+        algo = ALGORITHMS[name]
+        tail = (algo.width, algo.poly, algo.init,
+                algo.refin, algo.refout, algo.xorout)
+        batch = _c.c_crc_many([b"123456789", b"123456789"], *tail)
+        assert batch == [algo.check, algo.check]
+
+    def test_non_bytes_element_raises_typeerror(self):
+        with pytest.raises(TypeError):
+            _c.c_crc_many([123], *self._PARAMS)  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
+
+    def test_invalid_width_raises(self):
+        with pytest.raises(ValueError, match="width must be in"):
+            _c.c_crc_many([b""], 4, 0x3, 0x0, False, False, 0x0)
+
+
 class TestCExtensionTableCache:
     """Exercise the (width, poly, refin) lookup-table cache.
 
