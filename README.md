@@ -193,7 +193,11 @@ code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 
 ## Fast runtime CRC (optional C extension)
 
-Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.  `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` computes any of the 71 catalogue algorithms (or any custom polynomial) and transparently picks the fastest available path:
+Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.
+
+> **Performance, stated honestly:** with the C extension, crcglot computes any of the 71 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
+
+`crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` computes any catalogue algorithm (or custom polynomial) and transparently picks the fastest available path:
 
 1. **IEEE CRC-32 / JAMCRC → stdlib `zlib.crc32`** (hardware CRC folding — PCLMULQDQ on x86, PMULL / `crc32` instructions on ARM): tens of GB/s.  No software CRC out-runs silicon, so crcglot borrows the stdlib's path for the algorithms it covers.
 2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s, ~2,000× over pure Python.
