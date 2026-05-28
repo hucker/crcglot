@@ -1,24 +1,28 @@
 name: Wheels
 
-# Builds the cross-platform abi3 wheel matrix + sdist and uploads them
-# as CI artifacts.  Does NOT publish to PyPI yet -- run this manually
-# (Actions tab -> Wheels -> Run workflow) and confirm every platform
-# goes green, then download the artifacts and smoke-test on real Mac /
-# Raspberry Pi hardware before wiring up publishing.
+# Builds the cross-platform abi3 wheel matrix + sdist, runs the in-wheel
+# parity tests on every platform, and -- on a version-tag push -- publishes
+# the lot to PyPI via OIDC trusted publishing (the ``publish`` job below).
 #
-# IMPORTANT -- publishing migration pending:
-#   The existing publish.yml still fires on ``v*.*.*`` tags and builds
-#   with ``uv build``.  Now that the build backend is setuptools + a C
-#   extension, ``uv build`` on the Linux runner would produce a
-#   *Linux-only* wheel and publish that -- wrong for a cross-platform
-#   release.  Before the next tagged release, fold publishing into this
-#   workflow (add a publish job gated on tag push, using the same OIDC
-#   trusted-publishing as publish.yml) and remove publish.yml's tag
-#   trigger so the two don't double-publish.  Left as a deliberate
-#   follow-up so the packaging can be validated green first.
+# Why publishing lives here and not in a ``uv build`` step:
+#   crcglot ships a C extension, so the build backend is setuptools and
+#   each platform needs its own compiled wheel.  ``uv build`` on a single
+#   runner would produce a wheel for only that platform -- wrong for a
+#   cross-platform release.  Only this cibuildwheel matrix produces the
+#   full set (Linux x86_64/aarch64 manylinux+musllinux, Windows x64/arm64,
+#   macOS arm64) plus the sdist.  So the same workflow that PR-tests the
+#   wheels also publishes them on tag.  (The old publish.yml, which did a
+#   single-platform ``uv build`` on tag, has been removed.)
+#
+# Trusted publishing is keyed to THIS workflow filename on pypi.org -- if
+# the publish step ever fails with "not a trusted publisher", update the
+# publisher entry to point at ``wheels.yml`` (see scripts/RELEASE.md).
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"      # a version tag triggers the build matrix + the publish job
   pull_request:
     paths:
       - "src/crcglot/_c.c"
@@ -81,3 +85,32 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
           if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    # Only on a version-tag push -- never on a PR or a manual dispatch, so
+    # the matrix can be exercised freely without touching PyPI.  Waits for
+    # every wheel job AND the sdist to go green first.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC: required for PyPI trusted publishing
+    steps:
+      - name: Download all wheels + sdist
+        uses: actions/download-artifact@v4
+        with:
+          # No ``name:`` -> grab every artifact from this run (the five
+          # wheels-<os> bundles plus the sdist); merge-multiple flattens
+          # them all into a single dist/ directory.
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI via trusted publishing
+        # gh-action-pypi-publish auto-detects the OIDC token from the
+        # id-token:write permission and exchanges it for a short-lived
+        # upload token matching the trusted-publisher config on pypi.org.
+        # No PYPI_API_TOKEN secret lives in the repo.
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
