@@ -43,8 +43,13 @@ jobs:
           - ubuntu-24.04-arm   # manylinux + musllinux aarch64 (Raspberry Pi 64-bit, Graviton)
           - windows-latest     # win_amd64 (Intel / AMD)
           - windows-11-arm     # win_arm64 (Surface Pro X, Snapdragon X laptops)
-          - macos-13           # macOS x86_64 (Intel)
           - macos-14           # macOS arm64 (Apple Silicon)
+          # macos-13 (Intel Mac) intentionally omitted: GitHub is
+          # retiring the Intel-macOS runners and the job sat starved in
+          # the queue.  Apple Silicon covers the modern Mac; the rare
+          # Intel-Mac user builds from the always-published sdist (clang
+          # is present).  Re-add `macos-13` here if Intel demand returns
+          # and runners are available again.
     steps:
       - uses: actions/checkout@v4
 

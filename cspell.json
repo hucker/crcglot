@@ -93,6 +93,7 @@
         "rustc",
         "rustup",
         "SCTP",
+        "sdist",
         "SDLC",
         "setuptools",
         "shamt",
