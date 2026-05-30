@@ -7,6 +7,9 @@ Usage:
     crcglot python crc16-modbus
     crcglot list                              # browse catalogue
     crcglot info crc32                        # show parameters
+    crcglot detect packet.bin                 # identify CRC from a packet
+    crcglot encode crc32 "123456789"          # build a packet (round-trip pair)
+    crcglot credits                           # acknowledgments
 
     # Custom Rocksoft/Williams polynomial:
     crcglot c --custom width=16 poly=0x1234 init=0xFFFF \\
@@ -21,8 +24,12 @@ from pathlib import Path
 
 from crcglot import (
     ALGORITHMS,
+    ATTRIBUTION,
     LANGUAGES,
     AlgorithmInfo,
+    detect,
+    encode,
+    encode_text,
     generic_crc,
 )
 
@@ -122,6 +129,169 @@ def _cmd_info(args: argparse.Namespace) -> int:
     print(f"  check:    0x{algo.check:0{hex_w}X}")
     if algo.desc:
         print(f"  desc:     {algo.desc}")
+    return 0
+
+
+def _read_binary_packets(inputs: list[str]) -> list[bytes]:
+    """Load binary packets from a list of file specs.
+
+    Args:
+        inputs: File paths.  ``"-"`` (or an empty list, treated as
+            ``["-"]``) reads stdin in full as a single packet.
+
+    Returns:
+        One ``bytes`` per packet, in input order.
+
+    Raises:
+        FileNotFoundError: One of the named paths does not exist.
+    """
+    if not inputs:
+        inputs = ["-"]
+    out: list[bytes] = []
+    for spec in inputs:
+        if spec == "-":
+            out.append(sys.stdin.buffer.read())
+        else:
+            out.append(Path(spec).read_bytes())
+    return out
+
+
+def _read_text_packets(arg: str) -> list[str]:
+    """Parse the value of ``--text`` into one-or-more packets.
+
+    Args:
+        arg: The literal value passed to ``--text``.  ``"-"`` reads
+            stdin and splits it into one packet per non-empty line;
+            anything else is a single inline packet.
+
+    Returns:
+        The list of text packets.
+    """
+    if arg == "-":
+        text = sys.stdin.read()
+        return [ln for ln in text.splitlines() if ln.strip()]
+    return [arg]
+
+
+def _cmd_detect(args: argparse.Namespace) -> int:
+    """Run the ``crcglot detect`` subcommand.
+
+    Reads packets according to ``--text`` / ``--hex`` / positional file
+    inputs, calls :func:`crcglot.detect`, and prints each surviving
+    candidate.
+
+    Args:
+        args: Parsed argparse namespace for the ``detect`` subparser.
+
+    Returns:
+        ``0`` on at least one match, ``1`` on no match, ``2`` on
+        invalid input (bad hex, missing file, etc.).
+    """
+    if args.text is not None:
+        packets: list[str] | list[bytes] = _read_text_packets(args.text)
+        mode = "text"
+    elif args.hex is not None:
+        try:
+            packets = [bytes.fromhex(args.hex)]
+        except ValueError as e:
+            print(f"Error: invalid hex string: {e}", file=sys.stderr)
+            return 2
+        mode = "binary"
+    else:
+        try:
+            packets = _read_binary_packets(args.inputs)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+        mode = "binary"
+
+    result = detect(
+        packets,
+        mode=mode,
+        encoding=args.encoding,
+        algorithms=args.algorithms,
+        match=args.match,
+    )
+    if not result.matched:
+        print("No match.", file=sys.stderr)
+        return 1
+
+    for m in result.candidates:
+        line = f"{m.algorithm}  width={m.info.width}  endianness={m.endianness}"
+        if m.padding is not None:
+            line += (
+                f"  separator={m.padding.separator!r}"
+                f"  leader={m.padding.hex_prefix!r}"
+                f"  uppercase={m.padding.uppercase}"
+            )
+        print(line)
+    return 0
+
+
+def _cmd_encode(args: argparse.Namespace) -> int:
+    """Run the ``crcglot encode`` subcommand.
+
+    Calls :func:`crcglot.encode` (with ``--binary``) or
+    :func:`crcglot.encode_text` and writes the result to stdout.
+
+    Args:
+        args: Parsed argparse namespace for the ``encode`` subparser.
+
+    Returns:
+        ``0`` on success, ``2`` on unknown algorithm or missing
+        text-mode data.
+    """
+    if args.algorithm not in ALGORITHMS:
+        print(
+            f"Error: unknown algorithm {args.algorithm!r}. "
+            f"Use 'crcglot list' to browse.",
+            file=sys.stderr,
+        )
+        return 2
+    endianness = "little" if args.little else "big"
+    if args.binary:
+        data = sys.stdin.buffer.read()
+        packet = encode(data, args.algorithm, endianness=endianness)
+        sys.stdout.buffer.write(packet)
+        return 0
+    if args.data is None:
+        print(
+            "Error: text-mode encode requires a data argument "
+            "(or use --binary to read stdin as bytes).",
+            file=sys.stderr,
+        )
+        return 2
+    text = encode_text(
+        args.data,
+        args.algorithm,
+        sep=args.sep,
+        leader=args.leader,
+        uppercase=args.upper,
+        endianness=endianness,
+        encoding=args.encoding,
+        fmt=args.fmt,
+    )
+    print(text)
+    return 0
+
+
+def _cmd_credits(args: argparse.Namespace) -> int:
+    """Run the ``crcglot credits`` subcommand.
+
+    Prints :data:`crcglot.ATTRIBUTION` verbatim, appending a trailing
+    newline if the constant doesn't already end with one.
+
+    Args:
+        args: Parsed argparse namespace (unused; included for the
+            uniform dispatch shape).
+
+    Returns:
+        Always ``0``.
+    """
+    del args  # uniform handler shape; nothing to read from the namespace.
+    sys.stdout.write(ATTRIBUTION)
+    if not ATTRIBUTION.endswith("\n"):
+        sys.stdout.write("\n")
     return 0
 
 
@@ -351,6 +521,85 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = subs.add_parser("info", help="Show algorithm parameters")
     p_info.add_argument("name", help="Algorithm name (e.g. crc32)")
 
+    # crcglot detect [packet.bin ...] [--text TEXT|--hex HEX]
+    p_detect = subs.add_parser(
+        "detect",
+        help="Identify which catalogue CRC matches a packet",
+    )
+    p_detect.add_argument(
+        "inputs", nargs="*",
+        help="Binary packet files (or '-' for stdin); ignored with --text/--hex",
+    )
+    p_detect.add_argument(
+        "--text", metavar="TEXT",
+        help="Text packet (inline string, or '-' to read lines from stdin)",
+    )
+    p_detect.add_argument(
+        "--hex", metavar="HEX",
+        help="Binary packet supplied as a hex string",
+    )
+    p_detect.add_argument(
+        "--match", choices=["first", "all", "set"], default="first",
+        help=(
+            "first (default): early-stop on first hit; "
+            "all: forensic, every consistent candidate; "
+            "set: strict singleton (succeed only on a unique algorithm)"
+        ),
+    )
+    p_detect.add_argument(
+        "--algorithms", metavar="GLOB",
+        help="fnmatch glob to narrow the scan (e.g. 'crc16-*')",
+    )
+    p_detect.add_argument(
+        "--encoding", default="utf-8",
+        help="Encoding for text-mode data portion (default: utf-8)",
+    )
+
+    # crcglot encode <algorithm> [<data>] [--binary] [--little] [--sep STR] ...
+    p_encode = subs.add_parser(
+        "encode",
+        help="Build a packet by appending the CRC (round-trip pair to detect)",
+    )
+    p_encode.add_argument("algorithm", help="Catalogue name (e.g. crc32)")
+    p_encode.add_argument(
+        "data", nargs="?",
+        help="Text data (text mode); omit when --binary reads stdin as bytes",
+    )
+    p_encode.add_argument(
+        "--binary", action="store_true",
+        help="Binary mode: read stdin as bytes, write packet bytes to stdout",
+    )
+    p_encode.add_argument(
+        "--little", action="store_true",
+        help="Little-endian CRC byte order (default: big)",
+    )
+    p_encode.add_argument(
+        "--sep", default=" ",
+        help="Text separator between data and hex (default: single space)",
+    )
+    p_encode.add_argument(
+        "--leader", default="",
+        help="Text hex leader: '', '0x', or '0X' (default: '')",
+    )
+    p_encode.add_argument(
+        "--upper", action="store_true",
+        help="Uppercase hex digits",
+    )
+    p_encode.add_argument(
+        "--fmt", default="{data}{sep}{leader}{crc}",
+        help="str.format template (tokens: {data} {sep} {leader} {crc})",
+    )
+    p_encode.add_argument(
+        "--encoding", default="utf-8",
+        help="Encoding for text-mode data (default: utf-8)",
+    )
+
+    # crcglot credits
+    subs.add_parser(
+        "credits",
+        help="Show acknowledgments for the projects crcglot builds on",
+    )
+
     # crcglot {c,csharp,go,python,rust,typescript,verilog,vhdl} <algo>
     # [--table|--slice8] [file=STEM] [symbol=NAME]
     # Or: crcglot c --custom width=... poly=... ...
@@ -411,6 +660,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_list(args)
     if args.command == "info":
         return _cmd_info(args)
+    if args.command == "detect":
+        return _cmd_detect(args)
+    if args.command == "encode":
+        return _cmd_encode(args)
+    if args.command == "credits":
+        return _cmd_credits(args)
     if args.command in LANGUAGES:
         return _cmd_codegen(args, args.command)
     parser.print_help(sys.stderr)
