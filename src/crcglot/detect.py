@@ -85,6 +85,27 @@ def _endians_for(
     return (selector,)
 
 
+def _byte_reversed(value: int, width_bits: int) -> int:
+    """Byte-reverse ``value`` at the algorithm's width.
+
+    The CRC integer has a canonical big-endian byte form (most-significant
+    byte first); a caller whose tool printed the bytes and read them
+    little-endian gets the byte-reversed integer.  This lets the
+    ``target_crc`` path compare against both readings.
+
+    Args:
+        value: The CRC integer.
+        width_bits: Algorithm width in bits (always byte-aligned in the
+            catalogue: 8, 16, 32, or 64).
+
+    Returns:
+        ``value`` with its bytes reversed.  For width 8 returns ``value``
+        unchanged (single byte is endianness-invariant).
+    """
+    n_bytes = width_bits // 8
+    return int.from_bytes(value.to_bytes(n_bytes, "big"), "little")
+
+
 @dataclass(frozen=True)
 class TextFormat:
     """The text-packet shape captured from the trailing whitespace + hex.
@@ -542,18 +563,22 @@ def detect(
             algorithm survives across all packets.
         target_crc: When supplied, treat ``packet`` as **data only** --
             no CRC is extracted from the tail.  The integer is the
-            externally-known CRC value to match against.  For each
-            candidate algorithm, ``generic_crc(data)`` is compared to
-            ``target_crc``; algorithms whose width can't hold
-            ``target_crc`` are skipped.  Useful when the CRC arrives
-            out-of-band (separate header field, separate file,
-            user-typed expected value, etc.) and you don't want
-            ``detect`` to slice the last N bytes as the CRC.  Multi-
-            packet input applies the same ``target_crc`` to every
-            packet -- all packets' computed CRCs must equal it under
-            the candidate algorithm.  The returned ``DetectMatch``
-            reports ``endianness="big"`` by convention (no byte
-            parsing happened) and ``padding=None``.
+            externally-known CRC value to match against.  The integer is
+            tried as **two readings**: as-is (big-endian) and byte-
+            reversed at the algorithm's width (little-endian) -- the
+            caller's tooling might have printed the CRC bytes in either
+            wire order.  For each candidate algorithm, ``generic_crc(
+            data)`` is compared to both readings; whichever matches
+            wins, and the corresponding endianness label is recorded on
+            the :class:`DetectMatch`.  The ``endian`` parameter narrows
+            this to a single reading when known.  Algorithms whose
+            width can't hold the relevant reading are skipped.  Useful
+            when the CRC arrives out-of-band (separate header field,
+            separate file, user-typed expected value, etc.) and you
+            don't want ``detect`` to slice the last N bytes as the CRC.
+            Multi-packet input applies the same ``target_crc`` to every
+            packet -- all packets' computed CRCs must agree under the
+            candidate algorithm and reading.  ``padding`` is ``None``.
         endian: Which byte ordering(s) of the trailing CRC to try.
             ``"both"`` (default) tries big and little -- handles the
             common "I don't know the wire format" case.  ``"big"`` or
@@ -561,8 +586,9 @@ def detect(
             and rules out the false positives that show up when a
             byte-reversed CRC happens to coincide with some other
             algorithm's natural reading.  Useful when the wire format is
-            known.  No effect on the ``target_crc`` path -- that path
-            never byte-parses the CRC, so endianness is moot.
+            known.  Also narrows the ``target_crc`` path: ``"big"``
+            tests only the natural integer reading; ``"little"`` tests
+            only the byte-reversed-at-width form.
 
     Returns:
         A :class:`DetectResult` truthy on match.  ``.candidates`` lists
@@ -598,7 +624,7 @@ def detect(
     # to the caller-supplied integer for every candidate algorithm.
     if target_crc is not None:
         return _detect_with_target_crc(
-            packets, mode, encoding, names, match, target_crc,
+            packets, mode, encoding, names, match, target_crc, endian,
         )
 
     # Hex pre-step.  Two modes route through here:
@@ -731,20 +757,22 @@ def _detect_with_target_crc(
     names: list[str],
     match: Literal["first", "all", "set"],
     target_crc: int,
+    endian: EndianSelector,
 ) -> DetectResult:
     """Implement the ``target_crc`` short-circuit path.
 
     For each algorithm in scan order:
 
-    * Skip if the algorithm's width can't hold ``target_crc``
-      (``target_crc >= 1 << algo.width``).
-    * For every packet, compute ``generic_crc(data)`` and require it to
-      equal ``target_crc``.  Any packet that doesn't match disqualifies
-      the algorithm for the whole call.
-
-    Endianness is ``"big"`` by convention -- no byte parsing happened
-    so the concept is moot; we pick one value to keep DetectMatch's
-    contract intact.
+    * Skip if the algorithm's width can't hold either endian's
+      interpretation of ``target_crc``.
+    * Try the caller's integer as both byte orderings of the CRC -- the
+      raw integer is the big-endian reading; the byte-reversed-at-width
+      integer is the little-endian reading.  Whichever interpretation
+      every packet's computed CRC agrees on wins; the corresponding
+      endianness is recorded on the :class:`DetectMatch`.
+    * The ``endian`` selector narrows which interpretations to try
+      (``"big"`` only the natural reading; ``"little"`` only the
+      byte-reversed one; ``"both"`` tries both, big-first).
     """
     if target_crc < 0:
         raise ValueError(f"target_crc must be non-negative (got {target_crc})")
@@ -760,30 +788,42 @@ def _detect_with_target_crc(
     candidates: list[DetectMatch] = []
     for name in names:
         algo = ALGORITHMS[name]
-        # Width must hold target_crc.  ``(1 << width) - 1`` is the
-        # algorithm's maximum CRC value; anything larger can't match.
-        if target_crc >= (1 << algo.width):
+        w_bits = algo.width
+        # The caller's integer is the CRC bytes under some byte order;
+        # if it doesn't fit in the width, no byte-reversal of it can.
+        if target_crc >= (1 << w_bits):
             continue
-        all_match = True
-        for data in data_packets:
-            computed = generic_crc(
-                data, algo.width, algo.poly, algo.init,
-                algo.refin, algo.refout, algo.xorout,
+        # Build the (target_int, endianness_label) candidates.
+        # Width 1 byte dedups (BE == LE byte-wise).
+        targets: list[tuple[int, Endianness]] = []
+        for byte_order in _endians_for(endian, dedup=(w_bits == 8)):
+            tgt = (
+                target_crc if byte_order == "big"
+                else _byte_reversed(target_crc, w_bits)
             )
-            if computed != target_crc:
-                all_match = False
-                break
-        if all_match:
-            candidates.append(
-                DetectMatch(
-                    algorithm=name,
-                    info=algo,
-                    endianness="big",
-                    padding=None,
+            targets.append((tgt, byte_order))
+
+        for tgt, byte_order in targets:
+            all_match = True
+            for data in data_packets:
+                computed = generic_crc(
+                    data, algo.width, algo.poly, algo.init,
+                    algo.refin, algo.refout, algo.xorout,
                 )
-            )
-            if match == "first":
-                return DetectResult(matched=True, candidates=tuple(candidates))
+                if computed != tgt:
+                    all_match = False
+                    break
+            if all_match:
+                candidates.append(
+                    DetectMatch(
+                        algorithm=name,
+                        info=algo,
+                        endianness=byte_order,
+                        padding=None,
+                    )
+                )
+                if match == "first":
+                    return DetectResult(matched=True, candidates=tuple(candidates))
 
     if match == "set":
         unique_algos = {c.algorithm for c in candidates}
@@ -818,9 +858,10 @@ def detect_iter(
         encoding: Used in text mode to encode the data portion.
         algorithms: Optional ``fnmatch`` glob to narrow the scan.
         target_crc: When supplied, skip CRC-tail extraction and stream
-            one ``Attempt`` per algorithm, each comparing
-            ``generic_crc(data)`` to ``target_crc``.  Algorithms whose
-            width can't hold ``target_crc`` are skipped (not yielded).
+            one ``Attempt`` per ``(algorithm, endian)`` pair, comparing
+            ``generic_crc(data)`` to ``target_crc`` (big-endian reading)
+            and to its byte-reversed-at-width form (little-endian
+            reading).  ``endian`` narrows which readings are yielded.
             See :func:`detect` for the full semantics.
         endian: ``"both"`` (default) yields one ``Attempt`` per
             ``(algorithm, byte_order)`` -- two per algorithm.  ``"big"``
@@ -848,9 +889,10 @@ def detect_iter(
         raise TypeError("detect_iter takes a single packet (bytes-like or str)")
     names = _ordered_algorithm_names(algorithms)
 
-    # target_crc short-circuit: stream one Attempt per algorithm,
-    # comparing ``generic_crc(data)`` to ``target_crc``.  No
-    # CRC-tail extraction, no endianness loop, no text-mode parse.
+    # target_crc short-circuit: stream one Attempt per (algo, endian)
+    # pair, comparing ``generic_crc(data)`` to ``target_crc`` (BE
+    # reading) and to its byte-reversed-at-width form (LE reading).
+    # No CRC-tail extraction, no text-mode parse.
     if target_crc is not None:
         if target_crc < 0:
             raise ValueError(
@@ -867,7 +909,12 @@ def detect_iter(
                 data, algo.width, algo.poly, algo.init,
                 algo.refin, algo.refout, algo.xorout,
             )
-            yield Attempt(name, "big", computed == target_crc)
+            for byte_order in _endians_for(endian, dedup=(algo.width == 8)):
+                tgt = (
+                    target_crc if byte_order == "big"
+                    else _byte_reversed(target_crc, algo.width)
+                )
+                yield Attempt(name, byte_order, computed == tgt)
         return
 
     # Hex pre-step.  ``mode="hex"`` *requires* the str to be hex-

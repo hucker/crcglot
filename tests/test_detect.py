@@ -682,7 +682,8 @@ class TestTargetCrc:
             "target_crc path returns padding=None (no surface format captured)"
         )
         assert result.candidates[0].endianness == "big", (
-            "target_crc path returns endianness='big' by convention"
+            "0xCBF43926 is the natural BE reading of crc32(123456789); "
+            "the match should report endianness='big'"
         )
 
     def test_text_data_with_target_crc(self) -> None:
@@ -747,17 +748,26 @@ class TestTargetCrc:
             detect(b"abc", target_crc=-1)
 
     def test_target_crc_via_detect_iter(self) -> None:
-        # Arrange
+        # Arrange -- 0xCBF43926 is the BE reading of crc32(123456789).
         attempts = list(detect_iter(b"123456789", target_crc=0xCBF43926))
-        # Assert -- crc32 is in the priority head so it appears early.
-        matched_attempts = [a for a in attempts if a.matched]
-        actual_algos_matched = {a.algorithm for a in matched_attempts}
-        assert "crc32" in actual_algos_matched, (
-            f"crc32 missing from matched attempts: {actual_algos_matched}"
+        # Assert -- crc32 (BE) is in the priority head and matches.
+        be_matches = {
+            a.algorithm for a in attempts if a.matched and a.endianness == "big"
+        }
+        assert "crc32" in be_matches, (
+            f"crc32 (BE) missing from matched attempts: "
+            f"{[(a.algorithm, a.endianness) for a in attempts if a.matched]}"
         )
-        # All matched attempts in target_crc mode report endianness='big'.
-        assert all(a.endianness == "big" for a in attempts), (
-            "target_crc path should yield only endianness='big' attempts"
+
+    def test_target_crc_iter_yields_both_endians(self) -> None:
+        # Arrange -- the default endian='both' yields one Attempt per
+        # (algorithm, byte_order) pair, so width-32 algos contribute two
+        # and the width-1 algorithms contribute one (BE==LE dedup).
+        attempts = list(detect_iter(b"123456789", target_crc=0xCBF43926))
+        # Assert
+        labels = {a.endianness for a in attempts}
+        assert labels == {"big", "little"}, (
+            f"expected both endians yielded, got {labels}"
         )
 
     def test_target_crc_iter_skips_width_overflow(self) -> None:
@@ -1004,25 +1014,84 @@ class TestEndianSelector:
             f"hex-text under endian='little' should not match crc32: {le_algos}"
         )
 
-    def test_endian_ignored_under_target_crc(self) -> None:
-        # Arrange -- target_crc never byte-parses the CRC, so endian is
-        # moot.  Passing endian='little' must not change the outcome.
+    def test_target_crc_matches_byte_reversed_le_reading(self) -> None:
+        # Arrange -- the caller's tool printed the CRC bytes and read
+        # them little-endian, yielding 0x2639F4CB (the byte-reversal of
+        # crc32's canonical 0xCBF43926).  Default endian='both' should
+        # still identify crc32, reported as endianness='little'.
+        # Act
+        result = detect(b"123456789", target_crc=0x2639F4CB)
+        # Assert
+        assert (result.algorithm, result.endianness) == ("crc32", "little"), (
+            f"expected (crc32, little) for LE reading of crc32(123456789); "
+            f"got {(result.algorithm, result.endianness)}"
+        )
+
+    def test_target_crc_le_reading_rejected_under_endian_big(self) -> None:
+        # Arrange -- endian='big' tests only the natural integer reading.
+        # 0x2639F4CB is NOT the BE reading of any catalogue algorithm's
+        # CRC of "123456789", so no match.
+        # Act
+        result = detect(b"123456789", target_crc=0x2639F4CB, endian="big")
+        # Assert -- crc32 specifically must be absent.
+        assert not result.matched, (
+            f"endian='big' should reject the LE reading of crc32: {result}"
+        )
+
+    def test_target_crc_le_reading_accepted_under_endian_little(self) -> None:
+        # Arrange -- endian='little' tests only the byte-reversed reading.
+        # 0x2639F4CB byte-reversed at width 32 is 0xCBF43926 = crc32(123456789).
+        # Act
+        result = detect(b"123456789", target_crc=0x2639F4CB, endian="little")
+        # Assert
+        assert (result.algorithm, result.endianness) == ("crc32", "little"), (
+            f"endian='little' + LE reading: "
+            f"got {(result.algorithm, result.endianness)}"
+        )
+
+    def test_target_crc_endian_both_tries_both_readings(self) -> None:
+        # Arrange -- under endian='both', match='all', a width-32
+        # target gets BOTH readings tried.  For the canonical BE
+        # value, BE wins for crc32; for the LE-reversed value, LE wins.
+        # Multi-packet sanity: data = b"123456789", a single packet.
+        be_target = 0xCBF43926
+        le_target = 0x2639F4CB
+        # Act
+        r_be = detect(b"123456789", target_crc=be_target, match="all")
+        r_le = detect(b"123456789", target_crc=le_target, match="all")
+        # Assert -- the BE reading match for the BE target must NOT
+        # also report as LE (the two integers differ).
+        be_pairs = {(m.algorithm, m.endianness) for m in r_be.candidates}
+        le_pairs = {(m.algorithm, m.endianness) for m in r_le.candidates}
+        assert ("crc32", "big") in be_pairs, (
+            f"BE target should yield (crc32, big): {be_pairs}"
+        )
+        assert ("crc32", "little") not in be_pairs, (
+            f"BE target should NOT yield (crc32, little): {be_pairs}"
+        )
+        assert ("crc32", "little") in le_pairs, (
+            f"LE target should yield (crc32, little): {le_pairs}"
+        )
+        assert ("crc32", "big") not in le_pairs, (
+            f"LE target should NOT yield (crc32, big): {le_pairs}"
+        )
+
+    def test_endian_narrows_target_crc_be_reading(self) -> None:
+        # Arrange -- 0xCBF43926 is the natural BE integer reading of
+        # crc32(123456789).  endian='big' and 'both' should match;
+        # endian='little' should NOT (the LE byte-reversed-at-width
+        # form of 0xCBF43926 is 0x2639F4CB, not the computed CRC).
         # Act
         r_big = detect(b"123456789", target_crc=0xCBF43926, endian="big")
         r_little = detect(b"123456789", target_crc=0xCBF43926, endian="little")
         r_both = detect(b"123456789", target_crc=0xCBF43926, endian="both")
         # Assert
-        actual_algo_big = r_big.algorithm
-        actual_algo_little = r_little.algorithm
-        actual_algo_both = r_both.algorithm
-        assert actual_algo_big == "crc32", f"endian='big' + target: {actual_algo_big}"
-        assert actual_algo_little == "crc32", (
-            f"endian='little' + target: {actual_algo_little}"
+        assert (r_big.algorithm, r_big.endianness) == ("crc32", "big"), (
+            f"endian='big' + BE target: {(r_big.algorithm, r_big.endianness)}"
         )
-        assert actual_algo_both == "crc32", (
-            f"endian='both' + target: {actual_algo_both}"
+        assert not r_little.matched, (
+            f"endian='little' + BE target should not match; got {r_little}"
         )
-        # All three report endianness='big' (target_crc convention).
-        assert r_big.endianness == "big"
-        assert r_little.endianness == "big"
-        assert r_both.endianness == "big"
+        assert (r_both.algorithm, r_both.endianness) == ("crc32", "big"), (
+            f"endian='both' + BE target: {(r_both.algorithm, r_both.endianness)}"
+        )
