@@ -127,6 +127,69 @@ class TestTextRoundTrip:
         assert actual == expected, f"padding mismatch: actual={actual} expected={expected}"
 
 
+class TestHexTextInput:
+    """A ``str`` that's a hex-encoded byte packet -- with any common
+    formatting (``0x`` prefix, spaces, commas, colons, newlines) -- is
+    auto-detected and decoded; the text-mode fallback is preserved when
+    the input doesn't look like pure hex."""
+
+    # All cases below are the canonical CRC-32 packet
+    # ``b"123456789" + 0xCBF43926.to_bytes(4, "big")`` formatted as hex.
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "313233343536373839cbf43926",                                # no separators
+            "31 32 33 34 35 36 37 38 39 cb f4 39 26",                    # spaces (wireshark)
+            "0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xcb 0xf4 0x39 0x26",  # 0x prefix per byte
+            "0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0xcb,0xf4,0x39,0x26",  # comma-separated (C array style)
+            "31:32:33:34:35:36:37:38:39:CB:F4:39:26",                    # xxd / MAC-address style (colon + upper)
+            "31 32 33 34 35\n36 37 38 39\ncb f4 39 26",                  # multi-line
+            "  0X313233343536373839CBF43926  ",                          # one big 0X-prefixed token, outer whitespace
+        ],
+        ids=[
+            "no-separator",
+            "space-per-byte",
+            "0x-per-byte",
+            "comma-separated",
+            "colon-uppercase",
+            "multi-line",
+            "single-prefixed-token",
+        ],
+    )
+    def test_hex_text_auto_detect(self, raw: str) -> None:
+        # Act
+        result = detect(raw)
+        # Assert
+        assert result.matched, f"hex-text auto-detect failed: {raw!r}"
+        assert result.algorithm == "crc32", f"expected crc32, got {result.algorithm!r}"
+        # Hex-decoded packets go through binary detect, so padding stays None.
+        assert result.candidates[0].padding is None, (
+            f"hex packet should yield binary match (padding=None): {result.candidates[0]}"
+        )
+
+    def test_text_mode_still_works_when_string_isnt_pure_hex(self) -> None:
+        # Arrange -- after stripping the separator, "123456789cbf43926" is
+        # 17 chars (odd) so it can't be hex; falls through to text mode.
+        # Act
+        result = detect("123456789 cbf43926")
+        # Assert
+        assert result.matched, "canonical text-mode should still resolve"
+        assert result.candidates[0].padding is not None, (
+            "text-mode hit should preserve padding"
+        )
+
+    def test_explicit_hex_mode_rejects_non_hex(self) -> None:
+        # Act
+        result = detect("hello world this is not hex", mode="hex")
+        # Assert
+        assert not result.matched, f"mode='hex' on garbage should not match: {result}"
+
+    def test_explicit_hex_mode_on_bytes_raises(self) -> None:
+        # Act / Assert
+        with pytest.raises(TypeError, match="hex mode requires all str"):
+            detect(b"abc", mode="hex")
+
+
 class TestTextOuterWhitespace:
     """Outer whitespace -- leading indentation, trailing newlines, CRLF
     line endings -- must be transparent.  The CRC is over the trimmed
@@ -168,7 +231,11 @@ class TestTextOuterWhitespace:
             f"expected crc32, got {result.algorithm}"
         )
         # The internal separator (between data and hex) is still preserved.
-        actual_sep = result.candidates[0].padding.separator
+        padding = result.candidates[0].padding
+        assert padding is not None, (
+            "text-mode hit should have TextFormat padding, got None"
+        )
+        actual_sep = padding.separator
         assert actual_sep == " ", (
             f"internal separator should still be ' ', got {actual_sep!r}"
         )
