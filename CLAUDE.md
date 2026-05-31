@@ -72,6 +72,30 @@ Overall ≥ 90% on the full suite.  Per-module floor: 80%.  The fast
 suite alone should hit ≥ 95% — the only paths that legitimately need
 slow tests for coverage are subprocess invocations themselves.
 
+## Skipped tests are not "passed"
+
+A test run with skips is **amber, not green**.  Never report a suite as
+"passing" or "green" while the summary line includes a non-zero
+`skipped` count.  Always state the skip count alongside the pass count
+("2443 passed, 383 skipped — not green") and treat the skips as a
+regression to investigate.
+
+Most skips on this project are caused by `pytest.mark.skipif(not
+HAS_<tool>, ...)` evaluating false at test-module import time.  That
+test-module-time evaluation is the trap: if conftest sets up PATH or
+toolchains via fixtures (which fire *after* collection), the `HAS_<tool>`
+flags freeze in their pre-fixup state and every dependent test silently
+skips.  Use `pytest_configure` (a real pytest hook, runs *before*
+collection) for any environment setup that controls test discovery; keep
+session-scope autouse fixtures for things that only affect throughput.
+
+The only acceptable skipped tests are ones the user has **explicitly
+confirmed** as expected (e.g. "yes those Windows-arm tests skip on Mac").
+After getting that confirmation, immediately reconfirm: **"Are you sure
+those tests should not be skipped?"** -- the double-check exists because
+silent skips have already cost us real regressions (the conftest fixture
+refactor, the Go toolchain detection).
+
 ## Precommit
 
 - Update README.md (and the badge counts at the top if test count or coverage % changed)

@@ -1,23 +1,23 @@
-"""Session-scope fixtures that prepare the test environment.
+"""Test-session environment setup.
 
-Three autouse, session-scoped fixtures run before any test:
+Two phases, two mechanisms -- correctly this time:
 
-* :func:`fix_msys2_path_on_windows` -- put msys2's ``mingw64\\bin``
-  ahead of Git Bash's on Windows so pytest's ``gcc`` subprocess loads
-  the right DLLs.
-* :func:`add_windows_tool_dirs_to_path` -- append the standard install
-  locations of Go, Node, iverilog, etc. that some Windows installers
-  don't add to PATH on their own.
-* :func:`warm_go_build_cache_on_windows` -- pre-populate Go's build
-  cache so the slow-tier Go tests don't time out under
-  ``pytest-xdist``.  Depends on :func:`add_windows_tool_dirs_to_path`
-  so ``go.exe`` is reachable when we shell out.
+* ``pytest_configure`` (a pytest hook, runs **before** test collection)
+  does the PATH fixups.  Anything that controls test discovery -- in
+  particular ``HAS_<tool> = shutil.which("<tool>") is not None`` flags
+  that test modules evaluate at *import* time -- must see the corrected
+  PATH, and pytest's collection phase imports those modules.  Earlier
+  this lived in a ``@pytest.fixture(scope="session", autouse=True)``,
+  which fires *after* collection and so was too late: 383 Go-toolchain
+  tests silently skipped with ``HAS_GO`` frozen at ``False``.
+* A session-scope autouse **fixture** does the Go ``build std``
+  warm-up.  That step is purely about throughput (a cold ``GOCACHE``
+  on Windows makes the per-test 30 s timeout flake under xdist) and
+  doesn't gate any test's collection / skipif state, so a fixture is
+  the right shape there.
 
-Each fixture is a no-op on platforms or shells where the underlying
-issue doesn't apply (Linux/macOS, or Windows shells where the tool is
-already on PATH), and idempotent under xdist (every worker re-imports
-this module, but the fixture bodies all detect "already done" and
-skip).
+See CLAUDE.md ("Skipped tests are not 'passed'") for the rule this
+file is preventing future regressions of.
 """
 
 from __future__ import annotations
@@ -31,17 +31,16 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers (plain functions; not fixtures because nothing requests
-# them by parameter -- they're only called from the fixtures below).
+# PATH-setup helpers (plain functions; called from ``pytest_configure``
+# below so the corrected PATH is in place before any test module imports.)
 # ---------------------------------------------------------------------------
 
 
 def _append_to_path_if_present(candidate: str) -> None:
     """Append ``candidate`` to PATH if it exists and isn't already there.
 
-    Used by the Windows tool-dir fixture below.  No-op when the directory
-    doesn't exist (cross-platform / not-installed cases) or when it's
-    already on PATH at any position.
+    No-op when the directory doesn't exist (cross-platform / not-installed
+    cases) or when it's already on PATH at any position.
     """
     if not os.path.isdir(candidate):
         return
@@ -53,13 +52,7 @@ def _append_to_path_if_present(candidate: str) -> None:
     os.environ["PATH"] = os.pathsep.join(parts + [candidate])
 
 
-# ---------------------------------------------------------------------------
-# Session-scope autouse fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="session", autouse=True)
-def fix_msys2_path_on_windows() -> None:
+def _fix_msys2_path_on_windows() -> None:
     """Ensure msys2's ``mingw64\\bin`` precedes Git's ``mingw64\\bin`` in PATH.
 
     Symptom: under Git Bash on Windows, the CRC codegen-exec tests
@@ -121,8 +114,7 @@ def fix_msys2_path_on_windows() -> None:
     os.environ["PATH"] = os.pathsep.join([msys2_bin] + parts)
 
 
-@pytest.fixture(scope="session", autouse=True)
-def add_windows_tool_dirs_to_path() -> None:
+def _add_windows_tool_dirs_to_path() -> None:
     """Add tool dirs to PATH for Windows installers that don't update it.
 
     Each entry is a directory that some standard Windows installer of a
@@ -166,10 +158,37 @@ def add_windows_tool_dirs_to_path() -> None:
         _append_to_path_if_present(c)
 
 
+# ---------------------------------------------------------------------------
+# Pytest hooks
+# ---------------------------------------------------------------------------
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Run PATH setup before test collection.
+
+    ``pytest_configure`` fires before pytest collects test modules, so
+    by the time ``tests/test_go_gen.py`` (or any other test module)
+    evaluates a module-level ``HAS_<tool> = shutil.which("<tool>") is
+    not None`` flag, this hook has already extended PATH to include the
+    Windows install dirs.  Don't move this back to a session-autouse
+    fixture -- those fire **after** collection and the ``HAS_<tool>``
+    flags freeze in the wrong state.
+
+    See CLAUDE.md ("Skipped tests are not 'passed'") for the
+    don't-do-that note and the 383-test regression that motivated it.
+    """
+    del config  # unused; required by the hook signature
+    _fix_msys2_path_on_windows()
+    _add_windows_tool_dirs_to_path()
+
+
+# ---------------------------------------------------------------------------
+# Session-scope autouse fixtures (for things that don't gate discovery)
+# ---------------------------------------------------------------------------
+
+
 @pytest.fixture(scope="session", autouse=True)
-def warm_go_build_cache_on_windows(
-    add_windows_tool_dirs_to_path: None,
-) -> None:
+def warm_go_build_cache_on_windows() -> None:
     """Pre-populate Go's build cache so the slow-tier Go tests don't
     time out under pytest-xdist.
 
@@ -177,8 +196,8 @@ def warm_go_build_cache_on_windows(
     under ``-n auto``, a handful of tests (2-6 per run, different
     algorithm names each time) fail with
     ``subprocess.TimeoutExpired: 'go run ...' timed out after 30
-    seconds``.  Observed on the v0.8.0 release suite, on the
-    feat/crc-codec verification run, and on chore/lang-subpackage.
+    seconds``.  Observed on the v0.8.0 release suite and on multiple
+    feature-branch verification runs.
 
     Root cause: Go's ``GOCACHE`` (``C:\\Users\\<user>\\AppData\\Local\\
     go-build`` by default) is empty on a fresh box and gets partially
@@ -192,16 +211,17 @@ def warm_go_build_cache_on_windows(
     the cache hits and exits in milliseconds, so re-running the suite
     has no measurable extra cost.
 
-    The ``add_windows_tool_dirs_to_path`` parameter is the explicit
-    "depends on" link to the tool-dir fixture above so Go is on PATH
-    by the time we shell out.
+    This is correctly a fixture (not a hook): it doesn't gate any test's
+    discovery / skipif state, only its throughput.  PATH must already
+    have ``C:\\Program Files\\Go\\bin`` on it; ``pytest_configure``
+    above takes care of that, so by the time this fixture fires
+    ``go.exe`` is resolvable.
 
     No-op on non-Windows (the flake is Windows-specific) and on
     Windows shells where Go isn't installed.  Best-effort: any failure
     here is swallowed and the slow-tier Go tests are left to surface
     real Go misconfigurations on their own.
     """
-    del add_windows_tool_dirs_to_path  # consumed only for ordering
     if sys.platform != "win32":
         return
     go = r"C:\Program Files\Go\bin\go.exe"
