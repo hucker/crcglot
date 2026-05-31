@@ -344,9 +344,11 @@ class TestVariantKwargValidation:
         )
 
     def test_unknown_variant_raises_valueerror(self):
-        # Act / Assert -- typo / never-shipped variant name.
+        # Act / Assert -- typo / never-shipped variant name.  Routed
+        # through the registry's ``Callable`` (no Literal narrowing) so
+        # the runtime check fires.
         with pytest.raises(ValueError, match="must be 'bitwise', 'table', or 'slice8'"):
-            LANGUAGES["c"].generator("crc32", variant="quadword")  # type: ignore[call-arg]  # ty: ignore[invalid-argument-type]
+            LANGUAGES["c"].generator("crc32", variant="quadword")
 
     def test_consumer_integration_one_liner(self):
         # Arrange / Act -- exercise the exact pattern from the
