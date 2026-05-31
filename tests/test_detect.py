@@ -664,3 +664,109 @@ class TestDetectIter:
                    for a in actual_matched), (
             f"crc32 BE matched not in attempts: {[(a.algorithm, a.endianness) for a in actual_matched]}"
         )
+
+
+class TestTargetCrc:
+    """``target_crc=<int>`` short-circuits CRC-tail extraction: the
+    whole packet is data, and the supplied integer is what
+    ``generic_crc(data)`` must match."""
+
+    def test_binary_data_with_target_crc(self) -> None:
+        # Arrange -- canonical reveng input, canonical crc32 check value.
+        # Act
+        result = detect(b"123456789", target_crc=0xCBF43926)
+        # Assert
+        assert result.matched, "binary data + target_crc=0xCBF43926 should match crc32"
+        assert result.algorithm == "crc32", f"expected crc32, got {result.algorithm}"
+        assert result.candidates[0].padding is None, (
+            "target_crc path returns padding=None (no surface format captured)"
+        )
+        assert result.candidates[0].endianness == "big", (
+            "target_crc path returns endianness='big' by convention"
+        )
+
+    def test_text_data_with_target_crc(self) -> None:
+        # Arrange -- explicit text mode encodes the str via utf-8.
+        # Act
+        result = detect("123456789", mode="text", target_crc=0xCBF43926)
+        # Assert
+        assert result.matched
+        assert result.algorithm == "crc32"
+
+    def test_hex_data_with_target_crc(self) -> None:
+        # Arrange -- the same payload via hex-text input.
+        # Act
+        result = detect(
+            "0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39",
+            target_crc=0xCBF43926,
+        )
+        # Assert
+        assert result.matched
+        assert result.algorithm == "crc32"
+
+    def test_target_crc_too_big_for_8bit_skips_those_algos(self) -> None:
+        # Arrange -- 0xCBF43926 doesn't fit in 8 bits; no crc8-* match
+        # should appear in the candidate list.
+        # Act
+        result = detect(b"123456789", target_crc=0xCBF43926, match="all")
+        # Assert
+        actual_widths = {m.info.width for m in result.candidates}
+        assert 8 not in actual_widths, (
+            f"width-8 algos should be skipped (target overflows): {actual_widths}"
+        )
+
+    def test_target_crc_no_match_returns_empty(self) -> None:
+        # Arrange -- a random integer that no catalogue algorithm produces
+        # for the given data; the result should just be matched=False.
+        # Act
+        result = detect(b"123456789", target_crc=0xDEADBEEF, match="all")
+        # Assert
+        assert not result.matched, (
+            f"no algorithm computes 0xDEADBEEF for '123456789'; got {result}"
+        )
+
+    def test_target_crc_multi_packet_requires_all_to_agree(self) -> None:
+        # Arrange -- two reveng-canonical samples; the second one's crc32
+        # is NOT 0xCBF43926.  Multi-packet with a single target_crc means
+        # every packet's CRC under the same algorithm must equal it -- and
+        # only the first packet does.  Expect matched=False.
+        # Act
+        result = detect(
+            [b"123456789", b"hello world"],
+            target_crc=0xCBF43926,
+            match="all",
+        )
+        # Assert
+        assert not result.matched, (
+            f"second packet's crc32 isn't 0xCBF43926; should not match: {result}"
+        )
+
+    def test_target_crc_negative_raises(self) -> None:
+        # Act / Assert
+        with pytest.raises(ValueError, match="non-negative"):
+            detect(b"abc", target_crc=-1)
+
+    def test_target_crc_via_detect_iter(self) -> None:
+        # Arrange
+        attempts = list(detect_iter(b"123456789", target_crc=0xCBF43926))
+        # Assert -- crc32 is in the priority head so it appears early.
+        matched_attempts = [a for a in attempts if a.matched]
+        actual_algos_matched = {a.algorithm for a in matched_attempts}
+        assert "crc32" in actual_algos_matched, (
+            f"crc32 missing from matched attempts: {actual_algos_matched}"
+        )
+        # All matched attempts in target_crc mode report endianness='big'.
+        assert all(a.endianness == "big" for a in attempts), (
+            "target_crc path should yield only endianness='big' attempts"
+        )
+
+    def test_target_crc_iter_skips_width_overflow(self) -> None:
+        # Arrange -- 0xCBF43926 overflows 8/16-bit widths; no such Attempts.
+        attempts = list(detect_iter(b"123456789", target_crc=0xCBF43926))
+        # Assert
+        from crcglot import ALGORITHMS
+        for a in attempts:
+            assert ALGORITHMS[a.algorithm].width >= 32, (
+                f"width-{ALGORITHMS[a.algorithm].width} algo {a.algorithm} "
+                f"yielded for target_crc that needs >=32 bits"
+            )

@@ -485,6 +485,7 @@ def detect(
     encoding: str = "utf-8",
     algorithms: str | None = None,
     match: Literal["first", "all", "set"] = "first",
+    target_crc: int | None = None,
 ) -> DetectResult:
     """Identify which catalogue CRC produced the trailing bytes of a packet.
 
@@ -515,6 +516,20 @@ def detect(
             first hit in priority order; ``"all"`` returns every
             consistent candidate; ``"set"`` succeeds only if exactly one
             algorithm survives across all packets.
+        target_crc: When supplied, treat ``packet`` as **data only** --
+            no CRC is extracted from the tail.  The integer is the
+            externally-known CRC value to match against.  For each
+            candidate algorithm, ``generic_crc(data)`` is compared to
+            ``target_crc``; algorithms whose width can't hold
+            ``target_crc`` are skipped.  Useful when the CRC arrives
+            out-of-band (separate header field, separate file,
+            user-typed expected value, etc.) and you don't want
+            ``detect`` to slice the last N bytes as the CRC.  Multi-
+            packet input applies the same ``target_crc`` to every
+            packet -- all packets' computed CRCs must equal it under
+            the candidate algorithm.  The returned ``DetectMatch``
+            reports ``endianness="big"`` by convention (no byte
+            parsing happened) and ``padding=None``.
 
     Returns:
         A :class:`DetectResult` truthy on match.  ``.candidates`` lists
@@ -535,11 +550,23 @@ def detect(
         >>> # Hex-encoded packet: '0x' prefix and spaces both tolerated.
         >>> bool(detect("0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xcb 0xf4 0x39 0x26"))
         True
+        >>> # CRC provided externally; data passed alone.
+        >>> result = detect(b"123456789", target_crc=0xCBF43926)
+        >>> result.algorithm
+        'crc32'
     """
     packets = _normalize_packets(packet)
     if not packets:
         return DetectResult(matched=False)
     names = _ordered_algorithm_names(algorithms)
+
+    # target_crc short-circuit: skip CRC-tail extraction entirely;
+    # treat the whole packet as data and compare ``generic_crc(data)``
+    # to the caller-supplied integer for every candidate algorithm.
+    if target_crc is not None:
+        return _detect_with_target_crc(
+            packets, mode, encoding, names, match, target_crc,
+        )
 
     # Hex pre-step.  Two modes route through here:
     #
@@ -628,12 +655,114 @@ def _attach_padding(
     return DetectResult(matched=True, candidates=rebuilt)
 
 
+def _packet_to_data_bytes(
+    packet: Packet,
+    mode: Literal["auto", "binary", "text", "hex"],
+    encoding: str,
+) -> bytes | None:
+    """Resolve a single packet to its raw data bytes for the
+    ``target_crc`` path.
+
+    No CRC extraction happens -- the whole packet is the data.  ``str``
+    inputs follow the same hex-vs-text heuristics as the rest of
+    ``detect``: ``"hex"`` requires hex; ``"text"`` encodes via
+    ``encoding``; ``"auto"`` tries hex first and falls back to
+    ``encoding``.
+
+    Returns ``None`` only for the ``mode="hex"`` case when the str
+    doesn't decode -- the caller treats that as "no match for this
+    packet."  Other modes always succeed (text encoding can't fail
+    structurally; binary just unwraps the bytes).
+    """
+    if isinstance(packet, (bytes, bytearray)):
+        return bytes(packet)
+    # str
+    if mode == "hex":
+        parsed = _looks_like_hex(packet)
+        return parsed[0] if parsed is not None else None
+    if mode == "auto":
+        parsed = _looks_like_hex(packet)
+        if parsed is not None:
+            return parsed[0]
+    # text (explicit, or auto-without-hex-shape)
+    return packet.encode(encoding)
+
+
+def _detect_with_target_crc(
+    packets: list[Packet],
+    mode: Literal["auto", "binary", "text", "hex"],
+    encoding: str,
+    names: list[str],
+    match: Literal["first", "all", "set"],
+    target_crc: int,
+) -> DetectResult:
+    """Implement the ``target_crc`` short-circuit path.
+
+    For each algorithm in scan order:
+
+    * Skip if the algorithm's width can't hold ``target_crc``
+      (``target_crc >= 1 << algo.width``).
+    * For every packet, compute ``generic_crc(data)`` and require it to
+      equal ``target_crc``.  Any packet that doesn't match disqualifies
+      the algorithm for the whole call.
+
+    Endianness is ``"big"`` by convention -- no byte parsing happened
+    so the concept is moot; we pick one value to keep DetectMatch's
+    contract intact.
+    """
+    if target_crc < 0:
+        raise ValueError(f"target_crc must be non-negative (got {target_crc})")
+    # Resolve every packet up-front so we don't recompute in the inner loop.
+    data_packets: list[bytes] = []
+    for p in packets:
+        data = _packet_to_data_bytes(p, mode, encoding)
+        if data is None:
+            # mode="hex" on a str that's not hex -> no possible match.
+            return DetectResult(matched=False)
+        data_packets.append(data)
+
+    candidates: list[DetectMatch] = []
+    for name in names:
+        algo = ALGORITHMS[name]
+        # Width must hold target_crc.  ``(1 << width) - 1`` is the
+        # algorithm's maximum CRC value; anything larger can't match.
+        if target_crc >= (1 << algo.width):
+            continue
+        all_match = True
+        for data in data_packets:
+            computed = generic_crc(
+                data, algo.width, algo.poly, algo.init,
+                algo.refin, algo.refout, algo.xorout,
+            )
+            if computed != target_crc:
+                all_match = False
+                break
+        if all_match:
+            candidates.append(
+                DetectMatch(
+                    algorithm=name,
+                    info=algo,
+                    endianness="big",
+                    padding=None,
+                )
+            )
+            if match == "first":
+                return DetectResult(matched=True, candidates=tuple(candidates))
+
+    if match == "set":
+        unique_algos = {c.algorithm for c in candidates}
+        if len(unique_algos) != 1:
+            return DetectResult(matched=False)
+    return DetectResult(matched=bool(candidates), candidates=tuple(candidates))
+
+
 def detect_iter(
     packet: bytes | bytearray | str,
     *,
     mode: Literal["auto", "binary", "text", "hex"] = "auto",
     encoding: str = "utf-8",
     algorithms: str | None = None,
+    target_crc: int | None = None,
 ) -> Iterator[Attempt]:
     """Stream every ``(algorithm, endianness)`` attempt for one packet.
 
@@ -651,11 +780,18 @@ def detect_iter(
             str doesn't parse as hex).
         encoding: Used in text mode to encode the data portion.
         algorithms: Optional ``fnmatch`` glob to narrow the scan.
+        target_crc: When supplied, skip CRC-tail extraction and stream
+            one ``Attempt`` per algorithm, each comparing
+            ``generic_crc(data)`` to ``target_crc``.  Algorithms whose
+            width can't hold ``target_crc`` are skipped (not yielded).
+            See :func:`detect` for the full semantics.
 
     Yields:
         :class:`Attempt` per ``(algorithm, endianness)`` tried, in
         priority + catalogue order.  For text mode the generator
-        terminates immediately if the packet doesn't parse.
+        terminates immediately if the packet doesn't parse.  In the
+        ``target_crc`` path, endianness is always ``"big"`` (no byte
+        parsing happened).
 
     Raises:
         TypeError: ``packet`` is not bytes-like or ``str``.
@@ -668,6 +804,30 @@ def detect_iter(
     """
     if not isinstance(packet, (bytes, bytearray, str)):
         raise TypeError("detect_iter takes a single packet (bytes-like or str)")
+    names = _ordered_algorithm_names(algorithms)
+
+    # target_crc short-circuit: stream one Attempt per algorithm,
+    # comparing ``generic_crc(data)`` to ``target_crc``.  No
+    # CRC-tail extraction, no endianness loop, no text-mode parse.
+    if target_crc is not None:
+        if target_crc < 0:
+            raise ValueError(
+                f"target_crc must be non-negative (got {target_crc})"
+            )
+        data = _packet_to_data_bytes(packet, mode, encoding)
+        if data is None:
+            return  # mode="hex" on non-hex str -> nothing to try
+        for name in names:
+            algo = ALGORITHMS[name]
+            if target_crc >= (1 << algo.width):
+                continue
+            computed = generic_crc(
+                data, algo.width, algo.poly, algo.init,
+                algo.refin, algo.refout, algo.xorout,
+            )
+            yield Attempt(name, "big", computed == target_crc)
+        return
+
     # Hex pre-step.  ``mode="hex"`` *requires* the str to be hex-
     # encoded (returns immediately with no attempts otherwise, and
     # raises on a bytes-like packet).  ``mode="auto"`` *tries* hex
@@ -692,7 +852,6 @@ def detect_iter(
     # "hex" cases above either turned mode into "binary" or returned/
     # raised), so ty narrows it correctly without an explicit cast.
     actual_mode = _resolve_mode([packet], mode)
-    names = _ordered_algorithm_names(algorithms)
 
     if actual_mode == "binary":
         if not isinstance(packet, (bytes, bytearray)):
