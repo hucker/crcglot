@@ -616,6 +616,7 @@ def detect(
         hex_format = next((p[1] for p in parsed if p is not None), None)
         result = _run_detect(
             decoded_bytes_explicit, "binary", names, encoding, match,
+            check_endianness,
         )
         return _attach_padding(result, hex_format)
     if mode == "auto" and str_count == len(packets) and str_count > 0:
@@ -628,13 +629,14 @@ def detect(
             hex_format = next((p[1] for p in parsed if p is not None), None)
             hex_result = _run_detect(
                 decoded_bytes, "binary", names, encoding, match,
+                check_endianness,
             )
             if hex_result.matched:
                 return _attach_padding(hex_result, hex_format)
         # Fall through to text mode for the original str packets.
 
     actual_mode = _resolve_mode(packets, mode)
-    return _run_detect(packets, actual_mode, names, encoding, match)
+    return _run_detect(packets, actual_mode, names, encoding, match, check_endianness)
 
 
 def _run_detect(
@@ -643,12 +645,15 @@ def _run_detect(
     names: list[str],
     encoding: str,
     match: Literal["first", "all", "set"],
+    check_endianness: bool = True,
 ) -> DetectResult:
     """Dispatch to the right match-mode helper after mode + packets are settled."""
     if match == "first":
-        return _detect_first(packets, mode, names, encoding)
+        return _detect_first(packets, mode, names, encoding, check_endianness)
     return _detect_all_or_set(
-        packets, mode, names, encoding, strict_set=(match == "set"),
+        packets, mode, names, encoding,
+        strict_set=(match == "set"),
+        check_endianness=check_endianness,
     )
 
 
@@ -787,6 +792,7 @@ def detect_iter(
     encoding: str = "utf-8",
     algorithms: str | None = None,
     target_crc: int | None = None,
+    check_endianness: bool = True,
 ) -> Iterator[Attempt]:
     """Stream every ``(algorithm, endianness)`` attempt for one packet.
 
@@ -809,6 +815,11 @@ def detect_iter(
             ``generic_crc(data)`` to ``target_crc``.  Algorithms whose
             width can't hold ``target_crc`` are skipped (not yielded).
             See :func:`detect` for the full semantics.
+        check_endianness: When ``True`` (default) yield one ``Attempt``
+            per ``(algorithm, endian)`` for each byte ordering of the
+            trailing CRC.  When ``False`` only the big-endian reading is
+            tried -- one ``Attempt`` per algorithm.  No effect on the
+            ``target_crc`` path (which is always big by convention).
 
     Yields:
         :class:`Attempt` per ``(algorithm, endianness)`` tried, in
@@ -886,7 +897,10 @@ def detect_iter(
             w = algo.width // 8
             if len(pb) <= w:
                 continue
-            endians: tuple[Endianness, ...] = ("big",) if w == 1 else ("big", "little")
+            if not check_endianness or w == 1:
+                endians: tuple[Endianness, ...] = ("big",)
+            else:
+                endians = ("big", "little")
             for endian in endians:
                 yield Attempt(name, endian, _check_binary(pb, algo, w, endian))
     else:
@@ -900,7 +914,10 @@ def detect_iter(
             algo = ALGORITHMS[name]
             if algo.width // 4 != hex_len:
                 continue
-            endians = ("big",) if hex_len <= 2 else ("big", "little")
+            if not check_endianness or hex_len <= 2:
+                endians = ("big",)
+            else:
+                endians = ("big", "little")
             for endian in endians:
                 yield Attempt(name, endian, _check_text(parsed, algo, endian))
 
@@ -915,6 +932,7 @@ def _detect_first(
     mode: Literal["binary", "text"],
     names: list[str],
     encoding: str,
+    check_endianness: bool = True,
 ) -> DetectResult:
     """Implement ``match="first"``: return the first cross-packet hit.
 
@@ -927,6 +945,8 @@ def _detect_first(
         mode: Pre-resolved ``"binary"`` or ``"text"``.
         names: Scan order.
         encoding: For text-mode data encoding.
+        check_endianness: When ``True`` try both byte orderings; when
+            ``False`` only big-endian (the natural reading).
 
     Returns:
         A :class:`DetectResult` with at most one candidate.
@@ -940,7 +960,10 @@ def _detect_first(
             w = algo.width // 8
             if any(len(p) <= w for p in packets_b):
                 continue
-            endians: tuple[Endianness, ...] = ("big",) if w == 1 else ("big", "little")
+            if not check_endianness or w == 1:
+                endians: tuple[Endianness, ...] = ("big",)
+            else:
+                endians = ("big", "little")
             for endian in endians:
                 if all(_check_binary(p, algo, w, endian) for p in packets_b):
                     return DetectResult(
@@ -968,7 +991,10 @@ def _detect_first(
         algo = ALGORITHMS[name]
         if algo.width // 4 != hex_len:
             continue
-        endians = ("big",) if hex_len <= 2 else ("big", "little")
+        if not check_endianness or hex_len <= 2:
+            endians = ("big",)
+        else:
+            endians = ("big", "little")
         for endian in endians:
             if all(_check_text(pp, algo, endian) for pp in parsed_packets):
                 return DetectResult(
@@ -985,6 +1011,7 @@ def _detect_all_or_set(
     encoding: str,
     *,
     strict_set: bool,
+    check_endianness: bool = True,
 ) -> DetectResult:
     """Implement ``match="all"`` (and ``"set"`` with ``strict_set=True``).
 
@@ -999,6 +1026,8 @@ def _detect_all_or_set(
         encoding: For text-mode data encoding.
         strict_set: When ``True``, ambiguous results (>= 2 distinct
             algorithms surviving) flip ``matched=False``.
+        check_endianness: When ``True`` try both byte orderings; when
+            ``False`` only big-endian (the natural reading).
 
     Returns:
         A :class:`DetectResult` with 0..N candidates in scan order.
@@ -1009,7 +1038,9 @@ def _detect_all_or_set(
     if mode == "binary":
         bin_packets = cast(list[bytes | bytearray], packets)
         for p in bin_packets:
-            per_packet.append(_matches_for_binary_packet(bytes(p), names))
+            per_packet.append(
+                _matches_for_binary_packet(bytes(p), names, check_endianness)
+            )
     else:
         text_packets = cast(list[str], packets)
         for p in text_packets:
@@ -1018,7 +1049,9 @@ def _detect_all_or_set(
                 return DetectResult(matched=False)
             if text_format is None:
                 text_format = parsed[1]
-            per_packet.append(_matches_for_text_packet(parsed, names))
+            per_packet.append(
+                _matches_for_text_packet(parsed, names, check_endianness)
+            )
 
     intersection = per_packet[0].copy()
     for m in per_packet[1:]:
@@ -1028,9 +1061,11 @@ def _detect_all_or_set(
 
     # Order by priority + catalogue scan.
     ordered_pairs: list[tuple[str, Endianness]] = []
-    endians: tuple[Endianness, ...] = ("big", "little")
+    endians_iter: tuple[Endianness, ...] = (
+        ("big",) if not check_endianness else ("big", "little")
+    )
     for name in names:
-        for endian in endians:
+        for endian in endians_iter:
             if (name, endian) in intersection:
                 ordered_pairs.append((name, endian))
 
