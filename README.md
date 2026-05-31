@@ -84,6 +84,47 @@ Print parameters (width, poly, init, refin, refout, xorout, check, desc) for one
 crcglot info crc64-xz
 ```
 
+### `crcglot detect [INPUTS...]`
+
+Brute-force identify which catalogue CRC matches a packet whose tail is the CRC.  Useful for reverse-engineering unfamiliar protocols, debugging captured frames, or confirming a sample really uses the CRC you think it does.
+
+```bash
+crcglot detect packet.bin                            # binary file (or '-' for stdin)
+crcglot detect a.bin b.bin c.bin                     # multi-packet (intersected)
+crcglot detect --text "123456789 cbf43926"           # text mode, inline
+crcglot detect --text -                              # text mode, one packet per line on stdin
+crcglot detect --hex "313233343536373839cbf43926"    # hex-encoded bytes
+crcglot detect --algorithms 'crc16-*' packet.bin     # narrow the scan to a family
+crcglot detect --match all packet.bin                # forensic: every candidate
+crcglot detect --match set a.bin b.bin               # strict: succeed only on a single algorithm
+```
+
+`--match` selects the strategy: `first` (default — early-stop on the first hit, priority order is `crc32`, `crc32-jamcrc`, `crc32-iscsi`, then the rest of the catalogue), `all` (exhaustive forensic view), `set` (strict singleton: succeed only if exactly one algorithm survives across all packets).  Exit 0 on match, 1 otherwise.  For text packets the inferred separator + hex leader + case are reported so you can reproduce the same format via `crcglot encode`.
+
+### `crcglot encode <algorithm> [<data>]`
+
+Build a packet by appending the CRC.  Round-trip partner to `detect` — feed `detect`'s `(algorithm, endianness, padding)` shape back to `encode` to rebuild a packet in the same format.
+
+```bash
+crcglot encode crc32 "123456789"                                # → "123456789 cbf43926"
+crcglot encode crc32 "123456789" --sep $'\t' --leader 0x --upper # tab + "0x" + uppercase
+crcglot encode crc32 --binary < data.bin > packet.bin           # binary, big-endian
+crcglot encode crc32-iscsi --binary --little < data.bin         # binary, little-endian
+```
+
+| Option         | Default                       | Effect                                                       |
+| -------------- | ----------------------------- | ------------------------------------------------------------ |
+| `--binary`     | off                           | Read stdin as bytes; write packet bytes to stdout.           |
+| `--little`     | off                           | Little-endian CRC byte order (default: big).                 |
+| `--sep STR`    | `" "`                         | Text separator between data and hex.                         |
+| `--leader STR` | `""`                          | Text hex leader: `""`, `"0x"`, or `"0X"`.                    |
+| `--upper`      | off                           | Uppercase hex digits.                                        |
+| `--fmt STR`    | `"{data}{sep}{leader}{crc}"`  | str.format template; the four tokens may be reordered.       |
+
+### `crcglot credits`
+
+Print acknowledgments for the upstream work crcglot stands on (also exported as `crcglot.ATTRIBUTION` / `crcglot.ACKNOWLEDGMENTS`).  See [Acknowledgments](#acknowledgments).
+
 ### `crcglot {c | csharp | go | python | rust | typescript | verilog | vhdl} <algorithm> [options...] [tokens...]`
 
 Generate source code for the chosen target language.  Pick your intent — crcglot picks the implementation:
@@ -259,7 +300,13 @@ See [BENCHMARKS.md](BENCHMARKS.md) for measured `crc32` throughput across every 
 
 ## Acknowledgments
 
-CRC catalogue data is derived from Greg Cook's [reveng project](https://reveng.sourceforge.io/) — the canonical source for CRC algorithm parameters since 1999.
+crcglot stands on:
+
+- **[The reveng CRC catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm)** by Greg Cook — the canonical source of CRC algorithm parameters since 1999, and the source of the 71 parameter sets, descriptions, and check values every catalogue entry in crcglot is derived from.
+- **[zlib](https://zlib.net/)** by Mark Adler, Jean-loup Gailly et al. — the runtime fast path for CRC-32/ISO-HDLC and JAMCRC, which take the PCLMULQDQ folding path on x86 and the PMULL / `crc32` instructions on ARM.
+- **[The Rocksoft Model CRC parameterization](http://ross.net/crc/download/crc_v3.txt)** by Ross N. Williams — the `(width, poly, init, refin, refout, xorout, check)` vocabulary every catalogue entry is expressed in.
+
+`crcglot credits` prints this same content in the terminal, and `crcglot.ATTRIBUTION` / `crcglot.ACKNOWLEDGMENTS` expose it programmatically.
 
 ## License
 

@@ -39,6 +39,7 @@ Public API:
 
 from __future__ import annotations
 
+from crcglot.attribution import ACKNOWLEDGMENTS, ATTRIBUTION
 from crcglot.c import generate_c, generate_c_from_entry
 from crcglot.catalogue import (
     ALGORITHMS,
@@ -47,6 +48,15 @@ from crcglot.catalogue import (
     generic_crc,
 )
 from crcglot.csharp import generate_csharp, generate_csharp_from_entry
+from crcglot.detect import (
+    Attempt,
+    DetectMatch,
+    DetectResult,
+    TextFormat,
+    detect,
+    detect_iter,
+)
+from crcglot.encode import encode, encode_int, encode_match, encode_text
 from crcglot.go import generate_go, generate_go_from_entry
 from crcglot.python import generate_python, generate_python_from_entry
 from crcglot.rust import generate_rust, generate_rust_from_entry
@@ -60,11 +70,23 @@ from crcglot.vhdl import generate_vhdl, generate_vhdl_from_entry
 
 
 __all__ = [
+    "ACKNOWLEDGMENTS",
     "ALGORITHMS",
+    "ATTRIBUTION",
     "AlgorithmInfo",
+    "Attempt",
+    "DetectMatch",
+    "DetectResult",
     "LANGUAGES",
     "LanguageInfo",
+    "TextFormat",
     "_reflect",
+    "detect",
+    "detect_iter",
+    "encode",
+    "encode_int",
+    "encode_match",
+    "encode_text",
     "generate_c",
     "generate_c_from_entry",
     "generate_csharp",
