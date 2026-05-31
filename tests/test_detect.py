@@ -225,6 +225,28 @@ class TestHexTextInput:
             "text-mode hit should preserve padding"
         )
 
+    def test_explicit_hex_mode_rejects_non_hex(self) -> None:
+        # Arrange -- ``mode="hex"`` must NOT fall back to text mode
+        # when the input doesn't decode as hex bytes.
+        # Act
+        result = detect("hello world this is not hex", mode="hex")
+        # Assert
+        assert not result.matched, (
+            f"mode='hex' on non-hex input should not match: {result}"
+        )
+
+    def test_explicit_hex_mode_on_bytes_raises(self) -> None:
+        # Act / Assert -- bytes input + mode="hex" is a caller error.
+        with pytest.raises(TypeError, match="hex mode requires all str"):
+            detect(b"abc", mode="hex")
+
+    def test_explicit_hex_mode_iter_on_bytes_raises(self) -> None:
+        # Act / Assert -- same for the iter API.
+        from crcglot import detect_iter
+        with pytest.raises(TypeError, match="hex mode requires str packet"):
+            list(detect_iter(b"abc", mode="hex"))
+
+
 class TestTextOuterWhitespace:
     """Outer whitespace -- leading indentation, trailing newlines, CRLF
     line endings -- must be transparent.  The CRC is over the trimmed
