@@ -225,18 +225,6 @@ class TestHexTextInput:
             "text-mode hit should preserve padding"
         )
 
-    def test_explicit_hex_mode_rejects_non_hex(self) -> None:
-        # Act
-        result = detect("hello world this is not hex", mode="hex")
-        # Assert
-        assert not result.matched, f"mode='hex' on garbage should not match: {result}"
-
-    def test_explicit_hex_mode_on_bytes_raises(self) -> None:
-        # Act / Assert
-        with pytest.raises(TypeError, match="hex mode requires all str"):
-            detect(b"abc", mode="hex")
-
-
 class TestTextOuterWhitespace:
     """Outer whitespace -- leading indentation, trailing newlines, CRLF
     line endings -- must be transparent.  The CRC is over the trimmed

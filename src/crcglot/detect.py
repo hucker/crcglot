@@ -2,9 +2,12 @@
 
 Given a packet whose tail is a CRC, scan the 69-entry reveng catalogue x
 both byte orders to find which algorithm matches.  Supports binary
-packets (``bytes``/``bytearray``) and text packets (``str``) of the form
-``"data <whitespace> [0x]hex"``.  Multi-packet input is intersected so
-single-packet false positives collapse fast.
+packets (``bytes``/``bytearray``) and text packets (``str``).  A ``str``
+that's a hex-encoded byte string in any common formatting (``"12 34"``,
+``"0x12,0x34"``, ``xxd``-style ``"AB:CD:EF"``, etc.) is decoded
+transparently into bytes; anything else is parsed as text in the
+``"data <whitespace> [0x]hex"`` shape.  Multi-packet input is
+intersected so single-packet false positives collapse fast.
 
 Three match modes select what gets returned:
 
@@ -478,7 +481,7 @@ def _matches_for_text_packet(
 def detect(
     packet: Packet | Iterable[Packet],
     *,
-    mode: Literal["auto", "binary", "text", "hex"] = "auto",
+    mode: Literal["auto", "binary", "text"] = "auto",
     encoding: str = "utf-8",
     algorithms: str | None = None,
     match: Literal["first", "all", "set"] = "first",
@@ -492,11 +495,14 @@ def detect(
     Args:
         packet: A single bytes-like / ``str`` packet, or an iterable of
             them (all of the same type).
-        mode: ``"auto"`` picks binary for bytes-like; for ``str`` it
-            first tries hex-encoded bytes (``"12 34"``, ``"0x12,0x34"``,
-            ``xxd``-style, etc.) and falls back to text mode
-            (``"data <sep> hex"``).  Override with ``"binary"``,
-            ``"text"``, or ``"hex"`` to force one path.
+        mode: ``"auto"`` (default) picks binary for bytes-like; for
+            ``str`` it first checks whether the input is a hex-encoded
+            byte string in any common formatting (``"12 34"``,
+            ``"0x12,0x34"``, ``xxd``-style ``"AB:CD:EF"``, etc.) and
+            decodes if so; otherwise falls through to text mode
+            (``"data <sep> hex"``).  Override with ``"binary"`` or
+            ``"text"`` to force one path -- ``"text"`` skips the
+            hex-as-bytes interpretation entirely.
         encoding: Used only in text mode to encode the data portion
             before computing the CRC.  Default ``"utf-8"``.
         algorithms: Optional ``fnmatch`` glob (e.g. ``"crc16-*"``) to
@@ -531,34 +537,24 @@ def detect(
         return DetectResult(matched=False)
     names = _ordered_algorithm_names(algorithms)
 
-    # Hex pre-step: when ``mode == "hex"`` we *require* every str packet
-    # to decode; when ``mode == "auto"`` we *try* decoding first and use
-    # the result only if every str packet is unambiguously hex AND the
-    # decoded bytes actually match an algorithm.  On no-match we fall
-    # back to the original packets (so a string that's both valid hex
-    # AND a valid "data <sep> hex" text packet gets the text-mode answer
-    # if hex-mode produces nothing).
+    # Hex pre-step: in ``mode == "auto"``, try to decode each ``str``
+    # packet as hex bytes first.  If every packet decodes AND the result
+    # actually matches a CRC, take it; otherwise fall back to the
+    # original ``str`` packets and run text-mode parsing on them.  This
+    # handles the degenerate case where the input is ASCII text that
+    # happens to be valid hex -- if it really is text the binary scan
+    # finds nothing and text-mode gets its shot.
     str_count = sum(1 for p in packets if isinstance(p, str))
-    if mode == "hex":
-        if str_count != len(packets):
-            raise TypeError("hex mode requires all str packets")
-        parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
-        if any(p is None for p in parsed):
-            return DetectResult(matched=False)
-        # Widen ``list[bytes]`` to ``list[Packet]`` for invariant-list typing.
-        decoded_bytes: list[Packet] = [p[0] for p in parsed if p is not None]
-        hex_format = next((p[1] for p in parsed if p is not None), None)
-        result = _run_detect(decoded_bytes, "binary", names, encoding, match)
-        return _attach_padding(result, hex_format)
-    elif mode == "auto" and str_count == len(packets) and str_count > 0:
+    if mode == "auto" and str_count == len(packets) and str_count > 0:
         parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
         if all(p is not None for p in parsed):
-            decoded_bytes_auto: list[Packet] = [
+            # Widen ``list[bytes]`` to ``list[Packet]`` for invariant-list typing.
+            decoded_bytes: list[Packet] = [
                 p[0] for p in parsed if p is not None
             ]
             hex_format = next((p[1] for p in parsed if p is not None), None)
             hex_result = _run_detect(
-                decoded_bytes_auto, "binary", names, encoding, match,
+                decoded_bytes, "binary", names, encoding, match,
             )
             if hex_result.matched:
                 return _attach_padding(hex_result, hex_format)
@@ -613,7 +609,7 @@ def _attach_padding(
 def detect_iter(
     packet: bytes | bytearray | str,
     *,
-    mode: Literal["auto", "binary", "text", "hex"] = "auto",
+    mode: Literal["auto", "binary", "text"] = "auto",
     encoding: str = "utf-8",
     algorithms: str | None = None,
 ) -> Iterator[Attempt]:
@@ -625,7 +621,10 @@ def detect_iter(
 
     Args:
         packet: A single bytes-like or ``str`` packet (no iterables).
-        mode: ``"auto"`` picks binary for bytes-like, text for ``str``.
+        mode: ``"auto"`` (default) picks binary for bytes-like; for
+            ``str`` it transparently decodes hex-encoded byte strings
+            (``"12 34"``, ``"0x12:0x34"``, etc.) and otherwise parses as
+            text.  Override with ``"binary"`` or ``"text"`` to force.
         encoding: Used in text mode to encode the data portion.
         algorithms: Optional ``fnmatch`` glob to narrow the scan.
 
@@ -650,22 +649,17 @@ def detect_iter(
     # detect_iter has no notion of "fall back on no match" since it
     # streams every attempt, so auto-mode commits to hex once it
     # recognizes the shape.
-    if isinstance(packet, str) and mode in ("auto", "hex"):
+    if isinstance(packet, str) and mode == "auto":
         parsed = _looks_like_hex(packet)
         if parsed is not None:
-            packet = parsed[0]  # the decoded bytes; format is discarded
-            #                     here because detect_iter yields Attempts
-            #                     (no padding field); callers that need
-            #                     the HexFormat should use detect().
+            # The decoded bytes; the HexFormat is discarded here because
+            # detect_iter yields ``Attempt`` values (no padding slot).
+            # Callers that need the HexFormat use ``detect()`` instead.
+            packet = parsed[0]
             mode = "binary"
-        elif mode == "hex":
-            return  # explicit hex but unparseable -> no attempts
-    elif mode == "hex":
-        # bytes-like packet + mode="hex" is a caller error.
-        raise TypeError("hex mode requires str packet")
-    # ty narrows ``mode`` to Literal["auto", "binary", "text"] here via
-    # the flow above (the "hex" cases either turned mode into "binary"
-    # or raised), so the cast that used to live here is unnecessary.
+        # Otherwise fall through to text mode (the regex either matches
+        # the "data <sep> hex" shape or it doesn't, and an unmatched
+        # text-mode parse just yields no attempts).
     actual_mode = _resolve_mode([packet], mode)
     names = _ordered_algorithm_names(algorithms)
 
