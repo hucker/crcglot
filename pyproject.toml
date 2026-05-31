@@ -5,8 +5,16 @@ description = "Verified CRC source-code for C, C#, Go, Python, Rust, TypeScript,
 license = "MIT"
 requires-python = ">=3.11"
 readme = "README.md"
-authors = [{name = "Chuck Bass", email = "chuck@acrocad.net"}]
-keywords = ["crc", "checksum", "code-generation", "embedded", "reveng", "rocksoft", "williams"]
+authors = [{ name = "Chuck Bass", email = "chuck@acrocad.net" }]
+keywords = [
+    "crc",
+    "checksum",
+    "code-generation",
+    "embedded",
+    "reveng",
+    "rocksoft",
+    "williams",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -20,7 +28,7 @@ classifiers = [
     "Topic :: Software Development :: Code Generators",
     "Topic :: Software Development :: Embedded Systems",
 ]
-dependencies = []  # pure stdlib
+dependencies = [] # pure stdlib
 
 [project.scripts]
 crcglot = "crcglot.cli:main"
@@ -40,7 +48,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -106,15 +114,8 @@ markers = [
 source = ["src/crcglot"]
 
 [tool.coverage.report]
-exclude_lines = [
-    "if __name__",
-    "pragma: no cover",
-]
+exclude_lines = ["if __name__", "pragma: no cover"]
 show_missing = true
 
 [dependency-groups]
-dev = [
-    "pytest>=8.0",
-    "pytest-cov>=7.0",
-    "pytest-xdist>=3.8",
-]
+dev = ["pytest>=8.0", "pytest-cov>=7.0", "pytest-xdist>=3.8"]
