@@ -194,11 +194,7 @@ class CellResult:
 
 
 def _gen_kwargs(variant: str) -> dict:
-    if variant == "table":
-        return {"table": True}
-    if variant == "slice8":
-        return {"slice8": True}
-    return {}
+    return {"variant": variant}
 
 
 def _emit_c(cell_dir: Path, variant: str, size: int) -> None:

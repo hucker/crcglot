@@ -140,7 +140,7 @@ class TestGenerateCTableVariants:
 
     def test_table_reflected_uses_right_shift(self):
         # Act -- crc16-modbus is refin=True.
-        result = generate_c("crc16-modbus", table=True)
+        result = generate_c("crc16-modbus", variant='table')
         assert result is not None
         _header, source = result
 
@@ -151,7 +151,7 @@ class TestGenerateCTableVariants:
 
     def test_table_normal_uses_left_shift(self):
         # Act -- crc16-xmodem is refin=False; covers c.py:244.
-        result = generate_c("crc16-xmodem", table=True)
+        result = generate_c("crc16-xmodem", variant='table')
         assert result is not None
         _header, source = result
 
@@ -175,7 +175,7 @@ class TestGenerateCSliceBy8Variants:
 
     def test_slice8_w32_normal(self):
         # Act -- crc32-bzip2 is w=32 refin=False.
-        result = generate_c("crc32-bzip2", slice8=True)
+        result = generate_c("crc32-bzip2", variant='slice8')
         assert result is not None
         _header, source = result
 
@@ -190,7 +190,7 @@ class TestGenerateCSliceBy8Variants:
 
     def test_slice8_w64_reflected(self):
         # Act -- crc64-xz is w=64 refin=True.
-        result = generate_c("crc64-xz", slice8=True)
+        result = generate_c("crc64-xz", variant='slice8')
         assert result is not None
         _header, source = result
 
@@ -206,7 +206,7 @@ class TestGenerateCSliceBy8Variants:
 
     def test_slice8_w64_normal(self):
         # Act -- crc64-ecma-182 is w=64 refin=False.
-        result = generate_c("crc64-ecma-182", slice8=True)
+        result = generate_c("crc64-ecma-182", variant='slice8')
         assert result is not None
         _header, source = result
 
@@ -339,10 +339,10 @@ class TestGeneratedCExecutes:
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_table_driven_self_test_returns_zero(self, name, tmp_path):
-        """Same as above but with table=True (table-driven implementation)."""
+        """Same as above but with variant='table' (table-driven implementation)."""
         # Arrange
-        result = generate_c(name, table=True)
-        assert result is not None, f"generate_c({name!r}, table=True) returned None"
+        result = generate_c(name, variant='table')
+        assert result is not None, f"generate_c({name!r}, variant='table') returned None"
         header, source = result
         fname = _func_name(name)
 
@@ -387,13 +387,13 @@ class TestGeneratedCStreaming:
     """Verify the C streaming triple (init / update / finalize) satisfies
     the splittability invariant against the reveng check value."""
 
-    @pytest.mark.parametrize("table", [False, True])
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
-    def test_split_streaming_matches_check(self, name, table, tmp_path):
+    def test_split_streaming_matches_check(self, name, variant, tmp_path):
         # Arrange
         algo = ALGORITHMS[name]
         expected = algo.check
-        result = generate_c(name, table=table)
+        result = generate_c(name, variant=variant)
         assert result is not None, f"generate_c({name!r}) returned None"
         header, source = result
         fname = _func_name(name)
@@ -437,7 +437,7 @@ class TestGeneratedCStreaming:
             capture_output=True, cwd=tmp_path,
         )
         assert compile_result.returncode == 0, (
-            f"{name} (table={table}): gcc failed: "
+            f"{name} (variant={variant}): gcc failed: "
             f"{compile_result.stderr.decode(errors='replace')}"
         )
 
@@ -445,7 +445,7 @@ class TestGeneratedCStreaming:
 
         # Assert
         assert run_result.returncode == 0, (
-            f"{name} (table={table}): streaming returned "
+            f"{name} (variant={variant}): streaming returned "
             f"{run_result.returncode} (1=split, 2=empty-first, 3=empty-last)"
         )
 
@@ -471,7 +471,7 @@ class TestGeneratedCSliceBy8Executes:
     to avoid all-zero / all-one patterns that might mask indexing bugs.
 
     Limited to CRC-32 and CRC-64 algorithms; slice-by-8 only makes
-    sense at those widths (validated by the slice8=True ValueError in
+    sense at those widths (validated by the variant='slice8' ValueError in
     the generators).
     """
 
@@ -482,10 +482,10 @@ class TestGeneratedCSliceBy8Executes:
         bb_sym = f"{_func_name(name)}_bb"
         s8_sym = f"{_func_name(name)}_s8"
         bb_result = generate_c(name, symbol=bb_sym)
-        s8_result = generate_c(name, slice8=True, symbol=s8_sym)
+        s8_result = generate_c(name, variant='slice8', symbol=s8_sym)
         assert bb_result is not None, f"generate_c({name!r}) returned None"
         assert s8_result is not None, (
-            f"generate_c({name!r}, slice8=True) returned None"
+            f"generate_c({name!r}, variant='slice8') returned None"
         )
         bb_header, bb_source = bb_result
         s8_header, s8_source = s8_result

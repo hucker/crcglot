@@ -134,14 +134,7 @@ def _render_one(code: str, variant: str) -> str:
         cmd += f" {flag}"
     fence = _fence_for(code)
 
-    # Build kwargs for the generator call.
-    kwargs = {}
-    if variant == "table":
-        kwargs["table"] = True
-    elif variant == "slice8":
-        kwargs["slice8"] = True
-
-    result = info.generator(_ALGORITHM, **kwargs)
+    result = info.generator(_ALGORITHM, variant=variant)
     assert result is not None, f"generator({code}, {_ALGORITHM}) returned None"
 
     parts: list[str] = []

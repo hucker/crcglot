@@ -5,8 +5,8 @@ Two layers:
 * **Structural** (fast, always run) -- ``TestGenerateVerilog`` checks
   the shape of ``generate_verilog(...)`` output: package header,
   function declarations, ``_self_test`` ``bit`` function, embedded
-  check value, ``table=True`` is accepted but ignored (bit-by-bit
-  only).
+  check value, ``variant='table'`` rejected with ``ValueError``
+  (bit-by-bit only).
 
 * **Execution-verified** (marked ``slow``, skipped without iverilog) --
   shells out to ``iverilog -g2012`` + ``vvp`` to compile and simulate
@@ -78,17 +78,12 @@ class TestGenerateVerilog:
         assert code is not None, "generator returned code"
         assert "[63:0]" in code, "64-bit width signal declared"
 
-    def test_table_parameter_accepted_but_ignored(self):
-        # Act -- table=True must not raise; bit-by-bit is always emitted.
-        bit_code = generate_verilog("crc16-modbus", table=False)
-        table_code = generate_verilog("crc16-modbus", table=True)
-
-        # Assert
-        actual = table_code
-        expected = bit_code
-        assert actual == expected, (
-            "table=True must produce identical output to table=False (ignored)"
-        )
+    def test_table_variant_rejected(self):
+        # Act / Assert -- Verilog ships bitwise only; variant='table'
+        # raises ValueError so callers can't silently get bit-by-bit
+        # when they asked for a table-driven implementation.
+        with pytest.raises(ValueError, match="variant='table' is not supported"):
+            generate_verilog("crc16-modbus", variant="table")  # type: ignore[call-arg]  # ty: ignore[invalid-argument-type]
 
     def test_symbol_override(self):
         # Act

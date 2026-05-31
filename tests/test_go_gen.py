@@ -118,7 +118,7 @@ class TestGenerateGo:
 
     def test_table_emits_table_constant(self):
         # Act
-        code = generate_go("crc32", table=True)
+        code = generate_go("crc32", variant='table')
 
         # Assert - table variable is fname-prefixed so multiple
         # generated CRCs can coexist in the same Go package without
@@ -130,7 +130,7 @@ class TestGenerateGo:
 
     def test_slice8_emits_eight_tables(self):
         # Act
-        code = generate_go("crc32", slice8=True)
+        code = generate_go("crc32", variant='slice8')
 
         # Assert
         assert code is not None, "generator returned code"
@@ -144,8 +144,8 @@ class TestGenerateGo:
     @pytest.mark.parametrize("algo", ["crc8", "crc16-modbus"])
     def test_slice8_rejects_narrow_widths(self, algo):
         # Act + Assert
-        with pytest.raises(ValueError, match="slice8=True requires width"):
-            generate_go(algo, slice8=True)
+        with pytest.raises(ValueError, match="variant=.slice8. requires width"):
+            generate_go(algo, variant='slice8')
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_all_catalogue_entries_compile_shape(self, name):
@@ -215,14 +215,14 @@ class TestGeneratedGoExecutes:
     same as a one-shot-only test.
     """
 
-    @pytest.mark.parametrize("table", [False, True])
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
-    def test_oneshot_and_streaming(self, name, table, tmp_path):
+    def test_oneshot_and_streaming(self, name, variant, tmp_path):
         # Arrange
         algo = ALGORITHMS[name]
         expected = algo.check
         gtype = _go_state_type(algo.width)
-        code = generate_go(name, table=table)
+        code = generate_go(name, variant=variant)
         assert code is not None, f"generate_go({name!r}) returned code"
         fname = _func_name(name)
         code = code.replace(
@@ -275,7 +275,7 @@ class TestGeneratedGoExecutes:
             result.returncode, "(compile or runtime error)"
         )
         assert result.returncode == 0, (
-            f"{name} (table={table}): go run exited "
+            f"{name} (variant={variant}): go run exited "
             f"{result.returncode} {label}; stderr={result.stderr!r}"
         )
 
@@ -292,7 +292,7 @@ class TestGeneratedGoSliceBy8Executes:
     reveng-verified, equivalence proves slice-by-8 is correct.
 
     Limited to CRC-32 / CRC-64 algorithms; slice-by-8 only makes sense
-    at those widths (validated by the slice8=True ValueError in the
+    at those widths (validated by the variant='slice8' ValueError in the
     generator).
     """
 
@@ -302,10 +302,10 @@ class TestGeneratedGoSliceBy8Executes:
         bb_sym = f"{_func_name(name)}_bb"
         s8_sym = f"{_func_name(name)}_s8"
         bb_code = generate_go(name, symbol=bb_sym)
-        s8_code = generate_go(name, slice8=True, symbol=s8_sym)
+        s8_code = generate_go(name, variant='slice8', symbol=s8_sym)
         assert bb_code is not None, f"generate_go({name!r}) returned None"
         assert s8_code is not None, (
-            f"generate_go({name!r}, slice8=True) returned None"
+            f"generate_go({name!r}, variant='slice8') returned None"
         )
 
         # Convert the first file's ``package crc`` to ``package main``

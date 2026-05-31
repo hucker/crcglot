@@ -150,7 +150,7 @@ class TestGenerateCSharp:
 
     def test_table_emits_table_constant(self):
         # Act
-        code = generate_csharp("crc32", table=True)
+        code = generate_csharp("crc32", variant='table')
 
         # Assert
         assert code is not None, "generator returned code"
@@ -160,7 +160,7 @@ class TestGenerateCSharp:
 
     def test_slice8_emits_eight_tables(self):
         # Act
-        code = generate_csharp("crc32", slice8=True)
+        code = generate_csharp("crc32", variant='slice8')
 
         # Assert
         assert code is not None, "generator returned code"
@@ -173,8 +173,8 @@ class TestGenerateCSharp:
     @pytest.mark.parametrize("algo", ["crc8", "crc16-modbus"])
     def test_slice8_rejects_narrow_widths(self, algo):
         # Act + Assert
-        with pytest.raises(ValueError, match="slice8=True requires width"):
-            generate_csharp(algo, slice8=True)
+        with pytest.raises(ValueError, match="variant=.slice8. requires width"):
+            generate_csharp(algo, variant='slice8')
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_all_catalogue_entries_compile_shape(self, name):
@@ -244,9 +244,9 @@ class TestGeneratedCSharpExecutes:
     every pattern matched the catalogue check value.
     """
 
-    @pytest.mark.parametrize("table", [False, True])
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
-    def test_oneshot_and_streaming(self, name, table, tmp_path):
+    def test_oneshot_and_streaming(self, name, variant, tmp_path):
         # Arrange
         algo = ALGORITHMS[name]
         expected = algo.check
@@ -254,7 +254,7 @@ class TestGeneratedCSharpExecutes:
         suffix = "u" if 16 < algo.width <= 32 else (
             "UL" if algo.width > 32 else ""
         )
-        code = generate_csharp(name, table=table)
+        code = generate_csharp(name, variant=variant)
         assert code is not None, f"generate_csharp({name!r}) returned code"
         fname = _func_name(name)
         cls = _pascal(fname)
@@ -319,7 +319,7 @@ class TestGeneratedCSharpExecutes:
             result.returncode, "(compile or runtime error)"
         )
         assert result.returncode == 0, (
-            f"{name} (table={table}): dotnet run exited "
+            f"{name} (variant={variant}): dotnet run exited "
             f"{result.returncode} {label}; stderr={result.stderr!r}"
         )
 
@@ -346,10 +346,10 @@ class TestGeneratedCSharpSliceBy8Executes:
         bb_sym = f"{_func_name(name)}_bb"
         s8_sym = f"{_func_name(name)}_s8"
         bb_code = generate_csharp(name, symbol=bb_sym)
-        s8_code = generate_csharp(name, slice8=True, symbol=s8_sym)
+        s8_code = generate_csharp(name, variant='slice8', symbol=s8_sym)
         assert bb_code is not None, f"generate_csharp({name!r}) returned None"
         assert s8_code is not None, (
-            f"generate_csharp({name!r}, slice8=True) returned None"
+            f"generate_csharp({name!r}, variant='slice8') returned None"
         )
         bb_cls = _pascal(bb_sym)
         s8_cls = _pascal(s8_sym)

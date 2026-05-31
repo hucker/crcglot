@@ -55,8 +55,8 @@ class TestGeneratePython:
         # Arrange
         algo = ALGORITHMS[name]
         expected = algo.check
-        code = generate_python(name, table=True)
-        assert code is not None, f"generate_python(table=True) returned code for {name}"
+        code = generate_python(name, variant='table')
+        assert code is not None, f"generate_python(variant='table') returned code for {name}"
 
         # Act - execute the generated table-driven function
         ns: dict = {}
@@ -74,11 +74,11 @@ class TestGeneratedPythonSelfTest:
     algorithm reproduces the reveng catalogue's canonical check value.
     """
 
-    @pytest.mark.parametrize("table", [False, True])
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
-    def test_self_test_returns_true(self, name, table):
+    def test_self_test_returns_true(self, name, variant):
         # Arrange
-        code = generate_python(name, table=table)
+        code = generate_python(name, variant=variant)
         assert code is not None, f"generate_python({name!r}) returned code"
         ns: dict = {}
         exec(code, ns)
@@ -89,7 +89,7 @@ class TestGeneratedPythonSelfTest:
 
         # Assert
         assert actual is True, (
-            f"{name} (table={table}): self_test returned "
+            f"{name} (variant={variant}): self_test returned "
             f"{actual!r}, expected True"
         )
 
@@ -134,13 +134,13 @@ class TestGeneratedPythonStreaming:
     one-shot wrapper's result.
     """
 
-    @pytest.mark.parametrize("table", [False, True])
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
-    def test_streaming_matches_oneshot(self, name, table):
+    def test_streaming_matches_oneshot(self, name, variant):
         # Arrange
         algo = ALGORITHMS[name]
         expected = algo.check
-        code = generate_python(name, table=table)
+        code = generate_python(name, variant=variant)
         assert code is not None, f"generate_python({name!r}) returned code"
 
         ns: dict = {}
@@ -170,14 +170,14 @@ class TestGeneratedPythonStreaming:
 
         # Assert -- all three patterns equal the reveng check value
         assert split_result == expected, (
-            f"{name} (table={table}): split-at-4 streamed result "
+            f"{name} (variant={variant}): split-at-4 streamed result "
             f"{split_result:#x} != check {expected:#x}"
         )
         assert empty_first_result == expected, (
-            f"{name} (table={table}): empty-chunk-first streamed result "
+            f"{name} (variant={variant}): empty-chunk-first streamed result "
             f"{empty_first_result:#x} != check {expected:#x}"
         )
         assert empty_last_result == expected, (
-            f"{name} (table={table}): empty-chunk-last streamed result "
+            f"{name} (variant={variant}): empty-chunk-last streamed result "
             f"{empty_last_result:#x} != check {expected:#x}"
         )

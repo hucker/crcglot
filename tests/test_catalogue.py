@@ -224,6 +224,143 @@ class TestLanguageMetadata:
         )
 
 
+class TestVariantsForWidth:
+    """``LanguageInfo.variants_for_width(width)`` filters the variant
+    set by the algorithm width.  The only width-dependent rule today
+    is "slice8 only at width 32 or 64"; surfacing it on the registry
+    keeps the magic numbers out of downstream consumer code.
+    """
+
+    @pytest.mark.parametrize(
+        "code,expected",
+        [
+            ("c", ("bitwise", "table", "slice8")),
+            ("csharp", ("bitwise", "table", "slice8")),
+            ("go", ("bitwise", "table", "slice8")),
+            ("rust", ("bitwise", "table", "slice8")),
+            ("typescript", ("bitwise", "table", "slice8")),
+            ("python", ("bitwise", "table")),
+            ("verilog", ("bitwise",)),
+            ("vhdl", ("bitwise",)),
+        ],
+    )
+    def test_full_set_at_width_32(self, code, expected):
+        # Act
+        actual = LANGUAGES[code].variants_for_width(32)
+        # Assert
+        assert actual == expected, (
+            f"{code}@32: variants_for_width mismatch (got {actual}, "
+            f"expected {expected})"
+        )
+
+    @pytest.mark.parametrize(
+        "code,expected",
+        [
+            ("c", ("bitwise", "table", "slice8")),
+            ("csharp", ("bitwise", "table", "slice8")),
+            ("go", ("bitwise", "table", "slice8")),
+            ("rust", ("bitwise", "table", "slice8")),
+            ("typescript", ("bitwise", "table", "slice8")),
+            ("python", ("bitwise", "table")),
+        ],
+    )
+    def test_slice8_present_at_width_64(self, code, expected):
+        # Assert -- width 64 still admits slice8 on languages that ship it.
+        actual = LANGUAGES[code].variants_for_width(64)
+        assert actual == expected, (
+            f"{code}@64: variants_for_width mismatch (got {actual}, "
+            f"expected {expected})"
+        )
+
+    @pytest.mark.parametrize("width", [8, 16, 12, 24])
+    def test_slice8_filtered_at_narrow_widths(self, width):
+        # Assert -- slice-by-8 is meaningless below width 32; the
+        # generator would raise.  variants_for_width drops it so
+        # callers don't even offer the option.
+        for code in ("c", "csharp", "go", "rust", "typescript"):
+            actual = LANGUAGES[code].variants_for_width(width)
+            assert "slice8" not in actual, (
+                f"{code}@{width}: slice8 should be filtered out, got {actual}"
+            )
+
+    def test_canonical_ordering(self):
+        # Assert -- the returned tuple follows VARIANT_ORDER so UIs see
+        # bitwise first, then table, then slice8.
+        from crcglot import VARIANT_ORDER
+
+        c32 = LANGUAGES["c"].variants_for_width(32)
+        assert c32 == VARIANT_ORDER, (
+            f"c@32: expected canonical order {VARIANT_ORDER}, got {c32}"
+        )
+
+    def test_bitwise_only_languages_ignore_width(self):
+        # Assert -- VHDL / Verilog return ("bitwise",) at any width.
+        for width in (8, 16, 32, 64):
+            for code in ("vhdl", "verilog"):
+                actual = LANGUAGES[code].variants_for_width(width)
+                assert actual == ("bitwise",), (
+                    f"{code}@{width}: expected ('bitwise',), got {actual}"
+                )
+
+    def test_consumer_integration_shape(self):
+        # Arrange -- the consumer's wrapper code becomes a one-liner:
+        # ``list(LANGUAGES[code].variants_for_width(width))``.
+        # Exercise that end-to-end.
+        for code in LANGUAGES:
+            for width in (8, 16, 32, 64):
+                variants_list = list(LANGUAGES[code].variants_for_width(width))
+                # Assert each is a valid variant name
+                for v in variants_list:
+                    assert v in {"bitwise", "table", "slice8"}, (
+                        f"{code}@{width}: unexpected variant {v!r}"
+                    )
+
+
+class TestVariantKwargValidation:
+    """The ``variant=`` kwarg replaced the old ``table=`` / ``slice8=``
+    boolean pair across all generators.  Cross-cutting validation:
+    every supported variant generates; every unsupported variant
+    raises ValueError; and the consumer's one-liner pattern works.
+    """
+
+    @pytest.mark.parametrize(
+        "code", ["c", "csharp", "go", "rust", "typescript"]
+    )
+    @pytest.mark.parametrize("variant", ["bitwise", "table", "slice8"])
+    def test_all_supported_variants_generate_at_width_32(self, code, variant):
+        # Act
+        result = LANGUAGES[code].generator("crc32", variant=variant)
+        # Assert
+        assert result is not None, (
+            f"{code} variant={variant!r}: generator returned None"
+        )
+
+    def test_python_table_variant_generates(self):
+        # Arrange / Act
+        result = LANGUAGES["python"].generator("crc32", variant="table")
+        # Assert
+        assert result is not None, (
+            "python variant='table': generator returned None"
+        )
+
+    def test_unknown_variant_raises_valueerror(self):
+        # Act / Assert -- typo / never-shipped variant name.
+        with pytest.raises(ValueError, match="must be 'bitwise', 'table', or 'slice8'"):
+            LANGUAGES["c"].generator("crc32", variant="quadword")  # type: ignore[call-arg]  # ty: ignore[invalid-argument-type]
+
+    def test_consumer_integration_one_liner(self):
+        # Arrange / Act -- exercise the exact pattern from the
+        # consumer's wrapper:
+        #   LANGUAGES[lang].generator(name, symbol=symbol, variant=variant)
+        for code, info in LANGUAGES.items():
+            for variant in info.variants_for_width(32):
+                result = info.generator("crc32", symbol=None, variant=variant)
+                # Assert
+                assert result is not None, (
+                    f"{code}/{variant}: consumer-pattern call returned None"
+                )
+
+
 class TestAlgorithmMetadata:
     """The ``ALGORITHMS`` typed view of the catalogue: every entry is
     a well-formed AlgorithmInfo with the canonical reveng check value.
@@ -574,11 +711,11 @@ class TestSliceBy8GeneratorAPI:
 
     def test_c_slice8_emits_8_tables(self):
         # Arrange + Act
-        result = generate_c("crc32", slice8=True)
+        result = generate_c("crc32", variant='slice8')
 
         # Assert -- generator returned a (header, source) pair and the
         # source contains the 2D slice-table declaration.
-        assert result is not None, "generate_c crc32 slice8=True returned None"
+        assert result is not None, "generate_c crc32 variant='slice8' returned None"
         _header, source = result
         assert "crc_slice_tables[8][256]" in source, (
             "C source missing 2D slice-table declaration"
@@ -586,10 +723,10 @@ class TestSliceBy8GeneratorAPI:
 
     def test_rust_slice8_emits_8_tables(self):
         # Arrange + Act
-        code = generate_rust("crc32", slice8=True)
+        code = generate_rust("crc32", variant='slice8')
 
         # Assert
-        assert code is not None, "generate_rust crc32 slice8=True returned None"
+        assert code is not None, "generate_rust crc32 variant='slice8' returned None"
         assert "CRC_SLICE_TABLES: [[u32; 256]; 8]" in code, (
             "Rust source missing 2D slice-table declaration"
         )
@@ -597,29 +734,29 @@ class TestSliceBy8GeneratorAPI:
     @pytest.mark.parametrize("algo", ["crc8", "crc16-modbus"])
     def test_c_slice8_rejects_narrow_widths(self, algo):
         # Act + Assert
-        with pytest.raises(ValueError, match="slice8=True requires width"):
-            generate_c(algo, slice8=True)
+        with pytest.raises(ValueError, match="variant=.slice8. requires width"):
+            generate_c(algo, variant='slice8')
 
     @pytest.mark.parametrize("algo", ["crc8", "crc16-modbus"])
     def test_rust_slice8_rejects_narrow_widths(self, algo):
         # Act + Assert
-        with pytest.raises(ValueError, match="slice8=True requires width"):
-            generate_rust(algo, slice8=True)
+        with pytest.raises(ValueError, match="variant=.slice8. requires width"):
+            generate_rust(algo, variant='slice8')
 
-    def test_python_generate_has_no_slice8_kwarg(self):
-        """generate_python intentionally has no slice8 parameter: Python's
+    def test_python_rejects_slice8_variant(self):
+        """generate_python intentionally has no slice-by-8 path: Python's
         per-int overhead eats the speedup, so emitting slice-by-8 in
-        Python would add code without any throughput benefit."""
-        # Act + Assert -- passing slice8= must raise TypeError.  The
-        # call is deliberately wrong-typed; suppression markers cover
-        # mypy/pyright (call-arg) and ty (unknown-argument).
-        with pytest.raises(TypeError):
-            generate_python("crc32", slice8=True)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        Python would add code without any throughput benefit.  Asking
+        for variant='slice8' raises ValueError."""
+        # Act + Assert
+        with pytest.raises(ValueError, match="variant='slice8' is not supported"):
+            generate_python("crc32", variant='slice8')  # type: ignore[call-arg]  # ty: ignore[invalid-argument-type]
 
-    def test_vhdl_generate_has_no_slice8_kwarg(self):
+    def test_vhdl_rejects_slice8_variant(self):
         """Same rationale for VHDL: the generator is simulator-focused
         (a reference implementation), not synthesizable hardware where
-        throughput optimization would matter."""
+        throughput optimization would matter.  variant='slice8'
+        raises ValueError."""
         # Act + Assert
-        with pytest.raises(TypeError):
-            generate_vhdl("crc32", slice8=True)  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
+        with pytest.raises(ValueError, match="variant='slice8' is not supported"):
+            generate_vhdl("crc32", variant='slice8')  # type: ignore[call-arg]  # ty: ignore[invalid-argument-type]

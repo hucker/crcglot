@@ -139,7 +139,7 @@ class TestGenerateRustTableVariants:
 
     def test_table_emits_const_array(self):
         # Act
-        code = generate_rust("crc16-modbus", table=True)
+        code = generate_rust("crc16-modbus", variant='table')
 
         # Assert -- the table-format helper output (lines 41-51 in rust.py).
         assert code is not None
@@ -151,7 +151,7 @@ class TestGenerateRustTableVariants:
         """w=8 table loop has no shifts -- the table lookup IS the
         complete step."""
         # Act
-        code = generate_rust("crc8", table=True)
+        code = generate_rust("crc8", variant='table')
 
         # Assert
         assert code is not None
@@ -168,7 +168,7 @@ class TestGenerateRustTableVariants:
         """w>8 reflected: ``CRC_TABLE[(crc ^ byte as u16) as usize & 0xFF]
         ^ (crc >> 8)``."""
         # Act -- crc16-modbus is refin=True.
-        code = generate_rust("crc16-modbus", table=True)
+        code = generate_rust("crc16-modbus", variant='table')
 
         # Assert
         assert code is not None
@@ -178,7 +178,7 @@ class TestGenerateRustTableVariants:
         """w>8 non-reflected: ``CRC_TABLE[((crc >> {w-8}) ^ byte as u16)
         as usize & 0xFF] ^ (crc << 8) & {mask}``."""
         # Act -- crc16-xmodem is refin=False.
-        code = generate_rust("crc16-xmodem", table=True)
+        code = generate_rust("crc16-xmodem", variant='table')
 
         # Assert
         assert code is not None
@@ -202,7 +202,7 @@ class TestGenerateRustSliceBy8Variants:
 
     def test_slice8_w32_reflected(self):
         # Act -- crc32 is w=32 refin=True (the canonical reflected case).
-        code = generate_rust("crc32", slice8=True)
+        code = generate_rust("crc32", variant='slice8')
 
         # Assert -- little-endian byte loading; LSB-first table indexing.
         assert code is not None
@@ -214,7 +214,7 @@ class TestGenerateRustSliceBy8Variants:
 
     def test_slice8_w32_normal(self):
         # Act -- crc32-bzip2 is w=32 refin=False (non-reflected).
-        code = generate_rust("crc32-bzip2", slice8=True)
+        code = generate_rust("crc32-bzip2", variant='slice8')
 
         # Assert -- big-endian byte loading; top-byte-first xor.
         assert code is not None
@@ -228,7 +228,7 @@ class TestGenerateRustSliceBy8Variants:
 
     def test_slice8_w64_reflected(self):
         # Act -- crc64-xz is w=64 refin=True.
-        code = generate_rust("crc64-xz", slice8=True)
+        code = generate_rust("crc64-xz", variant='slice8')
 
         # Assert -- 64-bit little-endian load + 8-byte table chain.
         assert code is not None
@@ -239,7 +239,7 @@ class TestGenerateRustSliceBy8Variants:
 
     def test_slice8_w64_normal(self):
         # Act -- crc64-ecma-182 is w=64 refin=False.
-        code = generate_rust("crc64-ecma-182", slice8=True)
+        code = generate_rust("crc64-ecma-182", variant='slice8')
 
         # Assert -- 64-bit big-endian load + tail extracts top byte.
         assert code is not None
@@ -349,11 +349,11 @@ class TestGeneratedRustExecutes:
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_table_driven_check_value_matches_reveng(self, name, tmp_path):
-        """Same as above but with table=True."""
+        """Same as above but with variant='table'."""
         # Arrange
-        code = generate_rust(name, table=True)
+        code = generate_rust(name, variant='table')
         assert code is not None, (
-            f"generate_rust({name!r}, table=True) returned None"
+            f"generate_rust({name!r}, variant='table') returned None"
         )
         fname = _func_name(name)
 
@@ -391,13 +391,13 @@ class TestGeneratedRustExecutes:
 class TestGeneratedRustStreaming:
     """Verify the Rust streaming triple satisfies the splittability invariant."""
 
-    @pytest.mark.parametrize("table", [False, True])
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
-    def test_split_streaming_matches_check(self, name, table, tmp_path):
+    def test_split_streaming_matches_check(self, name, variant, tmp_path):
         # Arrange
         algo = ALGORITHMS[name]
         expected = algo.check
-        code = generate_rust(name, table=table)
+        code = generate_rust(name, variant=variant)
         assert code is not None, f"generate_rust({name!r}) returned None"
         fname = _func_name(name)
         rtype = _rust_state_type(algo.width)
@@ -437,7 +437,7 @@ class TestGeneratedRustStreaming:
             capture_output=True, cwd=tmp_path,
         )
         assert compile_result.returncode == 0, (
-            f"{name} (table={table}): rustc failed: "
+            f"{name} (variant={variant}): rustc failed: "
             f"{compile_result.stderr.decode(errors='replace')}"
         )
 
@@ -445,7 +445,7 @@ class TestGeneratedRustStreaming:
 
         # Assert
         assert run_result.returncode == 0, (
-            f"{name} (table={table}): streaming returned "
+            f"{name} (variant={variant}): streaming returned "
             f"{run_result.returncode} (1=split, 2=empty-first, 3=empty-last)"
         )
 
@@ -467,7 +467,7 @@ class TestGeneratedRustSliceBy8Executes:
         bb_sym = f"{_func_name(name)}_bb"
         s8_sym = f"{_func_name(name)}_s8"
         bb_code = generate_rust(name, symbol=bb_sym)
-        s8_code = generate_rust(name, slice8=True, symbol=s8_sym)
+        s8_code = generate_rust(name, variant='slice8', symbol=s8_sym)
         rtype = _rust_state_type(ALGORITHMS[name].width)
 
         bb_path = tmp_path / f"{bb_sym}.rs"

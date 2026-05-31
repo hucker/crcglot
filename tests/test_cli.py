@@ -346,12 +346,12 @@ class TestCodegenOptions:
         assert "_TABLE = (" in out
 
     def test_slice8_narrow_width_returns_2(self, capsys):
-        """generate_c('crc8', slice8=True) raises ValueError; CLI
+        """generate_c('crc8', variant="slice8") raises ValueError; CLI
         catches and converts to exit code 2."""
         rc = main(["c", "crc8", "--slice8"])
         _out, err = capsys.readouterr()
         assert rc == 2
-        assert "slice8=True requires width" in err
+        assert "variant='slice8' requires width" in err
 
 
 class TestCodegenIntentFlags:
@@ -571,7 +571,7 @@ class TestCodegenCustom:
         ])
         _out, err = capsys.readouterr()
         assert rc == 2
-        assert "slice8=True requires width" in err
+        assert "variant='slice8' requires width" in err
 
     def test_custom_symbol_priority_over_file_and_name(self, tmp_path, monkeypatch):
         """When symbol= is given, it wins over file=STEM-derived and

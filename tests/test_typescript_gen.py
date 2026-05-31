@@ -116,11 +116,11 @@ class TestGenerateTypeScript:
 
 
 class TestGenerateTypeScriptTableVariant:
-    """``generate_typescript(..., table=True)`` emits a CRC_TABLE."""
+    """``generate_typescript(..., variant='table')`` emits a CRC_TABLE."""
 
     def test_table_declaration(self):
         # Act
-        code = generate_typescript("crc32", table=True)
+        code = generate_typescript("crc32", variant='table')
 
         # Assert
         assert code is not None, "generator returned code"
@@ -131,7 +131,7 @@ class TestGenerateTypeScriptTableVariant:
 
     def test_table_bigint_for_width_64(self):
         # Act
-        code = generate_typescript("crc64-xz", table=True)
+        code = generate_typescript("crc64-xz", variant='table')
 
         # Assert
         assert code is not None, "generator returned code"
@@ -141,11 +141,11 @@ class TestGenerateTypeScriptTableVariant:
 
 
 class TestGenerateTypeScriptSlice8Variant:
-    """``generate_typescript(..., slice8=True)`` emits slice tables."""
+    """``generate_typescript(..., variant='slice8')`` emits slice tables."""
 
     def test_slice8_declaration_width32(self):
         # Act
-        code = generate_typescript("crc32", slice8=True)
+        code = generate_typescript("crc32", variant='slice8')
 
         # Assert
         assert code is not None, "generator returned code"
@@ -155,7 +155,7 @@ class TestGenerateTypeScriptSlice8Variant:
 
     def test_slice8_declaration_width64(self):
         # Act
-        code = generate_typescript("crc64-xz", slice8=True)
+        code = generate_typescript("crc64-xz", variant='slice8')
 
         # Assert
         assert code is not None, "generator returned code"
@@ -166,8 +166,8 @@ class TestGenerateTypeScriptSlice8Variant:
     @pytest.mark.parametrize("name", ["crc8", "crc16-modbus"])
     def test_slice8_rejects_narrow_widths(self, name):
         # Assert -- slice8 only makes sense at 32 / 64
-        with pytest.raises(ValueError, match="slice8=True requires width"):
-            generate_typescript(name, slice8=True)
+        with pytest.raises(ValueError, match="variant=.slice8. requires width"):
+            generate_typescript(name, variant='slice8')
 
 
 class TestGenerateTypeScriptFromEntry:
@@ -244,9 +244,9 @@ class TestGeneratedTypeScriptExecutes:
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_table_check_value_matches_reveng(self, name, tmp_path):
         # Arrange
-        code = generate_typescript(name, table=True)
+        code = generate_typescript(name, variant='table')
         assert code is not None, (
-            f"generate_typescript({name!r}, table=True) returned None"
+            f"generate_typescript({name!r}, variant='table') returned None"
         )
         fname = _func_name(name)
 
@@ -286,7 +286,7 @@ class TestGeneratedTypeScriptSliceBy8Executes:
         bb_sym = f"{_func_name(name)}_bb"
         s8_sym = f"{_func_name(name)}_s8"
         bb_code = generate_typescript(name, symbol=bb_sym)
-        s8_code = generate_typescript(name, slice8=True, symbol=s8_sym)
+        s8_code = generate_typescript(name, variant='slice8', symbol=s8_sym)
         assert bb_code is not None and s8_code is not None, (
             f"{name}: both forms generated"
         )

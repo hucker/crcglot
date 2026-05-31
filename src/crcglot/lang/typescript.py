@@ -406,7 +406,7 @@ def generate_typescript_from_entry(
 
     if slice8 and w not in (32, 64):
         raise ValueError(
-            f"slice8=True requires width=32 or width=64 (got width={w}). "
+            f"variant='slice8' requires width=32 or width=64 (got width={w}). "
             "Slice-by-8 is a high-throughput optimization that only "
             "makes sense at those widths."
         )

@@ -311,8 +311,8 @@ def _resolve_variant(
     slice8: bool,
     lang: str,
     width: int,
-) -> tuple[bool, bool, str | None]:
-    """Map the chosen variant selector to ``(use_table, use_slice8)``.
+) -> tuple[str, str | None]:
+    """Map the chosen CLI flags to a ``variant`` string for the generator.
 
     ``--small`` / ``--fast`` are the intent front door; ``--table`` /
     ``--slice8`` are expert overrides.  ``--fast`` picks the fastest
@@ -321,23 +321,24 @@ def _resolve_variant(
     so it never errors and needs no fallback.  ``--small`` (or no
     selector) is bit-by-bit.
 
-    Returns ``(use_table, use_slice8, note)``; ``note`` is an optional
-    stderr message for the explicit-``--slice8`` -> table fallback on
-    languages that don't emit slice-by-8.  ``LANGUAGES[lang].variants``
-    is the single source of truth for capability.
+    Returns ``(variant, note)``; ``note`` is an optional stderr message
+    for the explicit-``--slice8`` -> table fallback on languages that
+    don't emit slice-by-8.  ``LANGUAGES[lang].variants`` is the single
+    source of truth for capability.
     """
+    del small  # tracked only for parser symmetry; no-selector path handles it
     variants = LANGUAGES[lang].variants
     if fast:
         if width in (32, 64) and "slice8" in variants:
-            return (False, True, None)
+            return ("slice8", None)
         if "table" in variants:
-            return (True, False, None)
-        return (False, False, None)
+            return ("table", None)
+        return ("bitwise", None)
     if table:
-        return (True, False, None)
+        return ("table", None)
     if slice8:
         if "slice8" in variants:
-            return (False, True, None)
+            return ("slice8", None)
         if lang == "python":
             note = (
                 "Note: --slice8 is slower than --table in CPython "
@@ -348,9 +349,9 @@ def _resolve_variant(
                 f"Note: --slice8 is not implemented for {lang}; "
                 f"using --table instead."
             )
-        return (True, False, note)
+        return ("table", note)
     # --small or no selector: bit-by-bit.
-    return (False, False, None)
+    return ("bitwise", None)
 
 
 def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
@@ -415,7 +416,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
-        use_table, use_slice8, note = _resolve_variant(
+        variant, note = _resolve_variant(
             small=args.small, fast=args.fast,
             table=args.table, slice8=args.slice8,
             lang=lang, width=width,
@@ -444,12 +445,9 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             or (_symbol_from_stem(file_stem) if file_stem else None)
             or _symbol_from_stem(custom_name)
         )
-        gen_kwargs = {"table": use_table, "symbol": symbol}
-        if use_slice8:
-            gen_kwargs["slice8"] = True
         try:
             result = LANGUAGES[lang].generator_from_entry(
-                custom_name, algo, **gen_kwargs,
+                custom_name, algo, symbol=symbol, variant=variant,
             )
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -470,7 +468,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
-        use_table, use_slice8, note = _resolve_variant(
+        variant, note = _resolve_variant(
             small=args.small, fast=args.fast,
             table=args.table, slice8=args.slice8,
             lang=lang, width=ALGORITHMS[name].width,
@@ -481,11 +479,8 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             symbol_override
             or (_symbol_from_stem(file_stem) if file_stem else None)
         )
-        gen_kwargs = {"table": use_table, "symbol": symbol}
-        if use_slice8:
-            gen_kwargs["slice8"] = True
         try:
-            result = LANGUAGES[lang].generator(name, **gen_kwargs)
+            result = LANGUAGES[lang].generator(name, symbol=symbol, variant=variant)
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 2

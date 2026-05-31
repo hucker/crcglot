@@ -5,8 +5,8 @@ Two layers:
 * **Structural** (fast, always run) -- ``TestGenerateVhdl`` checks the
   shape of ``generate_vhdl(...)`` output: package header, compute
   function declaration, ``_self_test`` boolean function, ``numeric_std``
-  usage, embedded check value, and that ``table=True`` is accepted but
-  ignored (VHDL is bit-by-bit only).
+  usage, embedded check value, and that ``variant='table'`` is rejected
+  with ``ValueError`` (VHDL is bit-by-bit only).
 
 * **Execution-verified** (marked ``slow``, skipped without ghdl) --
   shells out to ``ghdl`` to analyze + elaborate + simulate a synthesized
@@ -42,8 +42,8 @@ class TestGenerateVhdl:
     Includes a ``<fname>_self_test`` boolean function that crcglot's
     pytest harness exercises by synthesizing a testbench (see the
     execution-verified tests below).  Bit-by-bit only -- table-driven
-    VHDL is a future enhancement; the ``table=True`` parameter is
-    accepted for API symmetry but ignored.
+    VHDL is a future enhancement; the ``variant`` parameter accepts
+    only ``"bitwise"`` and rejects ``"table"`` / ``"slice8"``.
     """
 
     def test_generates_code(self):
@@ -64,17 +64,12 @@ class TestGenerateVhdl:
         # Assert
         assert generate_vhdl("nonexistent") is None, "unknown algorithm returns None"
 
-    def test_table_parameter_accepted_but_ignored(self):
-        # Act -- table=True should not raise; bit-by-bit is always emitted.
-        bit_code = generate_vhdl("crc16-modbus", table=False)
-        table_code = generate_vhdl("crc16-modbus", table=True)
-
-        # Assert
-        actual = table_code
-        expected = bit_code
-        assert actual == expected, (
-            "table=True must produce identical output to table=False (ignored param)"
-        )
+    def test_table_variant_rejected(self):
+        # Act / Assert -- VHDL ships bitwise only; variant='table' raises
+        # ValueError so callers can't silently get bit-by-bit when they
+        # asked for a table-driven implementation.
+        with pytest.raises(ValueError, match="variant='table' is not supported"):
+            generate_vhdl("crc16-modbus", variant="table")  # type: ignore[call-arg]  # ty: ignore[invalid-argument-type]
 
 
 # ─────────────────────────────────────────────────────────────────────
