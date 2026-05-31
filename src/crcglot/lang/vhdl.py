@@ -35,7 +35,9 @@ Verified at build time by ``tests.test_crc_codegen_exec
 
 from __future__ import annotations
 
-from crcglot._helpers import _func_name, _hex
+from typing import Literal
+
+from crcglot._helpers import _func_name, _hex, _variant_to_flags
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
 
@@ -81,7 +83,9 @@ def _self_test_vhdl(fname: str, check: int, width: int) -> str:
 
 
 def generate_vhdl(
-    name: str, table: bool = False, symbol: str | None = None,
+    name: str,
+    symbol: str | None = None,
+    variant: Literal["bitwise"] = "bitwise",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate a VHDL package.
 
@@ -92,30 +96,31 @@ def generate_vhdl(
     algo = ALGORITHMS.get(name)
     if algo is None:
         return None
-    return generate_vhdl_from_entry(name, algo, table=table, symbol=symbol)
+    return generate_vhdl_from_entry(name, algo, symbol=symbol, variant=variant)
 
 
 def generate_vhdl_from_entry(
     name: str,
     algo: AlgorithmInfo,
-    table: bool = False,
     symbol: str | None = None,
+    variant: Literal["bitwise"] = "bitwise",
 ) -> str:
     """Generate a VHDL package from an :class:`AlgorithmInfo`.
 
     Args:
         name: Algorithm name (used in comments).
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
-        table: Accepted for API symmetry with the other generators
-            but ignored -- bit-by-bit only (table-driven VHDL deferred).
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  Package name derives
             from the symbol so include references match.
+        variant: Always ``"bitwise"`` -- accepted for API symmetry with
+            the other generators.  Passing ``"table"`` or ``"slice8"``
+            raises ``ValueError`` (table-driven VHDL deferred).
 
     Returns:
         VHDL source string.
     """
-    _ = table  # currently unused (see scope note in module docstring)
+    _variant_to_flags(variant, allow_table=False, allow_slice8=False)
     w = algo.width
     poly = algo.poly
     init = algo.init

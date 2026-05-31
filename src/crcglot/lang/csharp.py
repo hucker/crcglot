@@ -42,10 +42,13 @@ Verified at build time by ``tests.test_csharp_gen.TestGenerateCSharp``
 
 from __future__ import annotations
 
+from typing import Literal
+
 from crcglot._helpers import (
     _build_slice8_tables,
     _build_table,
     _func_name,
+    _variant_to_flags,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
@@ -372,9 +375,8 @@ def _self_test_csharp(fname: str, check: int, width: int) -> list[str]:
 
 def generate_csharp(
     name: str,
-    table: bool = False,
     symbol: str | None = None,
-    slice8: bool = False,
+    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate C# source for it.
 
@@ -386,16 +388,15 @@ def generate_csharp(
     if algo is None:
         return None
     return generate_csharp_from_entry(
-        name, algo, table=table, symbol=symbol, slice8=slice8,
+        name, algo, symbol=symbol, variant=variant,
     )
 
 
 def generate_csharp_from_entry(
     name: str,
     algo: AlgorithmInfo,
-    table: bool = False,
     symbol: str | None = None,
-    slice8: bool = False,
+    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
 ) -> str:
     """Generate a C# source file from an :class:`AlgorithmInfo`.
 
@@ -403,18 +404,18 @@ def generate_csharp_from_entry(
         name: Algorithm name (used in comments and as the default
             function-name source).
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
-        table: If True, emit the table-driven implementation.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  The class name is
             derived as the PascalCase'd form of the function name.
-        slice8: If True, emit the slice-by-8 implementation (8 tables,
-            ~5-10x throughput vs plain table-driven for CRC-32 /
-            CRC-64 on large buffers).  Only valid for width 32 or 64;
-            ``ValueError`` otherwise.
+        variant: Implementation shape -- ``"bitwise"`` (default),
+            ``"table"`` (256-entry lookup), or ``"slice8"`` (8 tables;
+            requires ``algo.width`` to be 32 or 64; ``ValueError``
+            otherwise).
 
     Returns:
         C# source code string declaring a ``public static class``.
     """
+    table, slice8 = _variant_to_flags(variant)
     w = algo.width
     poly = algo.poly
     init = algo.init

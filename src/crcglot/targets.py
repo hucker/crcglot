@@ -37,16 +37,26 @@ from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
 from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
 
 
+VARIANT_ORDER: tuple[str, ...] = ("bitwise", "table", "slice8")
+"""Canonical scan / display order for implementation variants.
+
+``"bitwise"`` first (always supported, smallest code size), then
+``"table"`` (the throughput-for-memory trade-off), then ``"slice8"``
+(highest throughput at width 32 / 64 only).  Downstream UIs (dropdowns,
+help text, generated examples) use this order so the simplest option
+appears first.
+"""
+
+
 @dataclass(frozen=True)
 class LanguageInfo:
     """Typed metadata for one target language.
 
     ``variants`` reports which implementation shapes the generator
     accepts as a flag, not which (language x width) cells are valid.
-    The width-32/64 constraint on ``"slice8"`` is enforced inside the
-    generator itself, which raises ``ValueError`` for incompatible
-    widths.  Callers that want to filter strictly by capability should
-    consult the algorithm width too.
+    Use :meth:`variants_for_width` when you need the width-filtered
+    subset -- it applies the "slice8 requires width 32 or 64" rule so
+    callers don't have to encode that magic number themselves.
 
     Attributes:
         code: CLI identifier and dispatch key ("c", "csharp", "go",
@@ -74,6 +84,38 @@ class LanguageInfo:
     generator_from_entry: Callable
     emoji: str
     display_name: str
+
+    def variants_for_width(self, width: int) -> tuple[str, ...]:
+        """Implementation variants this language supports at a given width.
+
+        Identical to ``self.variants`` ordered by :data:`VARIANT_ORDER`,
+        except ``"slice8"`` is filtered out when ``width`` is anything
+        other than 32 or 64 -- the slice-by-8 implementation chunks the
+        input 8 bytes at a time and only makes sense at those widths,
+        so the generator raises ``ValueError`` for narrower CRCs.
+        Surfacing the rule here lets dropdowns and other UI code avoid
+        offering options that would error.
+
+        Args:
+            width: CRC width in bits (e.g. ``8``, ``16``, ``32``, ``64``).
+
+        Returns:
+            Supported variants in canonical order.
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> LANGUAGES["c"].variants_for_width(32)
+            ('bitwise', 'table', 'slice8')
+            >>> LANGUAGES["c"].variants_for_width(16)
+            ('bitwise', 'table')
+            >>> LANGUAGES["python"].variants_for_width(32)
+            ('bitwise', 'table')
+        """
+        return tuple(
+            v for v in VARIANT_ORDER
+            if v in self.variants
+            and not (v == "slice8" and width not in (32, 64))
+        )
 
 
 _BITWISE_TABLE = frozenset({"bitwise", "table"})

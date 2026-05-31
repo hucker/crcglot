@@ -113,6 +113,54 @@ def _build_slice8_tables(
     return tables
 
 
+def _variant_to_flags(
+    variant: str,
+    *,
+    allow_table: bool = True,
+    allow_slice8: bool = True,
+) -> tuple[bool, bool]:
+    """Map the public ``variant`` string to the internal ``(table, slice8)`` flags.
+
+    Each generator's body still keys off the two booleans because the
+    different implementation paths live behind ``if table:`` / ``if
+    slice8:`` branches in helper calls.  Translation happens once at the
+    top of the public entry point so the deeper code stays unchanged.
+
+    Args:
+        variant: One of ``"bitwise"``, ``"table"``, ``"slice8"``.
+        allow_table: ``False`` for generators with no table-driven
+            variant (none today; reserved).
+        allow_slice8: ``False`` for generators that don't ship a
+            slice-by-8 variant (Python: per-int overhead eats the win;
+            Verilog / VHDL: synth-time generated, not runtime).
+
+    Returns:
+        ``(table, slice8)`` -- exactly one ``True`` for non-bitwise, or
+        both ``False`` for bitwise.
+
+    Raises:
+        ValueError: ``variant`` isn't one of the three known names, or
+            the caller asked for a variant this generator doesn't ship.
+    """
+    if variant == "bitwise":
+        return False, False
+    if variant == "table":
+        if not allow_table:
+            raise ValueError(
+                "variant='table' is not supported by this generator"
+            )
+        return True, False
+    if variant == "slice8":
+        if not allow_slice8:
+            raise ValueError(
+                "variant='slice8' is not supported by this generator"
+            )
+        return False, True
+    raise ValueError(
+        f"variant must be 'bitwise', 'table', or 'slice8'; got {variant!r}"
+    )
+
+
 # Note: a Python reference for slice-by-8 was considered but dropped.
 # It would have served as a test oracle for the generated C / Rust
 # code, but Python doesn't benefit from slice-by-N at runtime (per-int

@@ -30,12 +30,15 @@ invariant via a synthesized runner).
 
 from __future__ import annotations
 
+from typing import Literal
+
 from crcglot._helpers import (
     _build_slice8_tables,
     _build_table,
     _func_name,
     _hex,
     _mask,
+    _variant_to_flags,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
@@ -308,9 +311,8 @@ def _self_test_rust(fname: str, check: int, width: int, rtype: str) -> str:
 
 def generate_rust(
     name: str,
-    table: bool = False,
     symbol: str | None = None,
-    slice8: bool = False,
+    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Rust source for it.
 
@@ -322,33 +324,32 @@ def generate_rust(
     if algo is None:
         return None
     return generate_rust_from_entry(
-        name, algo, table=table, symbol=symbol, slice8=slice8,
+        name, algo, symbol=symbol, variant=variant,
     )
 
 
 def generate_rust_from_entry(
     name: str,
     algo: AlgorithmInfo,
-    table: bool = False,
     symbol: str | None = None,
-    slice8: bool = False,
+    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
 ) -> str:
     """Generate Rust source from an :class:`AlgorithmInfo`.
 
     Args:
         name: Algorithm name (used in comments).
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
-        table: If True, generate table-driven implementation.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
-        slice8: If True, emit the slice-by-8 implementation (8 tables,
-            ~5-10x throughput vs plain table-driven for CRC-32 / CRC-64
-            on large buffers).  Only valid for width 32 or 64;
-            ``ValueError`` otherwise.
+        variant: Implementation shape -- ``"bitwise"`` (default),
+            ``"table"`` (256-entry lookup), or ``"slice8"`` (8 tables;
+            requires ``algo.width`` to be 32 or 64; ``ValueError``
+            otherwise).
 
     Returns:
         Rust source code string.
     """
+    table, slice8 = _variant_to_flags(variant)
     w = algo.width
     poly = algo.poly
     init = algo.init

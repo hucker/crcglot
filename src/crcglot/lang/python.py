@@ -28,11 +28,14 @@ Verified at build time by :class:`tests.test_crc_codegen
 
 from __future__ import annotations
 
+from typing import Literal
+
 from crcglot._helpers import (
     _build_table,
     _func_name,
     _hex,
     _mask,
+    _variant_to_flags,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
@@ -67,7 +70,9 @@ def _self_test_python(fname: str, check: int, width: int) -> list[str]:
 
 
 def generate_python(
-    name: str, table: bool = False, symbol: str | None = None,
+    name: str,
+    symbol: str | None = None,
+    variant: Literal["bitwise", "table"] = "bitwise",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Python source for it.
 
@@ -77,9 +82,11 @@ def generate_python(
 
     Args:
         name: Algorithm name from :data:`crcglot.ALGORITHMS`.
-        table: If True, generate table-driven implementation.
         symbol: Optional override for the generated function name
             (default: a sanitized form of ``name``).
+        variant: ``"bitwise"`` (default) or ``"table"`` (256-entry
+            lookup, ~10x faster).  No ``"slice8"`` -- Python's per-int
+            overhead eats the win.
 
     Returns:
         Python source code string, or None if algorithm not found.
@@ -87,14 +94,14 @@ def generate_python(
     algo = ALGORITHMS.get(name)
     if algo is None:
         return None
-    return generate_python_from_entry(name, algo, table=table, symbol=symbol)
+    return generate_python_from_entry(name, algo, symbol=symbol, variant=variant)
 
 
 def generate_python_from_entry(
     name: str,
     algo: AlgorithmInfo,
-    table: bool = False,
     symbol: str | None = None,
+    variant: Literal["bitwise", "table"] = "bitwise",
 ) -> str:
     """Generate Python source from an :class:`AlgorithmInfo`.
 
@@ -102,13 +109,15 @@ def generate_python_from_entry(
         name: Algorithm name (used in comments and as the default
             function-name source).
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
-        table: If True, generate table-driven implementation.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
+        variant: ``"bitwise"`` (default) or ``"table"`` (256-entry
+            lookup, ~10x faster).  No ``"slice8"``.
 
     Returns:
         Python source code string.
     """
+    table, _slice8 = _variant_to_flags(variant, allow_slice8=False)
     w = algo.width
     poly = algo.poly
     init = algo.init

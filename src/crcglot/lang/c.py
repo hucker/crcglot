@@ -32,12 +32,15 @@ assert exit 0.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from crcglot._helpers import (
     _build_slice8_tables,
     _build_table,
     _func_name,
     _hex,
     _mask,
+    _variant_to_flags,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 
@@ -340,9 +343,8 @@ def _header_c(name: str, fname: str, ctype: str, desc: str) -> str:
 
 def generate_c(
     name: str,
-    table: bool = False,
     symbol: str | None = None,
-    slice8: bool = False,
+    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
 ) -> tuple[str, str] | None:
     """Look up a CRC algorithm by name and generate a C .h + .c pair.
 
@@ -353,16 +355,15 @@ def generate_c(
     if algo is None:
         return None
     return generate_c_from_entry(
-        name, algo, table=table, symbol=symbol, slice8=slice8,
+        name, algo, symbol=symbol, variant=variant,
     )
 
 
 def generate_c_from_entry(
     name: str,
     algo: AlgorithmInfo,
-    table: bool = False,
     symbol: str | None = None,
-    slice8: bool = False,
+    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
 ) -> tuple[str, str]:
     """Generate a C ``.h`` + ``.c`` pair from an :class:`AlgorithmInfo`.
 
@@ -376,16 +377,20 @@ def generate_c_from_entry(
             data; pass a meaningful descriptor when generating from
             custom params).
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
-        table: If True, emit the table-driven implementation instead
-            of the bit-by-bit form.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  Header filename and
             include guard derive from the symbol so the generated
             header references match.
+        variant: Implementation shape -- ``"bitwise"`` (default,
+            smallest code), ``"table"`` (one 256-entry table, ~10x
+            faster than bitwise), or ``"slice8"`` (8 tables, ~10x
+            faster than ``"table"`` for large buffers; requires
+            ``algo.width`` to be 32 or 64).
 
     Returns:
         ``(header_source, impl_source)`` tuple of strings.
     """
+    table, slice8 = _variant_to_flags(variant)
     w = algo.width
     poly = algo.poly
     init = algo.init

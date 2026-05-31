@@ -770,3 +770,259 @@ class TestTargetCrc:
                 f"width-{ALGORITHMS[a.algorithm].width} algo {a.algorithm} "
                 f"yielded for target_crc that needs >=32 bits"
             )
+
+
+class TestEndianSelector:
+    """The ``endian`` parameter narrows the byte-order scan: ``"both"``
+    (default) tries big and little; ``"big"`` or ``"little"`` forces a
+    single ordering, halving the scan and ruling out coincidental
+    cross-endianness matches.
+    """
+
+    def test_endian_big_finds_be_packet(self) -> None:
+        # Arrange -- canonical big-endian crc32 packet.
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="big")
+        # Act
+        result = detect(packet, endian="big")
+        # Assert
+        assert result.matched, "BE packet under endian='big' should match"
+        assert result.algorithm == "crc32", (
+            f"expected crc32, got {result.algorithm}"
+        )
+        assert result.endianness == "big", (
+            f"expected endianness='big', got {result.endianness}"
+        )
+
+    def test_endian_big_rejects_le_packet(self) -> None:
+        # Arrange -- LE packet must NOT match when only big-endian is tried.
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="little")
+        # Act
+        result = detect(packet, endian="big", match="all")
+        # Assert -- no crc32 candidate should appear (its only fit is LE).
+        actual_algos = {m.algorithm for m in result.candidates}
+        assert "crc32" not in actual_algos, (
+            f"endian='big' should not surface LE crc32 packet: {actual_algos}"
+        )
+
+    def test_endian_little_finds_le_packet(self) -> None:
+        # Arrange
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="little")
+        # Act
+        result = detect(packet, endian="little")
+        # Assert
+        assert result.matched, "LE packet under endian='little' should match"
+        assert result.algorithm == "crc32"
+        assert result.endianness == "little"
+
+    def test_endian_little_rejects_be_packet(self) -> None:
+        # Arrange
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="big")
+        # Act
+        result = detect(packet, endian="little", match="all")
+        # Assert
+        actual_algos = {m.algorithm for m in result.candidates}
+        assert "crc32" not in actual_algos, (
+            f"endian='little' should not surface BE crc32 packet: {actual_algos}"
+        )
+
+    def test_endian_both_finds_either_packet(self) -> None:
+        # Arrange
+        from crcglot import encode
+
+        be = encode(b"123456789", "crc32", endianness="big")
+        le = encode(b"123456789", "crc32", endianness="little")
+        # Act
+        r_be = detect(be, endian="both")
+        r_le = detect(le, endian="both")
+        # Assert
+        assert (r_be.algorithm, r_be.endianness) == ("crc32", "big"), (
+            f"BE under both: got {(r_be.algorithm, r_be.endianness)}"
+        )
+        assert (r_le.algorithm, r_le.endianness) == ("crc32", "little"), (
+            f"LE under both: got {(r_le.algorithm, r_le.endianness)}"
+        )
+
+    def test_endian_default_is_both(self) -> None:
+        # Arrange -- omitting endian= must behave exactly like endian="both".
+        from crcglot import encode
+
+        le = encode(b"123456789", "crc32", endianness="little")
+        # Act
+        default = detect(le)
+        explicit_both = detect(le, endian="both")
+        # Assert
+        actual = (default.algorithm, default.endianness)
+        expected = (explicit_both.algorithm, explicit_both.endianness)
+        assert actual == expected, (
+            f"default behavior diverged from endian='both': {actual} vs {expected}"
+        )
+
+    def test_endian_text_mode_big(self) -> None:
+        # Arrange -- canonical text packet, hex digits in natural BE reading.
+        # Act
+        result = detect("123456789 cbf43926", endian="big")
+        # Assert
+        assert result.matched
+        assert result.algorithm == "crc32"
+        assert result.endianness == "big"
+
+    def test_endian_text_mode_little_rejects_big_hex(self) -> None:
+        # Arrange -- "cbf43926" is the BE reading of crc32(123456789).
+        # endian='little' interprets the hex bytes as LE, so no match.
+        # Act
+        result = detect("123456789 cbf43926", endian="little", match="all")
+        # Assert
+        actual_algos = {m.algorithm for m in result.candidates}
+        assert "crc32" not in actual_algos, (
+            f"endian='little' should not match BE hex reading: {actual_algos}"
+        )
+
+    def test_endian_iter_big_halves_attempt_count(self) -> None:
+        # Arrange -- a 4-byte CRC packet so most algorithms contribute 2
+        # attempts under both, 1 under big/little.
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="big")
+        # Act
+        n_both = sum(1 for _ in detect_iter(packet, endian="both"))
+        n_big = sum(1 for _ in detect_iter(packet, endian="big"))
+        n_little = sum(1 for _ in detect_iter(packet, endian="little"))
+        # Assert -- big and little narrowing produce the same (smaller) count;
+        # both is strictly larger because width>1 algos contribute 2 attempts.
+        assert n_big == n_little, (
+            f"big and little should produce equal attempt counts: {n_big}, {n_little}"
+        )
+        assert n_both > n_big, (
+            f"endian='both' should produce more attempts than 'big' "
+            f"(both={n_both}, big={n_big})"
+        )
+
+    def test_endian_iter_big_only_emits_big_attempts(self) -> None:
+        # Arrange
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="big")
+        # Act
+        attempts = list(detect_iter(packet, endian="big"))
+        # Assert
+        non_big = [a for a in attempts if a.endianness != "big"]
+        assert not non_big, (
+            f"endian='big' should only yield big attempts, got: {non_big[:3]}"
+        )
+
+    def test_endian_iter_little_only_emits_little_attempts(self) -> None:
+        # Arrange -- width-1 algorithms still report whatever ordering was
+        # requested (BE==LE byte-wise but the label respects the caller).
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="little")
+        # Act
+        attempts = list(detect_iter(packet, endian="little"))
+        # Assert
+        non_little = [a for a in attempts if a.endianness != "little"]
+        assert not non_little, (
+            f"endian='little' should only yield little attempts, "
+            f"got: {non_little[:3]}"
+        )
+
+    def test_endian_multi_packet_intersection(self) -> None:
+        # Arrange -- three LE crc32 packets must agree under endian='little'.
+        from crcglot import encode
+
+        packets = [
+            encode(b"123456789", "crc32", endianness="little"),
+            encode(b"abc", "crc32", endianness="little"),
+            encode(b"hello world", "crc32", endianness="little"),
+        ]
+        # Act
+        result = detect(packets, endian="little", match="all")
+        # Assert -- intersection must contain (crc32, little); under
+        # endian='little' no (crc32, big) candidate can sneak in.
+        actual_pairs = {(m.algorithm, m.endianness) for m in result.candidates}
+        assert ("crc32", "little") in actual_pairs, (
+            f"multi-packet LE intersect should pin crc32+little: {actual_pairs}"
+        )
+        assert ("crc32", "big") not in actual_pairs, (
+            f"endian='little' must not surface big candidates: {actual_pairs}"
+        )
+
+    def test_endian_set_mode_collapses_to_singleton(self) -> None:
+        # Arrange -- BE packet; match='set' under endian='big' should
+        # collapse to a single algorithm.  endian='both' on the same
+        # packet may also be unique, but narrowing further can only help.
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="big")
+        # Act
+        result = detect(packet, endian="big", match="set")
+        # Assert
+        assert result.matched, f"endian='big' match='set' should match: {result}"
+        assert result.algorithm == "crc32"
+        unique_algos = {m.algorithm for m in result.candidates}
+        assert len(unique_algos) == 1, (
+            f"match='set' must yield a single algorithm: {unique_algos}"
+        )
+
+    def test_endian_set_mode_rejects_wrong_endian(self) -> None:
+        # Arrange -- LE packet; endian='big' match='set' should fail to
+        # match (the only consistent reading is LE, which is excluded).
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="little")
+        # Act
+        result = detect(packet, endian="big", match="set")
+        # Assert
+        assert not result.matched, (
+            f"LE packet under endian='big' match='set' should not match: {result}"
+        )
+
+    def test_endian_hex_text_mode_narrowing(self) -> None:
+        # Arrange -- a hex-encoded byte string (auto-decoded by detect)
+        # containing data + BE-ordered crc32 trailer.
+        from crcglot import encode
+
+        full = encode(b"123456789", "crc32", endianness="big")
+        # Format as "0x12 0x34 ..." style
+        hex_text = " ".join(f"0x{b:02x}" for b in full)
+        # Act
+        be_result = detect(hex_text, endian="big")
+        le_result = detect(hex_text, endian="little", match="all")
+        # Assert -- BE finds it, LE doesn't surface crc32.
+        assert be_result.algorithm == "crc32", (
+            f"hex-text under endian='big' should match crc32: {be_result}"
+        )
+        le_algos = {m.algorithm for m in le_result.candidates}
+        assert "crc32" not in le_algos, (
+            f"hex-text under endian='little' should not match crc32: {le_algos}"
+        )
+
+    def test_endian_ignored_under_target_crc(self) -> None:
+        # Arrange -- target_crc never byte-parses the CRC, so endian is
+        # moot.  Passing endian='little' must not change the outcome.
+        # Act
+        r_big = detect(b"123456789", target_crc=0xCBF43926, endian="big")
+        r_little = detect(b"123456789", target_crc=0xCBF43926, endian="little")
+        r_both = detect(b"123456789", target_crc=0xCBF43926, endian="both")
+        # Assert
+        actual_algo_big = r_big.algorithm
+        actual_algo_little = r_little.algorithm
+        actual_algo_both = r_both.algorithm
+        assert actual_algo_big == "crc32", f"endian='big' + target: {actual_algo_big}"
+        assert actual_algo_little == "crc32", (
+            f"endian='little' + target: {actual_algo_little}"
+        )
+        assert actual_algo_both == "crc32", (
+            f"endian='both' + target: {actual_algo_both}"
+        )
+        # All three report endianness='big' (target_crc convention).
+        assert r_big.endianness == "big"
+        assert r_little.endianness == "big"
+        assert r_both.endianness == "big"

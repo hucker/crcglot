@@ -67,7 +67,7 @@ from crcglot.lang.typescript import (
 )
 from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
 from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
-from crcglot.targets import LANGUAGES, LanguageInfo
+from crcglot.targets import LANGUAGES, VARIANT_ORDER, LanguageInfo
 
 
 __all__ = [
@@ -82,6 +82,7 @@ __all__ = [
     "LANGUAGES",
     "LanguageInfo",
     "TextFormat",
+    "VARIANT_ORDER",
     "_reflect",
     "detect",
     "detect_iter",
