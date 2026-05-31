@@ -417,7 +417,7 @@ def _check_text(parsed: _ParsedText, algo: AlgorithmInfo, endian: Endianness) ->
 
 
 def _matches_for_binary_packet(
-    pb: bytes, names: list[str],
+    pb: bytes, names: list[str], check_endianness: bool = True,
 ) -> set[tuple[str, Endianness]]:
     """All ``(name, endian)`` pairs that fit one binary packet.
 
@@ -427,6 +427,9 @@ def _matches_for_binary_packet(
     Args:
         pb: One binary packet.
         names: Scan order (already filtered and priority-ordered).
+        check_endianness: When ``True`` (default) try both byte orderings
+            for the trailing CRC bytes; when ``False`` only try big-endian
+            (the natural reading).
 
     Returns:
         The set of matching ``(algorithm_name, endianness)`` pairs.
@@ -437,7 +440,10 @@ def _matches_for_binary_packet(
         w = algo.width // 8
         if len(pb) <= w:
             continue
-        endians: tuple[Endianness, ...] = ("big",) if w == 1 else ("big", "little")
+        if not check_endianness or w == 1:
+            endians: tuple[Endianness, ...] = ("big",)
+        else:
+            endians = ("big", "little")
         for endian in endians:
             if _check_binary(pb, algo, w, endian):
                 matches.add((name, endian))
@@ -445,7 +451,7 @@ def _matches_for_binary_packet(
 
 
 def _matches_for_text_packet(
-    parsed: _ParsedText, names: list[str],
+    parsed: _ParsedText, names: list[str], check_endianness: bool = True,
 ) -> set[tuple[str, Endianness]]:
     """All ``(name, endian)`` pairs that fit one text packet.
 
@@ -456,6 +462,9 @@ def _matches_for_text_packet(
     Args:
         parsed: Output of :func:`_parse_text`.
         names: Scan order.
+        check_endianness: When ``True`` (default) try both byte orderings
+            for the hex; when ``False`` only try big-endian (the natural
+            reading of the hex digits as an integer).
 
     Returns:
         The set of matching ``(algorithm_name, endianness)`` pairs.
@@ -466,7 +475,10 @@ def _matches_for_text_packet(
         algo = ALGORITHMS[name]
         if algo.width // 4 != hex_len:
             continue
-        endians: tuple[Endianness, ...] = ("big",) if hex_len <= 2 else ("big", "little")
+        if not check_endianness or hex_len <= 2:
+            endians: tuple[Endianness, ...] = ("big",)
+        else:
+            endians = ("big", "little")
         for endian in endians:
             if _check_text(parsed, algo, endian):
                 matches.add((name, endian))
@@ -486,6 +498,7 @@ def detect(
     algorithms: str | None = None,
     match: Literal["first", "all", "set"] = "first",
     target_crc: int | None = None,
+    check_endianness: bool = True,
 ) -> DetectResult:
     """Identify which catalogue CRC produced the trailing bytes of a packet.
 
@@ -530,6 +543,17 @@ def detect(
             the candidate algorithm.  The returned ``DetectMatch``
             reports ``endianness="big"`` by convention (no byte
             parsing happened) and ``padding=None``.
+        check_endianness: When ``True`` (default) try both byte
+            orderings for the trailing CRC -- the natural big-endian
+            reading and the byte-reversed little-endian one.  When
+            ``False`` only the big-endian reading is tried, which halves
+            the scan and rules out false positives where a little-endian
+            interpretation of the bytes happens to coincide with some
+            other algorithm's big-endian CRC.  Useful when the wire
+            format is known to be big-endian (or when the bytes were
+            already normalized to that order upstream).  No effect on
+            the ``target_crc`` path -- that path never byte-parses the
+            CRC, so endianness is moot.
 
     Returns:
         A :class:`DetectResult` truthy on match.  ``.candidates`` lists
