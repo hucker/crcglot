@@ -40,14 +40,12 @@ Public API:
 from __future__ import annotations
 
 from crcglot.attribution import ACKNOWLEDGMENTS, ATTRIBUTION
-from crcglot.c import generate_c, generate_c_from_entry
 from crcglot.catalogue import (
     ALGORITHMS,
     AlgorithmInfo,
     _reflect,
     generic_crc,
 )
-from crcglot.csharp import generate_csharp, generate_csharp_from_entry
 from crcglot.detect import (
     Attempt,
     DetectMatch,
@@ -57,11 +55,6 @@ from crcglot.detect import (
     detect_iter,
 )
 from crcglot.encode import encode, encode_int, encode_match, encode_text
-from crcglot.go import generate_go, generate_go_from_entry
-from crcglot.python import generate_python, generate_python_from_entry
-from crcglot.rust import generate_rust, generate_rust_from_entry
-from crcglot.targets import LANGUAGES, LanguageInfo
-from crcglot.typescript import (
 from crcglot.lang.c import generate_c, generate_c_from_entry
 from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
 from crcglot.lang.go import generate_go, generate_go_from_entry
