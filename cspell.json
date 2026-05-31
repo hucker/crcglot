@@ -23,6 +23,7 @@
         "combinational",
         "cplusplus",
         "crcglot",
+        "crcstream",
         "cstype",
         "darc",
         "dataclass",
