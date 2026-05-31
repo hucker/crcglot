@@ -1,5 +1,168 @@
 # Changelog
 
+## v0.9.0 — 2026-05-31
+
+`detect()` learned to take a CRC out-of-band (`target_crc=`), to be
+narrowed by byte order (`endian="big" | "little" | "both"`), and to
+auto-decode hex-formatted byte strings in any common layout.  The
+generator API tightens up: a single `variant=` kwarg replaces the
+old `table=` / `slice8=` booleans on every target, and
+`LanguageInfo.variants_for_width(width)` surfaces the slice-by-8
+width constraint so callers don't have to encode magic numbers.
+The conftest moves a long-standing source of silent test skips out of
+the regression budget.
+
+### NEW: `endian` selector on `detect()` / `detect_iter()`
+
+```python
+from crcglot import detect
+
+# Default: try both byte orders (current behavior).
+detect(packet)                       # "big" + "little" considered
+
+# Narrow the scan: useful when the wire format is known, or when you
+# want to rule out coincidental matches under the wrong endianness.
+detect(packet, endian="big")
+detect(packet, endian="little")
+```
+
+Halves the candidate set under a narrow selector.  Width-1 algorithms
+respect the caller's label even though the byte content is invariant.
+No effect on the `target_crc` path (no byte parsing happens).
+
+### NEW: `target_crc=` — CRC supplied out of band
+
+For protocols where the CRC arrives in a separate header field, separate
+file, or as a user-typed expected value:
+
+```python
+# Whole packet is data; the integer is the externally-known CRC.
+result = detect(b"123456789", target_crc=0xCBF43926)
+result.algorithm    # 'crc32'
+```
+
+For each catalogue algorithm whose width can hold `target_crc`, the
+computed CRC of `packet` is compared to `target_crc` directly — no
+slicing of the tail.  Multi-packet input requires every packet's CRC
+under the same algorithm to equal `target_crc`.
+
+### NEW: auto-decode of hex-formatted packets
+
+`detect()` on a `str` now transparently decodes hex-encoded byte strings
+in any common surface format before scanning:
+
+```python
+# All of these resolve to the same 13-byte packet and match crc32:
+detect("313233343536373839cbf43926")                                       # no separators
+detect("31 32 33 34 35 36 37 38 39 cb f4 39 26")                           # wireshark-style
+detect("0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xcb 0xf4 0x39 0x26")  # 0x per byte
+detect("31:32:33:34:35:36:37:38:39:CB:F4:39:26")                           # xxd / MAC style
+detect("0x31,0x32,0x33,...,0xcb,0xf4,0x39,0x26")                           # C-array style
+```
+
+The surface format is captured in a new `HexFormat` dataclass on the
+match's `padding` slot, so `encode_match(data, match)` reproduces the
+exact same string byte-for-byte.  Plain `"data <whitespace> hex"` text
+packets fall through the original parser unchanged.
+
+Three explicit overrides on `mode=`:
+
+- `"binary"` — bytes-like only
+- `"text"` — skips the hex-pre-decode step, treats the whole str as
+  `"data <sep> hex"`
+- `"hex"` — requires the input to be hex-encoded bytes (no text-mode
+  fallback), useful when you don't want a fortuitous text-mode
+  re-interpretation
+
+### BREAKING: `variant=` replaces `table=` / `slice8=` on every generator
+
+The two boolean kwargs collapse into one Literal-typed string:
+
+```python
+# Before (v0.8.x)
+generate_c("crc32")                       # bitwise
+generate_c("crc32", table=True)
+generate_c("crc32", slice8=True)
+
+# Now (v0.9.0)
+generate_c("crc32")                       # bitwise (default)
+generate_c("crc32", variant="table")
+generate_c("crc32", variant="slice8")
+```
+
+Applied to all eight generators (`generate_c`, `generate_csharp`,
+`generate_go`, `generate_python`, `generate_rust`, `generate_typescript`,
+`generate_verilog`, `generate_vhdl`) and their `_from_entry`
+counterparts.  CLI flags (`--table` / `--slice8`) are unchanged.
+
+Python keeps `("bitwise", "table")` (per-int overhead eats the slice8
+win); Verilog and VHDL accept only `"bitwise"` and now raise
+`ValueError` for `"table"` / `"slice8"` instead of silently ignoring
+the kwarg.  Width-32 / width-64 enforcement on `"slice8"` still raises
+`ValueError` at generation time; the message references the new kwarg
+name.
+
+### NEW: `LanguageInfo.variants_for_width(width)`
+
+Returns the canonical-ordered tuple of variants that work at a given
+algorithm width — pushes the "slice8 only at width 32 / 64" magic
+number out of consumer code:
+
+```python
+LANGUAGES["c"].variants_for_width(32)     # ('bitwise', 'table', 'slice8')
+LANGUAGES["c"].variants_for_width(16)     # ('bitwise', 'table')        slice8 dropped
+LANGUAGES["python"].variants_for_width(32) # ('bitwise', 'table')
+LANGUAGES["vhdl"].variants_for_width(32)  # ('bitwise',)
+```
+
+`VARIANT_ORDER = ("bitwise", "table", "slice8")` is also exported for
+callers that need the canonical ordering directly.
+
+Consumer wrapper boilerplate becomes a one-liner:
+
+```python
+list(LANGUAGES[code].variants_for_width(width))
+LANGUAGES[code].generator(name, symbol=symbol, variant=variant)
+```
+
+### Fix: silently-skipped Go tests (conftest)
+
+Moved PATH setup from a session-autouse fixture to `pytest_configure`.
+Session-autouse fixtures run *after* test collection — by the time
+`HAS_GO = shutil.which("go") is not None` evaluated at test-module
+import time, the Windows-specific PATH fixups hadn't fired yet, so 383
+Go-toolchain tests were silently skipped behind a `pytest.mark.skipif`
+that froze in the false state.  `pytest_configure` is a real pytest
+hook that runs *before* collection; the `HAS_<tool>` flags now see the
+corrected PATH.
+
+CLAUDE.md gains an explicit "Skipped tests are not 'passed'" section
+codifying the rule that surfaced from this incident: a test run with
+non-zero skips is **amber, not green**, and silent skips need
+investigation, not celebration.
+
+### Fix: outer whitespace on text packets
+
+`detect("123456789 cbf43926\n")` now matches; leading indentation /
+trailing newlines / CRLF line endings from copy-paste or `stdin` are
+stripped before the regex runs.
+
+### Removed: `crc16m` / `crc16x` catalogue aliases
+
+Dropped two long-standing aliases that pointed at `crc16-modbus` /
+`crc16-xmodem`.  Catalogue size: 71 → 69.  If you were depending on
+the alias names, switch to the canonical `crc16-modbus` / `crc16-xmodem`.
+
+### Internal: language generators moved into `crcglot.lang`
+
+`crcglot.lang.c`, `crcglot.lang.csharp`, etc. — they re-export through
+`crcglot` so the public import paths (`from crcglot import generate_c`)
+are unchanged.  Just internal tidying ahead of further generator work.
+
+### Stats
+
+2891 passed, 0 skipped (true green); 92% coverage on the full suite.
+
 ## v0.8.0 — 2026-05-28
 
 A fast **runtime CRC** engine ships as an optional C extension
