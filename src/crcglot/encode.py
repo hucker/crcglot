@@ -10,7 +10,31 @@ the shape inference can have.
 from __future__ import annotations
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
-from crcglot.detect import DetectMatch, Endianness, TextFormat
+from crcglot.detect import DetectMatch, Endianness, HexFormat, TextFormat
+
+
+def _format_bytes_as_hex_text(packet: bytes, fmt: HexFormat) -> str:
+    """Render ``packet`` as hex per the captured :class:`HexFormat`.
+
+    Used by :func:`encode_match` to reproduce hex-text packets that
+    ``detect()`` auto-decoded -- e.g. ``"0x12 0x34"`` -> bytes -> back to
+    ``"0x12 0x34"`` byte-for-byte.
+
+    Args:
+        packet: The raw bytes (data + CRC) to hex-format.
+        fmt: The format captured by ``detect`` from the original input.
+
+    Returns:
+        The rendered hex-text string.
+    """
+    case_char = "X" if fmt.uppercase else "x"
+    hex_parts = [f"{b:02{case_char}}" for b in packet]
+    if fmt.prefix and fmt.prefix_per_byte:
+        hex_parts = [fmt.prefix + h for h in hex_parts]
+    joined = fmt.byte_separator.join(hex_parts)
+    if fmt.prefix and not fmt.prefix_per_byte:
+        joined = fmt.prefix + joined
+    return joined
 
 
 def _lookup(algorithm: str) -> AlgorithmInfo:
@@ -131,20 +155,28 @@ def encode_match(
     """Round-trip pair to :func:`crcglot.detect.detect`: rebuild a
     packet using the shape it identified.
 
-    The ``match`` distinguishes binary from text by its ``padding`` field
-    (``None`` -> binary; a :class:`TextFormat` -> text).  The data type
-    must match; mismatches are a clear ``TypeError`` rather than a silent
-    misinterpretation.
+    ``match.padding`` selects the format:
+
+    * ``None`` -> binary packet (``data`` must be bytes-like).
+    * :class:`TextFormat` -> text packet ``"data <sep> [<leader>]hex"``
+      (``data`` must be ``str``).
+    * :class:`HexFormat` -> hex-encoded byte string (``data`` must be
+      bytes-like; CRC is appended to the bytes and then the whole
+      thing is hex-formatted per the captured prefix / separator /
+      case).
+
+    Mismatches raise ``TypeError`` rather than silently misinterpret.
 
     Args:
-        data: Payload (bytes-like for a binary match, ``str`` for text).
+        data: Payload -- bytes-like for binary or hex-text matches,
+            ``str`` for plain text matches.
         match: A ``DetectMatch`` from ``detect()``.
 
     Returns:
-        A bytes-like or ``str`` packet, matching the original format.
+        A ``bytes`` or ``str`` packet matching the original format.
 
     Raises:
-        TypeError: ``data`` does not fit the match's mode.
+        TypeError: ``data`` does not fit the match's padding type.
 
     Examples:
         >>> from crcglot import detect
@@ -159,6 +191,13 @@ def encode_match(
                 "binary match (padding=None) requires bytes/bytearray data"
             )
         return encode(data, match.algorithm, endianness=match.endianness)
+    if isinstance(match.padding, HexFormat):
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError(
+                "hex-text match (padding=HexFormat) requires bytes/bytearray data"
+            )
+        full = encode(data, match.algorithm, endianness=match.endianness)
+        return _format_bytes_as_hex_text(full, match.padding)
     if not isinstance(data, str):
         raise TypeError(
             "text match (padding=TextFormat) requires str data"

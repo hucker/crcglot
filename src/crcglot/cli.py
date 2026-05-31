@@ -216,12 +216,20 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         print("No match.", file=sys.stderr)
         return 1
 
+    from crcglot import HexFormat, TextFormat  # imported here to avoid cycles
     for m in result.candidates:
         line = f"{m.algorithm}  width={m.info.width}  endianness={m.endianness}"
-        if m.padding is not None:
+        if isinstance(m.padding, TextFormat):
             line += (
                 f"  separator={m.padding.separator!r}"
                 f"  leader={m.padding.hex_prefix!r}"
+                f"  uppercase={m.padding.uppercase}"
+            )
+        elif isinstance(m.padding, HexFormat):
+            line += (
+                f"  byte_separator={m.padding.byte_separator!r}"
+                f"  prefix={m.padding.prefix!r}"
+                f"  per_byte={m.padding.prefix_per_byte}"
                 f"  uppercase={m.padding.uppercase}"
             )
         print(line)

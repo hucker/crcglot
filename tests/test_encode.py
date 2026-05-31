@@ -10,6 +10,7 @@ import pytest
 
 from crcglot import (
     ALGORITHMS,
+    HexFormat,
     TextFormat,
     detect,
     encode,
@@ -156,6 +157,54 @@ class TestEncodeMatch:
         # Act / Assert
         with pytest.raises(TypeError, match="text match"):
             encode_match(b"bytes data", text_match)
+
+
+class TestRoundTripHexText:
+    """Hex-text packets in any supported formatting round-trip
+    byte-for-byte through ``detect -> encode_match``."""
+
+    @pytest.mark.parametrize(
+        "original",
+        [
+            "313233343536373839cbf43926",
+            "31 32 33 34 35 36 37 38 39 cb f4 39 26",
+            "0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xcb 0xf4 0x39 0x26",
+            "0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0xcb,0xf4,0x39,0x26",
+            "31:32:33:34:35:36:37:38:39:CB:F4:39:26",
+            "0X313233343536373839CBF43926",
+            "31\t32\t33\t34\t35\t36\t37\t38\t39\tcb\tf4\t39\t26",
+        ],
+        ids=[
+            "no-separator",
+            "space",
+            "0x-per-byte-space",
+            "0x-per-byte-comma",
+            "colon-upper",
+            "0X-single-prefix",
+            "tab-separated",
+        ],
+    )
+    def test_round_trip_byte_for_byte(self, original: str) -> None:
+        # Arrange
+        match = detect(original).candidates[0]
+        # Act
+        rebuilt = encode_match(CHECK_INPUT_BYTES, match)
+        # Assert
+        assert isinstance(rebuilt, str), (
+            f"hex-text encode_match should return str, got {type(rebuilt).__name__}"
+        )
+        assert rebuilt == original, (
+            f"hex-text round-trip mismatch:\n  in:  {original!r}\n  out: {rebuilt!r}"
+        )
+
+    def test_hex_match_with_str_data_raises(self) -> None:
+        # Arrange -- get a HexFormat-padded match from a known-good
+        # hex-encoded packet.
+        hex_match = detect("313233343536373839cbf43926").candidates[0]
+        assert isinstance(hex_match.padding, HexFormat), "fixture must yield HexFormat"
+        # Act / Assert
+        with pytest.raises(TypeError, match="hex-text match"):
+            encode_match("string instead of bytes", hex_match)
 
 
 class TestRoundTripBinary:

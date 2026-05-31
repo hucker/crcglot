@@ -14,6 +14,7 @@ import pytest
 from crcglot import (
     ALGORITHMS,
     DetectResult,
+    HexFormat,
     TextFormat,
     detect,
     detect_iter,
@@ -162,9 +163,55 @@ class TestHexTextInput:
         # Assert
         assert result.matched, f"hex-text auto-detect failed: {raw!r}"
         assert result.algorithm == "crc32", f"expected crc32, got {result.algorithm!r}"
-        # Hex-decoded packets go through binary detect, so padding stays None.
-        assert result.candidates[0].padding is None, (
-            f"hex packet should yield binary match (padding=None): {result.candidates[0]}"
+        # Hex-decoded packets get a HexFormat in padding -- captures the
+        # surface formatting so encode_match can round-trip.
+        assert isinstance(result.candidates[0].padding, HexFormat), (
+            f"hex packet should yield HexFormat padding: {result.candidates[0]}"
+        )
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            (
+                "313233343536373839cbf43926",
+                HexFormat(byte_separator="", prefix="", prefix_per_byte=False, uppercase=False),
+            ),
+            (
+                "31 32 33 34 35 36 37 38 39 cb f4 39 26",
+                HexFormat(byte_separator=" ", prefix="", prefix_per_byte=False, uppercase=False),
+            ),
+            (
+                "0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xcb 0xf4 0x39 0x26",
+                HexFormat(byte_separator=" ", prefix="0x", prefix_per_byte=True, uppercase=False),
+            ),
+            (
+                "0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0xcb,0xf4,0x39,0x26",
+                HexFormat(byte_separator=",", prefix="0x", prefix_per_byte=True, uppercase=False),
+            ),
+            (
+                "31:32:33:34:35:36:37:38:39:CB:F4:39:26",
+                HexFormat(byte_separator=":", prefix="", prefix_per_byte=False, uppercase=True),
+            ),
+            (
+                "0X313233343536373839CBF43926",
+                HexFormat(byte_separator="", prefix="0X", prefix_per_byte=False, uppercase=True),
+            ),
+        ],
+        ids=[
+            "no-separator",
+            "space",
+            "0x-per-byte-space",
+            "0x-per-byte-comma",
+            "colon-upper",
+            "0X-single-prefix-upper",
+        ],
+    )
+    def test_hex_format_captured_precisely(self, raw: str, expected: HexFormat) -> None:
+        # Act
+        actual_padding = detect(raw).candidates[0].padding
+        # Assert
+        assert actual_padding == expected, (
+            f"HexFormat mismatch for {raw!r}: actual={actual_padding} expected={expected}"
         )
 
     def test_text_mode_still_works_when_string_isnt_pure_hex(self) -> None:
@@ -232,8 +279,8 @@ class TestTextOuterWhitespace:
         )
         # The internal separator (between data and hex) is still preserved.
         padding = result.candidates[0].padding
-        assert padding is not None, (
-            "text-mode hit should have TextFormat padding, got None"
+        assert isinstance(padding, TextFormat), (
+            f"outer-whitespace text-mode hit should yield TextFormat padding, got {padding!r}"
         )
         actual_sep = padding.separator
         assert actual_sep == " ", (

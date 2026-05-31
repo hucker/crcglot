@@ -78,6 +78,31 @@ class TextFormat:
 
 
 @dataclass(frozen=True)
+class HexFormat:
+    """The hex-text-packet shape captured when ``detect`` auto-decoded a
+    ``str`` of hex bytes (``"31 32"``, ``"0x12 0x34"``, ``"AB:CD:EF"``,
+    etc.) into raw bytes.  Lets ``encode_match`` rebuild the same
+    surface formatting.
+
+    Attributes:
+        byte_separator: The literal characters between hex byte pairs
+            -- ``""`` (none), ``" "``, ``","``, ``":"``, ``"\\n"``, or
+            any short run.
+        prefix: ``""``, ``"0x"``, or ``"0X"`` -- which ``0x``-style
+            prefix the producer used (if any).
+        prefix_per_byte: ``True`` when the prefix appears before *each*
+            byte (``"0x12 0x34"``); ``False`` when the prefix appears
+            once at the start of the whole string (``"0X1234"``).
+        uppercase: ``True`` if hex digits use upper-case A-F.
+    """
+
+    byte_separator: str
+    prefix: str
+    prefix_per_byte: bool
+    uppercase: bool = False
+
+
+@dataclass(frozen=True)
 class DetectMatch:
     """One consistent identification of an algorithm.
 
@@ -85,14 +110,18 @@ class DetectMatch:
         algorithm: Catalogue name (e.g. ``"crc32"``).
         info: The matching :class:`AlgorithmInfo` (full parameters).
         endianness: Byte order of the trailing CRC in the packet.
-        padding: Text-mode formatting (separator + leader + case); ``None``
-            for binary packets.
+        padding: The surface formatting that wrapped the bytes:
+            ``None`` for a plain binary packet,
+            :class:`TextFormat` for a ``"data <sep> hex"`` text packet,
+            :class:`HexFormat` for a hex-encoded byte string
+            (``"0x12 0x34"`` and friends).  ``encode_match`` dispatches
+            on this type to round-trip the exact same shape.
     """
 
     algorithm: str
     info: AlgorithmInfo
     endianness: Endianness
-    padding: TextFormat | None = None
+    padding: TextFormat | HexFormat | None = None
 
 
 @dataclass(frozen=True)
@@ -161,36 +190,82 @@ def _ordered_algorithm_names(algorithms_filter: str | None) -> list[str]:
     return ordered
 
 
-def _looks_like_hex(text: str) -> bytes | None:
-    """Return decoded bytes if ``text`` is a hex-encoded byte string.
+def _looks_like_hex(text: str) -> tuple[bytes, HexFormat] | None:
+    """Decode a hex-encoded byte string and capture its surface format.
 
-    Accepts any common formatting: ``0x``/``0X`` prefixes (one or more),
-    spaces, tabs, newlines, commas, and colons as separators.  After
-    stripping those, the remainder must be all hex digits and even
-    length; otherwise the input isn't unambiguously hex-bytes and we
-    return ``None`` so the caller can fall back to plain text mode.
+    Accepts any common formatting: ``0x``/``0X`` prefixes (one global
+    or one per byte), spaces, tabs, newlines, commas, and colons as
+    separators.  After stripping those the remainder must be all hex
+    digits and even length; otherwise the input isn't unambiguously
+    hex-bytes and we return ``None`` so the caller can fall back to
+    plain text mode.
 
     Args:
         text: A single packet (already trimmed of outer whitespace).
 
     Returns:
-        ``bytes`` on a successful decode, or ``None`` when the input
-        doesn't look like hex-encoded bytes.
+        ``(bytes, HexFormat)`` on a successful decode (the format
+        captures what ``encode_match`` needs to reproduce the same
+        surface), or ``None`` when the input doesn't look like
+        hex-encoded bytes.
 
     Examples:
-        >>> _looks_like_hex("0x12 0x34")
-        b'\\x124'
-        >>> _looks_like_hex("12,34") == b"\\x12\\x34"
-        True
+        >>> b, fmt = _looks_like_hex("0x12 0x34")
+        >>> b, fmt.byte_separator, fmt.prefix, fmt.prefix_per_byte
+        (b'\\x124', ' ', '0x', True)
         >>> _looks_like_hex("hello") is None
         True
     """
-    cleaned = _HEX_CLEAN.sub("", text)
+    # ----- Prefix detection -----
+    n_lower = text.count("0x")
+    n_upper = text.count("0X")
+    if n_upper and not n_lower:
+        prefix = "0X"
+        n_prefix = n_upper
+    elif n_lower and not n_upper:
+        prefix = "0x"
+        n_prefix = n_lower
+    elif n_upper and n_lower:
+        # Mixed case: pick the more common form; count both as prefix
+        # hits so per-byte detection still works for mixed input.
+        prefix = "0X" if n_upper >= n_lower else "0x"
+        n_prefix = n_upper + n_lower
+    else:
+        prefix = ""
+        n_prefix = 0
+
+    # Strip prefixes first so the separator search sees only the bytes.
+    text_no_prefix = re.sub(r"0[xX]", "", text)
+
+    # First run of separator characters (whitespace, comma, colon)
+    # between hex pairs -- captured verbatim so round-trip preserves
+    # tabs vs spaces, ", " vs "," etc.
+    sep_match = re.search(r"[\s,:]+", text_no_prefix)
+    byte_separator = sep_match.group(0) if sep_match else ""
+
+    # Final hex string for the validity check.
+    cleaned = re.sub(r"[\s,:]+", "", text_no_prefix)
     if not cleaned or len(cleaned) % 2 != 0:
         return None
     if not all(c in "0123456789abcdefABCDEF" for c in cleaned):
         return None
-    return bytes.fromhex(cleaned)
+
+    # Per-byte vs single-leading prefix.  ``>=`` because the mixed-case
+    # branch above can over-count, and the worst that happens is we
+    # treat a 1-prefix-for-1-byte input as per-byte (correct round-trip
+    # either way for a 1-byte packet).
+    n_bytes = len(cleaned) // 2
+    prefix_per_byte = bool(prefix) and n_prefix >= n_bytes
+
+    # Case: digits themselves AND/OR a ``0X`` prefix.
+    uppercase = any(c.isupper() for c in cleaned) or prefix == "0X"
+
+    return bytes.fromhex(cleaned), HexFormat(
+        byte_separator=byte_separator,
+        prefix=prefix,
+        prefix_per_byte=prefix_per_byte,
+        uppercase=uppercase,
+    )
 
 
 def _normalize_packets(packet: Packet | Iterable[Packet]) -> list[Packet]:
@@ -467,20 +542,26 @@ def detect(
     if mode == "hex":
         if str_count != len(packets):
             raise TypeError("hex mode requires all str packets")
-        decoded = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
-        if any(d is None for d in decoded):
+        parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
+        if any(p is None for p in parsed):
             return DetectResult(matched=False)
-        return _run_detect([d for d in decoded if d is not None],
-                           "binary", names, encoding, match)
+        # Widen ``list[bytes]`` to ``list[Packet]`` for invariant-list typing.
+        decoded_bytes: list[Packet] = [p[0] for p in parsed if p is not None]
+        hex_format = next((p[1] for p in parsed if p is not None), None)
+        result = _run_detect(decoded_bytes, "binary", names, encoding, match)
+        return _attach_padding(result, hex_format)
     elif mode == "auto" and str_count == len(packets) and str_count > 0:
-        decoded = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
-        if all(d is not None for d in decoded):
+        parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
+        if all(p is not None for p in parsed):
+            decoded_bytes_auto: list[Packet] = [
+                p[0] for p in parsed if p is not None
+            ]
+            hex_format = next((p[1] for p in parsed if p is not None), None)
             hex_result = _run_detect(
-                [d for d in decoded if d is not None],
-                "binary", names, encoding, match,
+                decoded_bytes_auto, "binary", names, encoding, match,
             )
             if hex_result.matched:
-                return hex_result
+                return _attach_padding(hex_result, hex_format)
         # Fall through to text mode for the original str packets.
 
     actual_mode = _resolve_mode(packets, mode)
@@ -500,6 +581,33 @@ def _run_detect(
     return _detect_all_or_set(
         packets, mode, names, encoding, strict_set=(match == "set"),
     )
+
+
+def _attach_padding(
+    result: DetectResult,
+    padding: TextFormat | HexFormat | None,
+) -> DetectResult:
+    """Rebuild candidates with the given ``padding`` value.
+
+    Used to attach a :class:`HexFormat` to results from the hex-text
+    pre-decode path -- ``_run_detect`` runs as binary mode (padding
+    None), then this helper stamps the captured surface format onto
+    each surviving candidate so ``encode_match`` can round-trip.
+
+    No-op when the result didn't match or when ``padding`` is ``None``.
+    """
+    if not result.matched or padding is None:
+        return result
+    rebuilt = tuple(
+        DetectMatch(
+            algorithm=m.algorithm,
+            info=m.info,
+            endianness=m.endianness,
+            padding=padding,
+        )
+        for m in result.candidates
+    )
+    return DetectResult(matched=True, candidates=rebuilt)
 
 
 def detect_iter(
@@ -543,9 +651,12 @@ def detect_iter(
     # streams every attempt, so auto-mode commits to hex once it
     # recognizes the shape.
     if isinstance(packet, str) and mode in ("auto", "hex"):
-        decoded = _looks_like_hex(packet)
-        if decoded is not None:
-            packet = decoded
+        parsed = _looks_like_hex(packet)
+        if parsed is not None:
+            packet = parsed[0]  # the decoded bytes; format is discarded
+            #                     here because detect_iter yields Attempts
+            #                     (no padding field); callers that need
+            #                     the HexFormat should use detect().
             mode = "binary"
         elif mode == "hex":
             return  # explicit hex but unparseable -> no attempts
