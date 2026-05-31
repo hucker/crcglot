@@ -30,6 +30,7 @@
         "datapath",
         "datapaths",
         "DECT",
+        "dedup",
         "distutils",
         "DNDEBUG",
         "downto",
