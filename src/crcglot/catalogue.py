@@ -271,10 +271,6 @@ _REVENG_CATALOGUE: dict[str, dict] = {
     "crc64-xz":         {"width": 64, "poly": 0x42F0E1EBA9EA3693, "init": 0xFFFFFFFFFFFFFFFF, "refin": True,  "refout": True,  "xorout": 0xFFFFFFFFFFFFFFFF, "check": 0x995DC9BBDF1939FA, "desc": "XZ file format (LZMA2 streams)"},
 }
 
-# Backward-compatible aliases for old short names
-_REVENG_CATALOGUE["crc16m"] = _REVENG_CATALOGUE["crc16-modbus"]
-_REVENG_CATALOGUE["crc16x"] = _REVENG_CATALOGUE["crc16-xmodem"]
-
 
 # ---------------------------------------------------------------------------
 # Typed public view of the catalogue

@@ -597,7 +597,7 @@ class TestDetectIter:
         # Act
         attempts = list(detect_iter(packet))
 
-        # Assert -- at least 71*1 attempts (≥1 endianness per algo); at least
+        # Assert -- at least 69*1 attempts (≥1 endianness per algo); at least
         # one Attempt.matched=True (crc32 BE).
         actual_matched = [a for a in attempts if a.matched]
         assert len(attempts) >= len(ALGORITHMS), (

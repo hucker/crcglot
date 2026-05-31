@@ -18,7 +18,7 @@ crcglot c crc32 file=mycrc
 
 That's it.  You now have `mycrc.h` and `mycrc.c` — drop-in CRC-32 with a built-in `_self_test()` you can call to verify it matches the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
 
-**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` for all 71), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
+**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` for all 69), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
 
 ```bash
 crcglot rust crc32 --fast file=mycrc     # fastest Rust crc32
@@ -72,7 +72,7 @@ crcglot <command> [options...]
 Browse the catalogue.  Optional `GLOB` filters by shell-style pattern (e.g. `crc16-*`).  Exit code 1 if nothing matches.
 
 ```bash
-crcglot list                # all 71 algorithms
+crcglot list                # all 69 algorithms
 crcglot list 'crc32-*'      # just the CRC-32 family
 ```
 
@@ -242,7 +242,7 @@ code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 
 Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.
 
-> **Performance, stated honestly:** with the C extension, crcglot computes any of the 71 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
+> **Performance, stated honestly:** with the C extension, crcglot computes any of the 69 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
 
 At runtime there's **no variant choice to make** — the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
 
@@ -302,7 +302,7 @@ See [BENCHMARKS.md](BENCHMARKS.md) for measured `crc32` throughput across every 
 
 crcglot stands on:
 
-- **[The reveng CRC catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm)** by Greg Cook — the canonical source of CRC algorithm parameters since 1999, and the source of the 71 parameter sets, descriptions, and check values every catalogue entry in crcglot is derived from.
+- **[The reveng CRC catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm)** by Greg Cook — the canonical source of CRC algorithm parameters since 1999, and the source of the 69 parameter sets, descriptions, and check values every catalogue entry in crcglot is derived from.
 - **[zlib](https://zlib.net/)** by Mark Adler, Jean-loup Gailly et al. — the runtime fast path for CRC-32/ISO-HDLC and JAMCRC, which take the PCLMULQDQ folding path on x86 and the PMULL / `crc32` instructions on ARM.
 - **[The Rocksoft Model CRC parameterization](http://ross.net/crc/download/crc_v3.txt)** by Ross N. Williams — the `(width, poly, init, refin, refout, xorout, check)` vocabulary every catalogue entry is expressed in.
 

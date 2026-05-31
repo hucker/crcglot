@@ -1,6 +1,6 @@
 """CRC algorithm detection -- brute-force identification.
 
-Given a packet whose tail is a CRC, scan the 71-entry reveng catalogue x
+Given a packet whose tail is a CRC, scan the 69-entry reveng catalogue x
 both byte orders to find which algorithm matches.  Supports binary
 packets (``bytes``/``bytearray``) and text packets (``str``) of the form
 ``"data <whitespace> [0x]hex"``.  Multi-packet input is intersected so
