@@ -127,6 +127,53 @@ class TestTextRoundTrip:
         assert actual == expected, f"padding mismatch: actual={actual} expected={expected}"
 
 
+class TestTextOuterWhitespace:
+    """Outer whitespace -- leading indentation, trailing newlines, CRLF
+    line endings -- must be transparent.  The CRC is over the trimmed
+    payload; the internal ``separator`` between data and hex is still
+    captured verbatim."""
+
+    @pytest.mark.parametrize(
+        "wrapper",
+        [
+            "  {p}",            # leading spaces
+            "\t{p}",            # leading tab
+            "{p}\n",            # trailing newline (already worked; regression guard)
+            "{p}\r\n",          # CRLF line ending
+            "\n\n{p}\n\n",      # both ends, newlines
+            "  \t{p}\r\n",      # mixed leading + CRLF trailing
+        ],
+        ids=[
+            "leading-spaces",
+            "leading-tab",
+            "trailing-newline",
+            "trailing-crlf",
+            "both-newlines",
+            "mixed",
+        ],
+    )
+    def test_outer_whitespace_is_transparent(self, wrapper: str) -> None:
+        # Arrange
+        canonical = _text_packet("crc32", sep=" ", leader="", upper=False)
+        packet = wrapper.format(p=canonical)
+
+        # Act
+        result = detect(packet)
+
+        # Assert
+        assert result.matched, (
+            f"outer whitespace should be ignored: wrapper={wrapper!r} packet={packet!r}"
+        )
+        assert result.candidates[0].algorithm == "crc32", (
+            f"expected crc32, got {result.algorithm}"
+        )
+        # The internal separator (between data and hex) is still preserved.
+        actual_sep = result.candidates[0].padding.separator
+        assert actual_sep == " ", (
+            f"internal separator should still be ' ', got {actual_sep!r}"
+        )
+
+
 class TestMultiPacketIntersection:
     """Multi-packet input intersects per-packet candidate sets."""
 

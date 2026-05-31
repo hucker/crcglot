@@ -223,6 +223,13 @@ def _parse_text(text: str, encoding: str) -> _ParsedText | None:
     Hex-digit case is inferred from the digits themselves *or* a ``0X``
     leader -- either signals upper-case for round-trip purposes.
 
+    Outer whitespace -- leading indentation, trailing newlines, and the
+    CRLF / LF line endings you get from copy-paste or ``stdin`` -- is
+    stripped before the regex runs so callers don't have to pre-clean
+    their packets.  Whitespace **between** the data and the hex (the
+    ``separator``) is preserved in the returned :class:`TextFormat` so
+    ``encode_match`` can reproduce the same shape.
+
     Args:
         text: One text packet.
         encoding: How to bytes-encode the data portion for CRC compute.
@@ -231,6 +238,11 @@ def _parse_text(text: str, encoding: str) -> _ParsedText | None:
         ``(data_bytes, TextFormat, hex_len, hex_str)`` on success, or
         ``None`` when the regex didn't match.
     """
+    # Strip outer whitespace before matching: leading indentation would
+    # otherwise be captured into ``data_str`` and change the computed
+    # CRC; trailing whitespace is mostly absorbed by ``\s*$`` in the
+    # regex but stripping is consistent and cheap.
+    text = text.strip()
     m = _TEXT_RE.match(text)
     if m is None:
         return None
