@@ -24,17 +24,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from crcglot.c import generate_c, generate_c_from_entry
-from crcglot.csharp import generate_csharp, generate_csharp_from_entry
-from crcglot.go import generate_go, generate_go_from_entry
-from crcglot.python import generate_python, generate_python_from_entry
-from crcglot.rust import generate_rust, generate_rust_from_entry
-from crcglot.typescript import (
+from crcglot.lang.c import generate_c, generate_c_from_entry
+from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
+from crcglot.lang.go import generate_go, generate_go_from_entry
+from crcglot.lang.python import generate_python, generate_python_from_entry
+from crcglot.lang.rust import generate_rust, generate_rust_from_entry
+from crcglot.lang.typescript import (
     generate_typescript,
     generate_typescript_from_entry,
 )
-from crcglot.verilog import generate_verilog, generate_verilog_from_entry
-from crcglot.vhdl import generate_vhdl, generate_vhdl_from_entry
+from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
+from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
 
 
 @dataclass(frozen=True)
