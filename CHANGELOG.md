@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.9.1 — 2026-05-31
+
+Bug fix: `detect()` with `target_crc=` now matches when the caller's
+integer is the byte-reversed-at-width form of the algorithm's CRC.
+
+Before, a caller whose tool printed the CRC bytes and read them
+little-endian (e.g. `0x2639F4CB` instead of `0xCBF43926`) got no match
+even though the data + algorithm + CRC bytes were correct.  The
+comparison was a single `computed == target_crc` and the docstring
+claimed the `endian` selector was moot under `target_crc`.
+
+Now the path tries both readings per algorithm — the integer as-is
+(big-endian) and byte-reversed at the algorithm's width (little-endian)
+— and the matching `DetectMatch` reports the corresponding endianness:
+
+```python
+from crcglot import detect
+
+# Natural BE reading of the bytes (unchanged behavior).
+detect(b"123456789", target_crc=0xCBF43926).endianness   # 'big'
+
+# LE reading of the same bytes (now matches; previously didn't).
+detect(b"123456789", target_crc=0x2639F4CB).endianness   # 'little'
+
+# endian= narrows the reading set, same as on the binary / text paths.
+detect(b"123456789", target_crc=0x2639F4CB, endian="big").matched     # False
+detect(b"123456789", target_crc=0xCBF43926, endian="little").matched  # False
+```
+
+Width-8 algorithms still dedup (BE and LE are byte-wise identical
+under a single-byte CRC).  No public-API surface change; just the
+comparison semantics.
+
 ## v0.9.0 — 2026-05-31
 
 `detect()` learned to take a CRC out-of-band (`target_crc=`), to be
