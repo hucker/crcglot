@@ -217,7 +217,7 @@ _REVENG_CATALOGUE: dict[str, dict] = {
     "crc8-sae-j1850":   {"width": 8, "poly": 0x1D, "init": 0xFF, "refin": False, "refout": False, "xorout": 0xFF, "check": 0x4B, "desc": "SAE J1850 automotive OBD-II bus"},
     "crc8-tech-3250":   {"width": 8, "poly": 0x1D, "init": 0xFF, "refin": True,  "refout": True,  "xorout": 0x00, "check": 0x97, "desc": "EBU Tech 3250 (AES3 audio)"},
     "crc8-wcdma":       {"width": 8, "poly": 0x9B, "init": 0x00, "refin": True,  "refout": True,  "xorout": 0x00, "check": 0x25, "desc": "WCDMA/UMTS 3G mobile embedded"},
-    # ---- CRC-16 (30 algorithms) ----
+    # ---- CRC-16 (31 algorithms) ----
     "crc16-arc":            {"width": 16, "poly": 0x8005, "init": 0x0000, "refin": True,  "refout": True,  "xorout": 0x0000, "check": 0xBB3D, "desc": "ARC archive, LHA (IBM CRC-16)"},
     "crc16-cdma2000":       {"width": 16, "poly": 0xC867, "init": 0xFFFF, "refin": False, "refout": False, "xorout": 0x0000, "check": 0x4C06, "desc": "CDMA2000 mobile telephony"},
     "crc16-cms":            {"width": 16, "poly": 0x8005, "init": 0xFFFF, "refin": False, "refout": False, "xorout": 0x0000, "check": 0xAEE7, "desc": "CMS (RPM package format)"},
@@ -247,6 +247,7 @@ _REVENG_CATALOGUE: dict[str, dict] = {
     "crc16-teledisk":       {"width": 16, "poly": 0xA097, "init": 0x0000, "refin": False, "refout": False, "xorout": 0x0000, "check": 0x0FB3, "desc": "TeleDisk floppy disk archiver"},
     "crc16-tms37157":       {"width": 16, "poly": 0x1021, "init": 0x89EC, "refin": True,  "refout": True,  "xorout": 0x0000, "check": 0x26B1, "desc": "TI TMS37157 RFID transponder"},
     "crc16-umts":           {"width": 16, "poly": 0x8005, "init": 0x0000, "refin": False, "refout": False, "xorout": 0x0000, "check": 0xFEE8, "desc": "UMTS/WCDMA 3G (BUYPASS)"},
+    "crc16-usb":            {"width": 16, "poly": 0x8005, "init": 0xFFFF, "refin": True,  "refout": True,  "xorout": 0xFFFF, "check": 0xB4C8, "desc": "USB token / data packet CRC"},
     "crc16-xmodem":         {"width": 16, "poly": 0x1021, "init": 0x0000, "refin": False, "refout": False, "xorout": 0x0000, "check": 0x31C3, "desc": "XMODEM, ZMODEM, ACORN, LTE"},
     # ---- CRC-32 (12 algorithms) ----
     "crc32":            {"width": 32, "poly": 0x04C11DB7, "init": 0xFFFFFFFF, "refin": True,  "refout": True,  "xorout": 0xFFFFFFFF, "check": 0xCBF43926, "desc": "ISO 3309, ITU-T V.42, Ethernet, PKZIP, PNG"},

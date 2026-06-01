@@ -72,7 +72,7 @@ crcglot <command> [options...]
 Browse the catalogue.  Optional `GLOB` filters by shell-style pattern (e.g. `crc16-*`).  Exit code 1 if nothing matches.
 
 ```bash
-crcglot list                # all 69 algorithms
+crcglot list                # all 70 algorithms
 crcglot list 'crc32-*'      # just the CRC-32 family
 ```
 

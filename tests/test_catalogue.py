@@ -369,8 +369,8 @@ class TestAlgorithmMetadata:
     """
 
     def test_size_matches_catalogue(self):
-        # Assert -- 69 algorithms in the catalogue.
-        assert len(ALGORITHMS) == 69, f"expected 69 entries, got {len(ALGORITHMS)}"
+        # Assert -- 70 algorithms in the catalogue.
+        assert len(ALGORITHMS) == 70, f"expected 70 entries, got {len(ALGORITHMS)}"
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_entry_is_algorithminfo(self, name):

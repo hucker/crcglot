@@ -20,7 +20,7 @@ crcglot stands on the shoulders of:
 
 - The reveng CRC catalogue by Greg Cook
   <https://reveng.sourceforge.io/crc-catalogue/all.htm>
-  -- source of the 69 parameter sets, descriptions, and check values
+  -- source of the 70 parameter sets, descriptions, and check values
   every catalogue entry in crcglot is derived from.
 
 - zlib by Mark Adler, Jean-loup Gailly et al.
@@ -45,7 +45,7 @@ ACKNOWLEDGMENTS: tuple[Mapping[str, str], ...] = (
         "name": "reveng CRC catalogue",
         "author": "Greg Cook",
         "url": "https://reveng.sourceforge.io/crc-catalogue/all.htm",
-        "role": "source of all 69 catalogue entries",
+        "role": "source of all 70 catalogue entries",
     }),
     MappingProxyType({
         "name": "zlib",

@@ -416,7 +416,7 @@ class TestCExtensionTableCache:
 
     def test_all_catalogue_algorithms_one_process(self):
         # Act + Assert -- every catalogue algorithm, in-process, so the
-        # cache fills past CACHE_CAP (69 algorithms > 64).  Each must
+        # cache fills past CACHE_CAP (70 algorithms > 64).  Each must
         # still match the pure-Python engine.
         for name, algo in ALGORITHMS.items():
             args = (
