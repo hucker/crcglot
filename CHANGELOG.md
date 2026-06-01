@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.10.0 — 2026-06-01
+
+Catalogue ergonomics: one new algorithm, and the catalogue itself moves
+from a private raw-dict + builder pair to a single typed dataclass
+literal -- one source of truth, type checker validates entries at the
+construction site.
+
+### NEW: `crc16-usb`
+
+USB Token / Data packet CRC.  Identical to `crc16-modbus` except for
+the final XOR (`xorout=0xFFFF` vs modbus's `0x0000`), so the canonical
+check value `0xB4C8 == 0x4B37 ^ 0xFFFF`.
+
+```python
+from crcglot import ALGORITHMS, generic_crc
+
+algo = ALGORITHMS["crc16-usb"]
+generic_crc(b"123456789", algo.width, algo.poly, algo.init,
+            algo.refin, algo.refout, algo.xorout)  # 0xB4C8
+```
+
+Catalogue size: 69 → 70.  All language generators and the runtime
+engine pick it up automatically.
+
+### BREAKING: `AlgorithmInfo.name` removed; catalogue is now direct
+
+Before, `crcglot/catalogue.py` held a private
+`_REVENG_CATALOGUE: dict[str, dict]` of raw kwargs and a
+`_build_algorithms()` builder that walked it to construct each
+`AlgorithmInfo`.  Now `ALGORITHMS: dict[str, AlgorithmInfo]` is itself
+the literal -- each entry constructs its dataclass directly with
+kwargs.  No more parallel data structures.
+
+The `name` field was dropped from `AlgorithmInfo` because it always
+shadowed the dict key (a parametrized test asserted exactly that
+redundancy); callers can't reach the dataclass without already knowing
+the key.  The 9 places that constructed `AlgorithmInfo(name=..., ...)`
+(CLI custom-CRC path + per-language synthetic-algo tests) drop the
+kwarg.
+
+If you were reading `algo.name` anywhere, replace with the key you
+used to look the entry up.
+
+### Doc: `BENCHMARKS.md` -- unified Python row + clearer narrative
+
+The Results table now shows all four Python paths inline:
+`bit-by-bit`, `table-driven`, `c-extension` (the optional accelerator
+that lifts pure Python from ~1 MB/s to ~1,700 MB/s for any of the 70
+algorithms), and `zlib crc32 only` (the stdlib's CPU-instruction
+fast path -- PCLMULQDQ on x86, PMULL / `crc32` on ARMv8 -- which
+hits ~48 GB/s on 1 MiB buffers and applies to `crc32` and
+`crc32-jamcrc`).  The old "Runtime engines" section consolidated into
+a closing prose summary.
+
+Suite: 2930 passed, 0 skipped (true green); 92% coverage.
+
 ## v0.9.1 — 2026-05-31
 
 Bug fix: `detect()` with `target_crc=` now matches when the caller's
