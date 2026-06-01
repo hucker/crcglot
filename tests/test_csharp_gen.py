@@ -202,7 +202,6 @@ class TestGenerateCSharpFromEntryRefoutBranch:
     def test_refout_differs_from_refin_emits_reflection(self):
         # Arrange
         algo = AlgorithmInfo(
-            name="synthetic_refout",
             width=16, poly=0x1021, init=0x0000,
             refin=False, refout=True, xorout=0x0000,
             check=0x0000, desc="synthetic refout!=refin probe",

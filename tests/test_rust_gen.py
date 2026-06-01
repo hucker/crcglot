@@ -269,7 +269,6 @@ class TestGenerateRustFromEntryReflectionPaths:
     def test_refout_differs_from_refin_emits_reflection_block(self):
         # Arrange -- CRC-16 with refin=False, refout=True (synthetic).
         algo = AlgorithmInfo(
-            name="synth_mixed",
             width=16, poly=0x1021, init=0xFFFF,
             refin=False, refout=True, xorout=0x0000,
             check=0xDEAD, desc="synthetic mixed-reflection",

@@ -430,7 +430,6 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             f"refin={refin}, refout={refout}, xorout=0x{xorout:X})"
         )
         algo = AlgorithmInfo(
-            name=custom_name,
             width=width,
             poly=poly,
             init=init,

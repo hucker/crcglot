@@ -374,13 +374,11 @@ class TestAlgorithmMetadata:
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_entry_is_algorithminfo(self, name):
-        # Assert
+        # Assert -- name lives on the dict key only; no separate
+        # ``algo.name`` field to drift out of sync.
         algo = ALGORITHMS[name]
         assert isinstance(algo, AlgorithmInfo), (
             f"{name}: expected AlgorithmInfo"
-        )
-        assert algo.name == name, (
-            f"{name}: algo.name should match key, got {algo.name!r}"
         )
         assert algo.width in (8, 16, 32, 64), (
             f"{name}: width {algo.width} not in {{8, 16, 32, 64}}"
@@ -566,7 +564,6 @@ class TestCustomCrcChainAgainstRevengTruth:
             _REVENG_CHECK_VALUES[algo_name]
         )
         algo = AlgorithmInfo(
-            name=algo_name,
             width=w, poly=poly, init=init,
             refin=refin, refout=refout, xorout=xorout,
             check=expected, desc=f"hardcoded-canonical for {algo_name}",
@@ -598,7 +595,6 @@ class TestCustomCrcChainAgainstRevengTruth:
             _REVENG_CHECK_VALUES["crc16-modbus"]
         )
         algo = AlgorithmInfo(
-            name="my_modbus",
             width=w, poly=poly, init=init,
             refin=refin, refout=refout, xorout=xorout,
             check=check, desc="structural test",
@@ -679,7 +675,6 @@ class TestGenerateFromEntryAcceptsSyntheticEntry:
             b"123456789", width, poly, init, refin, refout, xorout
         )
         algo = AlgorithmInfo(
-            name="madeup",
             width=width, poly=poly, init=init,
             refin=refin, refout=refout, xorout=xorout,
             check=engine_result, desc="Made-up CRC, no reveng truth",

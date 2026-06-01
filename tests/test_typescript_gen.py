@@ -176,7 +176,7 @@ class TestGenerateTypeScriptFromEntry:
     def test_refout_ne_refin_emits_reflection(self):
         # Arrange -- a synthetic algorithm where refout != refin.
         algo = AlgorithmInfo(
-            name="weird", width=16, poly=0x1021, init=0xFFFF,
+            width=16, poly=0x1021, init=0xFFFF,
             refin=False, refout=True, xorout=0x0000,
             check=0,  # value doesn't matter for structural test
             desc="refout != refin synthetic",
