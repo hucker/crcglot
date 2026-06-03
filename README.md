@@ -5,9 +5,9 @@
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
-**Verified CRC source code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.**  Catalogue-driven, self-test embedded, multi-language by design.  **Pure-stdlib package — zero runtime dependencies.**
+**Verified CRC source code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.**  Catalogue-driven, execution-verified, self-test embedded, multi-language by design.  **Pure-stdlib package — zero runtime dependencies.**
 
-LLMs will gladly write you CRC code.  It might even be right.  `crcglot` guarantees the generated code matches the canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) test vector (`crc("123456789") == <check value>`) and ships a self-test you can run on your toolchain to prove it.
+LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator — it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 70 algorithms across eight languages, verified by execution rather than inspection — and every generated file ships that same self-test so you can re-prove it on your own toolchain.
 
 ## Quick start
 
@@ -18,21 +18,21 @@ crcglot c crc32 file=mycrc
 
 That's it.  You now have `mycrc.h` and `mycrc.c` — drop-in CRC-32 with a built-in `_self_test()` you can call to verify it matches the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
 
-**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` for all 69), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
+**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` shows the more than 70), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
 
 ```bash
-crcglot rust crc32 --fast file=mycrc     # fastest Rust crc32
-crcglot c crc8 --small                    # smallest C crc8, to stdout
+crcglot rust crc32 --fast file=mycrc     # fastest Rust crc32 to file mycrc.rs
+crcglot c crc8 --small                   # smallest C crc8, to stdout
 ```
 
 ### Installation
 
-| Tool | Command | Use when |
-| ---- | ------- | -------- |
-| **uv (recommended)** | `uv tool install crcglot` | You just want the `crcglot` CLI on PATH.  Isolated install, no global pollution. |
-| **uv (as a library)** | `uv add crcglot` | You're calling the generators from Python (e.g. a build script that emits CRC code into your repo). |
-| **pip** | `pip install crcglot` | You don't have `uv`.  Identical package, slower install. |
-| **pipx** | `pipx install crcglot` | Same isolation story as `uv tool`, if pipx is what you have. |
+| Tool                  | Command                   | Use when                                                                                            |
+| --------------------- | ------------------------- | --------------------------------------------------------------------------------------------------- |
+| **uv (recommended)**  | `uv tool install crcglot` | You just want the `crcglot` CLI on PATH.  Isolated install, no global pollution.                    |
+| **uv (as a library)** | `uv add crcglot`          | You're calling the generators from Python (e.g. a build script that emits CRC code into your repo). |
+| **pip**               | `pip install crcglot`     | You don't have `uv`.  Identical package, slower install.                                            |
+| **pipx**              | `pipx install crcglot`    | Same isolation story as `uv tool`, if pipx is what you have.                                        |
 
 Python 3.11+, no other runtime dependencies — `crcglot` itself is pure stdlib.  Per-target toolchains (`gcc`, `rustc`, `tsx`, `iverilog`, etc.) only matter if you want to *run* the generated code; the generator produces source either way.
 
@@ -57,6 +57,8 @@ Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go /
 
 ## How it's verified
 
+**The guarantee is behavioral, not structural** — crcglot doesn't lint the generated code, it runs it.  Three axes, fully crossed: every one of the **more than 70 algorithms**, in **every variant** the target supports (bit-by-bit, table-driven, slice-by-8), in **every one of the eight languages**, is executed and its output checked against the hardcoded canonical vector.  Nothing ships on "the generator looks correct."
+
 CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against its **hardcoded** canonical check value — not the catalogue's own `check` field, so a silent regression in the engine can't hide — and the Python generator is run end-to-end (generated, exec'd, and called on `b"123456789"`) against the same hardcoded vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result — same algorithm coverage, exercised through each real toolchain.
 
 Every generated file also ships its own `_self_test()` carrying that same canonical vector.  **For every target except Python, you should call `_self_test()` once in your build environment** — wire it into a unit test, a startup assertion, or your boot self-check.  Our CI proves the generator emits correct code on our reference toolchain; only running `_self_test()` on yours proves your compiler version, optimization flags, target endianness, and integer widths haven't introduced a subtle disagreement.  Python is the exception: the interpreter that ran the CI suite is the one running your code, so the in-environment check would be redundant.
@@ -72,7 +74,7 @@ crcglot <command> [options...]
 Browse the catalogue.  Optional `GLOB` filters by shell-style pattern (e.g. `crc16-*`).  Exit code 1 if nothing matches.
 
 ```bash
-crcglot list                # all 72 algorithms
+crcglot list                # more than 70 algorithms
 crcglot list 'crc32-*'      # just the CRC-32 family
 crcglot list --json         # machine-readable list with full parameters
 ```
@@ -113,14 +115,14 @@ crcglot encode crc32 --binary < data.bin > packet.bin           # binary, big-en
 crcglot encode crc32-iscsi --binary --little < data.bin         # binary, little-endian
 ```
 
-| Option         | Default                       | Effect                                                       |
-| -------------- | ----------------------------- | ------------------------------------------------------------ |
-| `--binary`     | off                           | Read stdin as bytes; write packet bytes to stdout.           |
-| `--little`     | off                           | Little-endian CRC byte order (default: big).                 |
-| `--sep STR`    | `" "`                         | Text separator between data and hex.                         |
-| `--leader STR` | `""`                          | Text hex leader: `""`, `"0x"`, or `"0X"`.                    |
-| `--upper`      | off                           | Uppercase hex digits.                                        |
-| `--fmt STR`    | `"{data}{sep}{leader}{crc}"`  | str.format template; the four tokens may be reordered.       |
+| Option         | Default                      | Effect                                                 |
+| -------------- | ---------------------------- | ------------------------------------------------------ |
+| `--binary`     | off                          | Read stdin as bytes; write packet bytes to stdout.     |
+| `--little`     | off                          | Little-endian CRC byte order (default: big).           |
+| `--sep STR`    | `" "`                        | Text separator between data and hex.                   |
+| `--leader STR` | `""`                         | Text hex leader: `""`, `"0x"`, or `"0X"`.              |
+| `--upper`      | off                          | Uppercase hex digits.                                  |
+| `--fmt STR`    | `"{data}{sep}{leader}{crc}"` | str.format template; the four tokens may be reordered. |
 
 ### `crcglot credits`
 
@@ -130,13 +132,13 @@ Print acknowledgments for the upstream work crcglot stands on (also exported as 
 
 Generate source code for the chosen target language.  Pick your intent — crcglot picks the implementation:
 
-| Option / token | Effect                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------- |
-| `--small`      | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                     |
-| `--fast`       | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise.    |
-| `--custom`     | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                             |
-| `file=STEM`    | Write to disk (extension picked per language; see below).  Omit for stdout.                             |
-| `symbol=NAME`  | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given.     |
+| Option / token | Effect                                                                                               |
+| -------------- | ---------------------------------------------------------------------------------------------------- |
+| `--small`      | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                  |
+| `--fast`       | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise. |
+| `--custom`     | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                          |
+| `file=STEM`    | Write to disk (extension picked per language; see below).  Omit for stdout.                          |
+| `symbol=NAME`  | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given.  |
 
 File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; TypeScript `.ts`.
 
@@ -173,7 +175,7 @@ The check value for the custom parameters is computed automatically (`generic_cr
 
 ## Catalogue
 
-64+ algorithms covering everything from CRC-8 (ATM, AUTOSAR, Bluetooth, Maxim 1-Wire) through CRC-16 (Modbus, XMODEM, CCITT, IBM SDLC) through CRC-32 (Ethernet, bzip2, iSCSI, AUTOSAR) to CRC-64 (XZ, ECMA-182, NVMe, Redis).  Browse with `crcglot list`.
+More than 70 algorithms covering everything from CRC-8 (ATM, AUTOSAR, Bluetooth, Maxim 1-Wire) through CRC-16 (Modbus, XMODEM, CCITT, IBM SDLC) through CRC-32 (Ethernet, bzip2, iSCSI, AUTOSAR) to CRC-64 (XZ, ECMA-182, NVMe, Redis).  Browse with `crcglot list`.
 
 ## Programmatic API
 
@@ -267,7 +269,7 @@ Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_encode` · `crc_compute`
 
 Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.
 
-> **Performance, stated honestly:** with the C extension, crcglot computes any of the 69 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
+> **Performance, stated honestly:** with the C extension, crcglot computes any of the more than 70 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
 
 At runtime there's **no variant choice to make** — the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
 
@@ -327,7 +329,7 @@ See [BENCHMARKS.md](BENCHMARKS.md) for measured `crc32` throughput across every 
 
 crcglot stands on:
 
-- **[The reveng CRC catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm)** by Greg Cook — the canonical source of CRC algorithm parameters since 1999, and the source of the 69 parameter sets, descriptions, and check values every catalogue entry in crcglot is derived from.
+- **[The reveng CRC catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm)** by Greg Cook — the canonical source of CRC algorithm parameters since 1999, and the source of the more than 70 parameter sets, descriptions, and check values every catalogue entry in crcglot is derived from.
 - **[zlib](https://zlib.net/)** by Mark Adler, Jean-loup Gailly et al. — the runtime fast path for CRC-32/ISO-HDLC and JAMCRC, which take the PCLMULQDQ folding path on x86 and the PMULL / `crc32` instructions on ARM.
 - **[The Rocksoft Model CRC parameterization](http://ross.net/crc/download/crc_v3.txt)** by Ross N. Williams — the `(width, poly, init, refin, refout, xorout, check)` vocabulary every catalogue entry is expressed in.
 
