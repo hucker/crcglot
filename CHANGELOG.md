@@ -1,5 +1,131 @@
 # Changelog
 
+## v0.11.0 — 2026-06-03
+
+Three additions: an optional MCP server for LLM integration, two new
+BACnet catalogue entries, and substantially expanded engine
+verification.  The release also tightens the catalogue's
+self-documentation by giving every entry an explicit `source` field.
+
+### NEW: `crcglot[mcp]` — optional MCP server
+
+Install with `pip install 'crcglot[mcp]'` and add to your Claude
+Desktop / Cursor / mcp-cli config to expose crcglot as a Model Context
+Protocol server.  Seven tools (`crc_list`, `crc_info`, `crc_detect`,
+`crc_encode`, `crc_compute`, `crc_generate`, `crc_credits`) and three
+JSON resources (`crcglot://catalogue.json` / `languages.json` /
+`variants.json`) — every tool maps 1:1 to a `crcglot` CLI subcommand,
+so the MCP layer is pure transport adaptation with zero new CRC logic.
+Full walkthrough at [docs/MCP.md](docs/MCP.md).
+
+The base `pip install crcglot` stays pure-stdlib; the `mcp` SDK only
+arrives with the `[mcp]` extra.
+
+Design highlights:
+
+- `crc_detect` exposes the full Python API (`target_crc`, `endian`,
+  `algorithms` glob, `match` mode) even though the CLI doesn't —
+  out-of-band CRC values and strict-singleton checks are real LLM use
+  cases.
+- Wire-format relabel: `DetectMatch.endianness` becomes
+  `crc_byte_order` on the JSON boundary only.  LLMs misread
+  `endianness=little` as "the protocol is little-endian"; the rename
+  makes the semantics ("the CRC field's byte order within the packet")
+  unambiguous.
+- `crc_generate` collapses the 8 per-language CLI subcommands into one
+  tool with a `language` enum; pre-validates `variant` against
+  `LanguageInfo.variants_for_width(width)` so the LLM gets a
+  structured error rather than the deeper width-32/64 message.
+- Performance steer in `crc_generate`'s description tells the LLM to
+  prefer the target's stdlib (Python `zlib.crc32`, etc.) for IEEE
+  crc32 and crc32-jamcrc — ~30× faster than generated code via CPU
+  CRC instructions.
+
+### NEW: `crc32-bacnet`, `crc8-bacnet`
+
+BACnet MS/TP frame CRCs from ANSI/ASHRAE 135 Annex G (the spec is
+paywalled, but the algorithms are quoted verbatim in IETF
+draft-lynn-6lo-rfc8163-bis-01 Appendix C and reproduced in
+bacnet-stack's reference C implementation):
+
+- `crc32-bacnet` — large-frame CRC-32K (Koopman polynomial
+  `0x741B8CD7` with `xorout=0xFFFFFFFF`).  Note: same polynomial as
+  `crc32-mef` but distinct algorithm because the BACnet xorout
+  inverts the final value.
+- `crc8-bacnet` — header CRC over MS/TP frame headers (polynomial
+  `0x03`, reflected, `init=xorout=0xFF`).
+
+Catalogue size: 70 → 72.
+
+### BREAKING: `AlgorithmInfo` gains a `source: str` field
+
+Every catalogue entry now self-documents where its Rocksoft/Williams
+parameters were sourced from.  The 70 reveng-derived entries carry
+`source="reveng"`; the two BACnet entries carry
+`source="ietf:draft-lynn-6lo-rfc8163-bis-01"`.
+
+```python
+>>> ALGORITHMS["crc16-modbus"].source
+'reveng'
+>>> ALGORITHMS["crc32-bacnet"].source
+'ietf:draft-lynn-6lo-rfc8163-bis-01'
+```
+
+The new field is also surfaced by `crcglot info`, `crcglot list
+--json`, the MCP `crc_info` tool, and the `crcglot://catalogue.json`
+resource.
+
+Breaking because constructing an `AlgorithmInfo` directly now requires
+the field.  Custom callers (e.g. `generator_from_entry` for an
+off-catalogue polynomial) need to pass `source="custom"` or similar.
+
+### NEW: `tests/test_external_vectors.py` — multi-vector engine verification
+
+169 cross-checks against four independent authorities catch engine /
+parameter bugs that single-input verification misses:
+
+1. `zlib.crc32` as the canonical oracle for IEEE crc32 + crc32-jamcrc
+   over 13 input shapes (empty, single byte, patterns, 1 MB random).
+2. Every catalogue entry's `check` field at `b"123456789"` (72
+   algorithms).
+3. Hardcoded BACnet vectors ported from bacnet-stack's reference C
+   implementation (which the upstream file declares "copied directly
+   from the BACnet standard").
+4. 47 published vectors from primary specs:
+   - RFC 7143 Appendix A.4 / RFC 3720 Appendix B.4 (5 vectors for
+     `crc32-iscsi` / Castagnoli).
+   - AUTOSAR_SWS_CRCLibrary R22-11 Tables 7.2 / 7.4 / 7.6 / 7.8 / 7.10
+     / 7.12 / 7.14 (7 vectors each for `crc8-sae-j1850`, `crc8-autosar`,
+     `crc16-arc`, `crc16-ibm-3740`, `crc32`, `crc32-autosar`,
+     `crc64-xz`).
+
+This expansion caught a real bug during development.  `crc8-bacnet`
+was initially landed with `poly=0x81` per a paraphrased web summary of
+the BACnet polynomial.  Both `0x81` and the correct `0x03` produce
+`0x89` on `b"123456789"` by coincidence, so the canonical-check test
+passed.  The bacnet-stack reference cross-check disagreed on every
+other input, identifying the polynomial error before the commit
+landed.  Had `0x81` shipped, every BACnet consumer would have seen
+wrong CRCs except on the canonical input.
+
+### NEW: CLI polish
+
+- `crcglot list --json` — machine-readable JSON of the catalogue
+  (matches the MCP `crc_list` tool's output shape).  Use case: pipe to
+  other tooling without parsing the human-formatted output.
+- `crcglot compute` defaults flip: hex output is now the default; pass
+  `--dec` for decimal.  Hex is what almost every consumer of a CRC
+  value wants (struct fields, comparison against doc-quoted values);
+  the previous decimal default forced an extra conversion step.
+- New CLI subcommand: `crcglot compute <algorithm> [<data>]` —
+  computes the raw CRC integer without packet framing (wraps the
+  existing public `encode_int()` function).  Added so the new MCP
+  `crc_compute` tool has a CLI mirror.
+
+Suite: 3258 passed, 0 skipped on the full suite (the slow tier
+compiles + runs the generated source for every algorithm × language);
+92% coverage.
+
 ## v0.10.0 — 2026-06-01
 
 Catalogue ergonomics: one new algorithm, and the catalogue itself moves
