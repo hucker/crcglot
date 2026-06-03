@@ -30,8 +30,16 @@ classifiers = [
 ]
 dependencies = [] # pure stdlib
 
+[project.optional-dependencies]
+# MCP server -- exposes crcglot's CLI surface as a Model Context Protocol
+# server so LLM clients (Claude Desktop, Cursor, mcp-cli, etc.) can call
+# detect / encode / generate as named tools.  Optional; base install
+# stays pure-stdlib.  See docs/MCP.md.
+mcp = ["mcp>=1.0"]
+
 [project.scripts]
 crcglot = "crcglot.cli:main"
+crcglot-mcp = "crcglot.mcp:main"
 
 [project.urls]
 Homepage = "https://github.com/hucker/crcglot"
@@ -118,4 +126,4 @@ exclude_lines = ["if __name__", "pragma: no cover"]
 show_missing = true
 
 [dependency-groups]
-dev = ["pytest>=8.0", "pytest-cov>=7.0", "pytest-xdist>=3.8"]
+dev = ["pytest>=8.0", "pytest-cov>=7.0", "pytest-xdist>=3.8", "mcp>=1.0"]

@@ -238,6 +238,30 @@ algo = AlgorithmInfo(
 code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 ```
 
+## Use with an MCP client (optional)
+
+`crcglot[mcp]` exposes the CLI surface as a [Model Context Protocol](https://modelcontextprotocol.io) server so LLM clients (Claude Desktop, Cursor, mcp-cli, …) can call `crc_detect` / `crc_compute` / `crc_generate` etc. as named tools.  The LLM never has to remember a polynomial, slice bytes off a packet to find the CRC, or write a reflection loop — it asks crcglot.
+
+```bash
+pip install 'crcglot[mcp]'        # the extra ships the MCP SDK
+# or:  uv tool install 'crcglot[mcp]'
+```
+
+Then wire it into your MCP client.  Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "crcglot": {
+      "command": "uvx",
+      "args": ["--from", "crcglot[mcp]", "crcglot-mcp"]
+    }
+  }
+}
+```
+
+Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_encode` · `crc_compute` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
+
 ## Fast runtime CRC (optional C extension)
 
 Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.

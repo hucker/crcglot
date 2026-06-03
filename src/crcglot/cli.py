@@ -29,6 +29,7 @@ from crcglot import (
     AlgorithmInfo,
     detect,
     encode,
+    encode_int,
     encode_text,
     generic_crc,
 )
@@ -280,6 +281,50 @@ def _cmd_encode(args: argparse.Namespace) -> int:
         fmt=args.fmt,
     )
     print(text)
+    return 0
+
+
+def _cmd_compute(args: argparse.Namespace) -> int:
+    """Run the ``crcglot compute`` subcommand.
+
+    Computes the raw CRC integer of ``data`` (binary or text) under a
+    catalogue algorithm and prints it as decimal or hex.  Pairs with
+    ``crcglot encode`` (which packages the same value into a packet) and
+    sits below ``crcglot detect`` (which asks the inverse question:
+    "which algorithm produces this CRC?").
+
+    Args:
+        args: Parsed argparse namespace for the ``compute`` subparser.
+
+    Returns:
+        ``0`` on success, ``2`` on unknown algorithm or missing
+        text-mode data.
+    """
+    if args.algorithm not in ALGORITHMS:
+        print(
+            f"Error: unknown algorithm {args.algorithm!r}. "
+            f"Use 'crcglot list' to browse.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.binary:
+        data: bytes | str = sys.stdin.buffer.read()
+    elif args.data is None:
+        print(
+            "Error: text-mode compute requires a data argument "
+            "(or use --binary to read stdin as bytes).",
+            file=sys.stderr,
+        )
+        return 2
+    else:
+        data = args.data
+    crc = encode_int(data, args.algorithm, encoding=args.encoding)
+    width = ALGORITHMS[args.algorithm].width
+    hex_w = (width + 3) // 4
+    if args.hex:
+        print(f"0x{crc:0{hex_w}X}")
+    else:
+        print(crc)
     return 0
 
 
@@ -596,6 +641,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Encoding for text-mode data (default: utf-8)",
     )
 
+    # crcglot compute <algorithm> [<data>] [--binary] [--hex] [--encoding]
+    p_compute = subs.add_parser(
+        "compute",
+        help="Compute the raw CRC integer of data (no packet framing)",
+    )
+    p_compute.add_argument("algorithm", help="Catalogue name (e.g. crc32)")
+    p_compute.add_argument(
+        "data", nargs="?",
+        help="Text data (text mode); omit when --binary reads stdin as bytes",
+    )
+    p_compute.add_argument(
+        "--binary", action="store_true",
+        help="Binary mode: read stdin as bytes instead of taking a text argument",
+    )
+    p_compute.add_argument(
+        "--hex", action="store_true",
+        help="Print as 0x-prefixed hex instead of decimal",
+    )
+    p_compute.add_argument(
+        "--encoding", default="utf-8",
+        help="Encoding for text-mode data (default: utf-8)",
+    )
+
     # crcglot credits
     subs.add_parser(
         "credits",
@@ -666,6 +734,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_detect(args)
     if args.command == "encode":
         return _cmd_encode(args)
+    if args.command == "compute":
+        return _cmd_compute(args)
     if args.command == "credits":
         return _cmd_credits(args)
     if args.command in LANGUAGES:
