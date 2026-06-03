@@ -77,7 +77,7 @@ def build_server() -> FastMCP:
     mcp = FastMCP(
         "crcglot",
         instructions=(
-            "crcglot exposes the reveng CRC catalogue (70 algorithms), "
+            "crcglot exposes the reveng CRC catalogue (more than 70 algorithms), "
             "a multi-language code generator (C / C# / Go / Python / Rust "
             "/ TypeScript / Verilog / VHDL), and a runtime CRC engine.  "
             "Use crc_list / crc_info to browse; crc_detect to identify "
