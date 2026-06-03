@@ -145,6 +145,7 @@ def algorithm_to_dict(name: str, algo: AlgorithmInfo) -> dict[str, Any]:
         "check": algo.check,
         "check_hex": hexfmt(algo.check),
         "desc": algo.desc,
+        "source": algo.source,
     }
 
 

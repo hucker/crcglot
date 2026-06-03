@@ -369,8 +369,8 @@ class TestAlgorithmMetadata:
     """
 
     def test_size_matches_catalogue(self):
-        # Assert -- 70 algorithms in the catalogue.
-        assert len(ALGORITHMS) == 70, f"expected 70 entries, got {len(ALGORITHMS)}"
+        # Assert -- 72 algorithms in the catalogue.
+        assert len(ALGORITHMS) == 72, f"expected 72 entries, got {len(ALGORITHMS)}"
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_entry_is_algorithminfo(self, name):
@@ -567,6 +567,7 @@ class TestCustomCrcChainAgainstRevengTruth:
             width=w, poly=poly, init=init,
             refin=refin, refout=refout, xorout=xorout,
             check=expected, desc=f"hardcoded-canonical for {algo_name}",
+            source="custom",
         )
         symbol = algo_name.replace("-", "_")
 
@@ -598,6 +599,7 @@ class TestCustomCrcChainAgainstRevengTruth:
             width=w, poly=poly, init=init,
             refin=refin, refout=refout, xorout=xorout,
             check=check, desc="structural test",
+            source="custom",
         )
 
         # Act
@@ -678,6 +680,7 @@ class TestGenerateFromEntryAcceptsSyntheticEntry:
             width=width, poly=poly, init=init,
             refin=refin, refout=refout, xorout=xorout,
             check=engine_result, desc="Made-up CRC, no reveng truth",
+            source="custom",
         )
 
         # Act -- generate Python, exec, run on the check input.

@@ -180,6 +180,7 @@ class TestGenerateTypeScriptFromEntry:
             refin=False, refout=True, xorout=0x0000,
             check=0,  # value doesn't matter for structural test
             desc="refout != refin synthetic",
+            source="custom",
         )
 
         # Act

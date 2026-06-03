@@ -129,6 +129,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
                 "check": algo.check,
                 "check_hex": f"0x{algo.check:0{hex_w}X}",
                 "desc": algo.desc,
+                "source": algo.source,
             })
         print(json.dumps(payload, indent=2))
         return 0
@@ -156,6 +157,7 @@ def _cmd_info(args: argparse.Namespace) -> int:
     print(f"  check:    0x{algo.check:0{hex_w}X}")
     if algo.desc:
         print(f"  desc:     {algo.desc}")
+    print(f"  source:   {algo.source}")
     return 0
 
 
@@ -510,6 +512,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             xorout=xorout,
             check=check,
             desc=desc,
+            source="custom",
         )
         symbol = (
             symbol_override

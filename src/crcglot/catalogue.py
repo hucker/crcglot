@@ -197,6 +197,13 @@ class AlgorithmInfo:
         xorout: XOR applied to the final CRC value.
         check: Canonical reveng check value -- CRC of ``b"123456789"``.
         desc: Human-readable description (may be ``""``).
+        source: Provenance of the Rocksoft/Williams parameters --
+            ``"reveng"`` for entries derived from the reveng catalogue
+            (the majority), a short citation string for others (e.g.
+            ``"ietf:draft-lynn-6lo-rfc8163-bis-01"``).  Surfaced in
+            ``crcglot info`` / ``crcglot list --json`` / the MCP
+            ``crc_info`` tool so consumers can trace any entry back to
+            its primary documentation.
     """
 
     width: int
@@ -207,6 +214,7 @@ class AlgorithmInfo:
     xorout: int
     check: int
     desc: str
+    source: str
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +228,7 @@ class AlgorithmInfo:
 # check = CRC of b"123456789" - used as test vectors.
 #
 ALGORITHMS: dict[str, AlgorithmInfo] = {
-    # ---- CRC-8 (20 algorithms) ----
+    # ---- CRC-8 (21 algorithms) ----
     "crc8": AlgorithmInfo(
         width=8,
         poly=0x07,
@@ -230,6 +238,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xF4,
         desc="ITU-T I.432.1 (ATM HEC), ISDN",
+        source="reveng",
     ),
     "crc8-autosar": AlgorithmInfo(
         width=8,
@@ -240,6 +249,18 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFF,
         check=0xDF,
         desc="AUTOSAR automotive E2E profiles",
+        source="reveng",
+    ),
+    "crc8-bacnet": AlgorithmInfo(
+        width=8,
+        poly=0x03,
+        init=0xFF,
+        refin=True,
+        refout=True,
+        xorout=0xFF,
+        check=0x89,
+        desc="BACnet MS/TP frame header (X^8 + X + 1; ANSI/ASHRAE 135 Annex G.1)",
+        source="ietf:draft-lynn-6lo-rfc8163-bis-01",
     ),
     "crc8-bluetooth": AlgorithmInfo(
         width=8,
@@ -250,6 +271,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x26,
         desc="Bluetooth HEC (header error check)",
+        source="reveng",
     ),
     "crc8-cdma2000": AlgorithmInfo(
         width=8,
@@ -260,6 +282,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xDA,
         desc="CDMA2000 mobile telephony",
+        source="reveng",
     ),
     "crc8-darc": AlgorithmInfo(
         width=8,
@@ -270,6 +293,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x15,
         desc="DARC (Data Radio Channel)",
+        source="reveng",
     ),
     "crc8-dvb-s2": AlgorithmInfo(
         width=8,
@@ -280,6 +304,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xBC,
         desc="DVB-S2 satellite TV baseband frames",
+        source="reveng",
     ),
     "crc8-gsm-a": AlgorithmInfo(
         width=8,
@@ -290,6 +315,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x37,
         desc="GSM/3GPP control channel (type A)",
+        source="reveng",
     ),
     "crc8-gsm-b": AlgorithmInfo(
         width=8,
@@ -300,6 +326,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFF,
         check=0x94,
         desc="GSM/3GPP control channel (type B)",
+        source="reveng",
     ),
     "crc8-hitag": AlgorithmInfo(
         width=8,
@@ -310,6 +337,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xB4,
         desc="Philips HITAG RFID transponders",
+        source="reveng",
     ),
     "crc8-i-432-1": AlgorithmInfo(
         width=8,
@@ -320,6 +348,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x55,
         check=0xA1,
         desc="ITU-T I.432.1 ATM HEC (alt init)",
+        source="reveng",
     ),
     "crc8-i-code": AlgorithmInfo(
         width=8,
@@ -330,6 +359,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x7E,
         desc="Philips ICODE RFID SLI systems",
+        source="reveng",
     ),
     "crc8-lte": AlgorithmInfo(
         width=8,
@@ -340,6 +370,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xEA,
         desc="3GPP LTE (Long Term Evolution)",
+        source="reveng",
     ),
     "crc8-maxim": AlgorithmInfo(
         width=8,
@@ -350,6 +381,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xA1,
         desc="Dallas/Maxim 1-Wire bus (DOW CRC)",
+        source="reveng",
     ),
     "crc8-mifare-mad": AlgorithmInfo(
         width=8,
@@ -360,6 +392,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x99,
         desc="NXP MIFARE Application Directory",
+        source="reveng",
     ),
     "crc8-nrsc-5": AlgorithmInfo(
         width=8,
@@ -370,6 +403,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xF7,
         desc="NRSC-5 HD Radio digital broadcast",
+        source="reveng",
     ),
     "crc8-opensafety": AlgorithmInfo(
         width=8,
@@ -380,6 +414,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x3E,
         desc="OpenSAFETY industrial safety protocol",
+        source="reveng",
     ),
     "crc8-rohc": AlgorithmInfo(
         width=8,
@@ -390,6 +425,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0xD0,
         desc="ROHC (Robust Header Compression)",
+        source="reveng",
     ),
     "crc8-sae-j1850": AlgorithmInfo(
         width=8,
@@ -400,6 +436,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFF,
         check=0x4B,
         desc="SAE J1850 automotive OBD-II bus",
+        source="reveng",
     ),
     "crc8-tech-3250": AlgorithmInfo(
         width=8,
@@ -410,6 +447,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x97,
         desc="EBU Tech 3250 (AES3 audio)",
+        source="reveng",
     ),
     "crc8-wcdma": AlgorithmInfo(
         width=8,
@@ -420,6 +458,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x25,
         desc="WCDMA/UMTS 3G mobile embedded",
+        source="reveng",
     ),
     # ---- CRC-16 (31 algorithms) ----
     "crc16-arc": AlgorithmInfo(
@@ -431,6 +470,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xBB3D,
         desc="ARC archive, LHA (IBM CRC-16)",
+        source="reveng",
     ),
     "crc16-cdma2000": AlgorithmInfo(
         width=16,
@@ -441,6 +481,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x4C06,
         desc="CDMA2000 mobile telephony",
+        source="reveng",
     ),
     "crc16-cms": AlgorithmInfo(
         width=16,
@@ -451,6 +492,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xAEE7,
         desc="CMS (RPM package format)",
+        source="reveng",
     ),
     "crc16-dds-110": AlgorithmInfo(
         width=16,
@@ -461,6 +503,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x9ECF,
         desc="ELV DDS-110 weather station",
+        source="reveng",
     ),
     "crc16-dect-r": AlgorithmInfo(
         width=16,
@@ -471,6 +514,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0001,
         check=0x007E,
         desc="DECT cordless telephony (R-CRC)",
+        source="reveng",
     ),
     "crc16-dect-x": AlgorithmInfo(
         width=16,
@@ -481,6 +525,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x007F,
         desc="DECT cordless telephony (X-CRC)",
+        source="reveng",
     ),
     "crc16-dnp": AlgorithmInfo(
         width=16,
@@ -491,6 +536,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0xEA82,
         desc="DNP3 (Distributed Network Protocol)",
+        source="reveng",
     ),
     "crc16-en-13757": AlgorithmInfo(
         width=16,
@@ -501,6 +547,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0xC2B7,
         desc="EN 13757 wireless M-Bus metering",
+        source="reveng",
     ),
     "crc16-genibus": AlgorithmInfo(
         width=16,
@@ -511,6 +558,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0xD64E,
         desc="GENIBUS (EPC Gen2 RFID)",
+        source="reveng",
     ),
     "crc16-gsm": AlgorithmInfo(
         width=16,
@@ -521,6 +569,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0xCE3C,
         desc="GSM mobile network control channel",
+        source="reveng",
     ),
     "crc16-ibm-3740": AlgorithmInfo(
         width=16,
@@ -531,6 +580,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x29B1,
         desc="IBM 3740 floppy disk, CCITT-FALSE",
+        source="reveng",
     ),
     "crc16-ibm-sdlc": AlgorithmInfo(
         width=16,
@@ -541,6 +591,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0x906E,
         desc="IBM SDLC, ISO HDLC, X.25 FCS",
+        source="reveng",
     ),
     "crc16-iso-iec-14443-3-a": AlgorithmInfo(
         width=16,
@@ -551,6 +602,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xBF05,
         desc="ISO 14443-3 Type A NFC/RFID",
+        source="reveng",
     ),
     "crc16-kermit": AlgorithmInfo(
         width=16,
@@ -561,6 +613,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x2189,
         desc="Kermit file transfer protocol",
+        source="reveng",
     ),
     "crc16-lj1200": AlgorithmInfo(
         width=16,
@@ -571,6 +624,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xBDF4,
         desc="LJ1200 telemetry",
+        source="reveng",
     ),
     "crc16-m17": AlgorithmInfo(
         width=16,
@@ -581,6 +635,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x772B,
         desc="M17 Project digital voice radio",
+        source="reveng",
     ),
     "crc16-maxim": AlgorithmInfo(
         width=16,
@@ -591,6 +646,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0x44C2,
         desc="Maxim/Dallas 1-Wire 16-bit",
+        source="reveng",
     ),
     "crc16-mcrf4xx": AlgorithmInfo(
         width=16,
@@ -601,6 +657,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x6F91,
         desc="Microchip MCRF4xx RFID tags",
+        source="reveng",
     ),
     "crc16-modbus": AlgorithmInfo(
         width=16,
@@ -611,6 +668,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x4B37,
         desc="Modbus RTU serial protocol",
+        source="reveng",
     ),
     "crc16-nrsc-5": AlgorithmInfo(
         width=16,
@@ -621,6 +679,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xA066,
         desc="NRSC-5 HD Radio digital broadcast",
+        source="reveng",
     ),
     "crc16-opensafety-a": AlgorithmInfo(
         width=16,
@@ -631,6 +690,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x5D38,
         desc="OpenSAFETY field A",
+        source="reveng",
     ),
     "crc16-opensafety-b": AlgorithmInfo(
         width=16,
@@ -641,6 +701,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x20FE,
         desc="OpenSAFETY field B",
+        source="reveng",
     ),
     "crc16-profibus": AlgorithmInfo(
         width=16,
@@ -651,6 +712,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0xA819,
         desc="PROFIBUS industrial fieldbus",
+        source="reveng",
     ),
     "crc16-riello": AlgorithmInfo(
         width=16,
@@ -661,6 +723,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x63D0,
         desc="Riello UPS dialog protocol",
+        source="reveng",
     ),
     "crc16-spi-fujitsu": AlgorithmInfo(
         width=16,
@@ -671,6 +734,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xE5CC,
         desc="Fujitsu SPI bus, AUG-CCITT",
+        source="reveng",
     ),
     "crc16-t10-dif": AlgorithmInfo(
         width=16,
@@ -681,6 +745,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xD0DB,
         desc="SCSI T10 Data Integrity Field",
+        source="reveng",
     ),
     "crc16-teledisk": AlgorithmInfo(
         width=16,
@@ -691,6 +756,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x0FB3,
         desc="TeleDisk floppy disk archiver",
+        source="reveng",
     ),
     "crc16-tms37157": AlgorithmInfo(
         width=16,
@@ -701,6 +767,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x26B1,
         desc="TI TMS37157 RFID transponder",
+        source="reveng",
     ),
     "crc16-umts": AlgorithmInfo(
         width=16,
@@ -711,6 +778,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0xFEE8,
         desc="UMTS/WCDMA 3G (BUYPASS)",
+        source="reveng",
     ),
     "crc16-usb": AlgorithmInfo(
         width=16,
@@ -721,6 +789,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFF,
         check=0xB4C8,
         desc="USB token / data packet CRC",
+        source="reveng",
     ),
     "crc16-xmodem": AlgorithmInfo(
         width=16,
@@ -731,8 +800,9 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x31C3,
         desc="XMODEM, ZMODEM, ACORN, LTE",
+        source="reveng",
     ),
-    # ---- CRC-32 (12 algorithms) ----
+    # ---- CRC-32 (13 algorithms) ----
     "crc32": AlgorithmInfo(
         width=32,
         poly=0x04C11DB7,
@@ -742,6 +812,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFF,
         check=0xCBF43926,
         desc="ISO 3309, ITU-T V.42, Ethernet, PKZIP, PNG",
+        source="reveng",
     ),
     "crc32-aixm": AlgorithmInfo(
         width=32,
@@ -752,6 +823,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00000000,
         check=0x3010BF7F,
         desc="AIXM (Aeronautical Information Exchange)",
+        source="reveng",
     ),
     "crc32-autosar": AlgorithmInfo(
         width=32,
@@ -762,6 +834,18 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFF,
         check=0x1697D06A,
         desc="AUTOSAR automotive E2E Profile 4",
+        source="reveng",
+    ),
+    "crc32-bacnet": AlgorithmInfo(
+        width=32,
+        poly=0x741B8CD7,
+        init=0xFFFFFFFF,
+        refin=True,
+        refout=True,
+        xorout=0xFFFFFFFF,
+        check=0x2D3DD0AE,
+        desc="BACnet MS/TP large frames, CRC-32K Koopman (ANSI/ASHRAE 135 Annex G.3.2)",
+        source="ietf:draft-lynn-6lo-rfc8163-bis-01",
     ),
     "crc32-base91-d": AlgorithmInfo(
         width=32,
@@ -772,6 +856,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFF,
         check=0x87315576,
         desc="base91 encoding (CRC-32D)",
+        source="reveng",
     ),
     "crc32-bzip2": AlgorithmInfo(
         width=32,
@@ -782,6 +867,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFF,
         check=0xFC891918,
         desc="bzip2 file compression, AAL5",
+        source="reveng",
     ),
     "crc32-cd-rom-edc": AlgorithmInfo(
         width=32,
@@ -792,6 +878,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00000000,
         check=0x6EC2EDC4,
         desc="CD-ROM Error Detection Code",
+        source="reveng",
     ),
     "crc32-cksum": AlgorithmInfo(
         width=32,
@@ -802,6 +889,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFF,
         check=0x765E7680,
         desc="POSIX cksum command",
+        source="reveng",
     ),
     "crc32-iscsi": AlgorithmInfo(
         width=32,
@@ -812,6 +900,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFF,
         check=0xE3069283,
         desc="iSCSI, SCTP, Castagnoli (CRC-32C)",
+        source="reveng",
     ),
     "crc32-jamcrc": AlgorithmInfo(
         width=32,
@@ -822,6 +911,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00000000,
         check=0x340BC6D9,
         desc="Altera Jam STAPL programming language",
+        source="reveng",
     ),
     "crc32-mef": AlgorithmInfo(
         width=32,
@@ -832,6 +922,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00000000,
         check=0xD2C22F51,
         desc="Metro Ethernet Forum (MEF)",
+        source="reveng",
     ),
     "crc32-mpeg-2": AlgorithmInfo(
         width=32,
@@ -842,6 +933,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00000000,
         check=0x0376E6E7,
         desc="MPEG-2 transport stream",
+        source="reveng",
     ),
     "crc32-xfer": AlgorithmInfo(
         width=32,
@@ -852,6 +944,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00000000,
         check=0xBD0BE338,
         desc="XFER file transfer protocol",
+        source="reveng",
     ),
     # ---- CRC-64 (7 algorithms) ----
     "crc64-ecma-182": AlgorithmInfo(
@@ -863,6 +956,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000000000000000,
         check=0x6C40DF5F0B497347,
         desc="ECMA-182 (DLT tape, original)",
+        source="reveng",
     ),
     "crc64-go-iso": AlgorithmInfo(
         width=64,
@@ -873,6 +967,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFFFFFFFFFF,
         check=0xB90956C775A41001,
         desc="Go standard library (hash/crc64.ISO)",
+        source="reveng",
     ),
     "crc64-ms": AlgorithmInfo(
         width=64,
@@ -883,6 +978,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000000000000000,
         check=0x75D4B74F024ECEEA,
         desc="Microsoft (jhash.c)",
+        source="reveng",
     ),
     "crc64-nvme": AlgorithmInfo(
         width=64,
@@ -893,6 +989,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFFFFFFFFFF,
         check=0xAE8B14860A799888,
         desc="NVMe storage protocol",
+        source="reveng",
     ),
     "crc64-redis": AlgorithmInfo(
         width=64,
@@ -903,6 +1000,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000000000000000,
         check=0xE9C6D914C4B8D9CA,
         desc="Redis in-memory data store",
+        source="reveng",
     ),
     "crc64-we": AlgorithmInfo(
         width=64,
@@ -913,6 +1011,7 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFFFFFFFFFF,
         check=0x62EC59E3F1A4F00A,
         desc="Wolfgang Ehrhardt CRC-64",
+        source="reveng",
     ),
     "crc64-xz": AlgorithmInfo(
         width=64,
@@ -923,5 +1022,6 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0xFFFFFFFFFFFFFFFF,
         check=0x995DC9BBDF1939FA,
         desc="XZ file format (LZMA2 streams)",
+        source="reveng",
     ),
 }

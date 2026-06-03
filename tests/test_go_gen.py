@@ -173,6 +173,7 @@ class TestGenerateGoFromEntryRefoutBranch:
             width=16, poly=0x1021, init=0x0000,
             refin=False, refout=True, xorout=0x0000,
             check=0x0000, desc="synthetic refout!=refin probe",
+            source="custom",
         )
 
         # Act

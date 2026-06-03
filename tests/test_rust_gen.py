@@ -272,6 +272,7 @@ class TestGenerateRustFromEntryReflectionPaths:
             width=16, poly=0x1021, init=0xFFFF,
             refin=False, refout=True, xorout=0x0000,
             check=0xDEAD, desc="synthetic mixed-reflection",
+            source="custom",
         )
 
         # Act

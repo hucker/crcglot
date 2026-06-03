@@ -118,7 +118,7 @@ compiled language.
 extension is installed (`pip install crcglot[fast]` or any of the
 prebuilt wheels), the runtime engine `crcglot._c.c_generic_crc` is a
 slice-by-8 C implementation that the Python layer calls into for *any*
-of the 70 catalogue algorithms.  It runs on every supported platform
+of the 72 catalogue algorithms.  It runs on every supported platform
 the wheels publish to -- Linux x86_64 / aarch64, Windows x64 / arm64,
 macOS arm64 -- and lifts pure Python's ~1 MB/s reference loop into the
 same throughput band as the generated C / Rust / Go code in the gallery
@@ -136,4 +136,4 @@ C extension's slice-by-8.  At 1 MiB the 48 GB/s figure isn't a typo --
 the CPU finishes the CRC almost as fast as it can stream the bytes
 through L2.  No software loop is going to beat that, so crcglot
 doesn't try; it borrows zlib for the two ubiquitous algorithms where
-the silicon path applies and uses its own C engine for the other 68.
+the silicon path applies and uses its own C engine for the other 70.

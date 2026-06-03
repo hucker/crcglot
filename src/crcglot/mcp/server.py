@@ -395,6 +395,7 @@ def build_server() -> FastMCP:
                 xorout=xorout,
                 check=check,
                 desc=desc,
+                source="custom",
             )
             result = info.generator_from_entry(  # type: ignore[call-arg]
                 cust_name,

@@ -490,20 +490,26 @@ class TestCrcCredits:
 #
 #   - crc8           width=8, refin=refout=False, smallest path
 #   - crc8-maxim     width=8, reflected (Dallas 1-Wire / DS18B20 etc.)
+#   - crc8-bacnet    width=8, reflected + xorout=0xFF + non-reveng source
 #   - crc16-modbus   width=16, reflected, the Modbus RTU workhorse
 #   - crc16-usb      width=16, reflected + xorout=0xFFFF (new in v0.10.0)
 #   - crc16-xmodem   width=16, normal (non-reflected) -- different code path
 #   - crc32          width=32, IEEE -- delegates to zlib fast-path
 #   - crc32-bzip2    width=32, normal -- forces the C engine, NOT zlib
+#   - crc32-bacnet   width=32, Koopman poly + xorout=0xFFFFFFFF, non-reveng
+#                    source -- covers the BACnet large-frame algorithm
+#                    distinct from crc32-mef (same poly, xorout=0)
 #   - crc64-xz       width=64, reflected -- largest width, xz file format
 _REPRESENTATIVE_ALGOS = [
     "crc8",
     "crc8-maxim",
+    "crc8-bacnet",
     "crc16-modbus",
     "crc16-usb",
     "crc16-xmodem",
     "crc32",
     "crc32-bzip2",
+    "crc32-bacnet",
     "crc64-xz",
 ]
 
