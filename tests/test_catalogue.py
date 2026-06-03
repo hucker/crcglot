@@ -372,6 +372,21 @@ class TestAlgorithmMetadata:
         # Assert -- 72 algorithms in the catalogue.
         assert len(ALGORITHMS) == 72, f"expected 72 entries, got {len(ALGORITHMS)}"
 
+    def test_count_within_prose_claim(self):
+        """Guard the docs' "more than 70" wording against catalogue growth.
+
+        README and the MCP server description say "more than 70" instead of
+        a brittle exact count.  That phrasing reads wrong once the catalogue
+        crosses 80 -- this test trips first so the prose gets bumped
+        deliberately rather than silently going stale.
+        """
+        # Assert -- catalogue still fits the "more than 70" claim.
+        assert len(ALGORITHMS) < 80, (
+            f"catalogue grew to {len(ALGORITHMS)} entries: bump the "
+            f'"More than 70" prose to "More than 80" in README.md and '
+            "src/crcglot/mcp/server.py, then raise this bound."
+        )
+
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
     def test_entry_is_algorithminfo(self, name):
         # Assert -- name lives on the dict key only; no separate
