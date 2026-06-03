@@ -100,7 +100,9 @@ def build_server() -> FastMCP:
             "crc16-modbus, crc8-cdma2000, ...).  Use this when the user "
             "mentions a CRC by partial name or family, or to disambiguate "
             "before crc_generate.  Filter with a shell glob like "
-            "'crc16-*' to narrow the list."
+            "'crc16-*' to narrow the list.  This is also the best first "
+            "tool to call when building a candidate set to filter by width "
+            "or description before calling crc_info / crc_generate."
         ),
     )
     def crc_list(glob: str | None = None) -> dict[str, Any]:

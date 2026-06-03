@@ -17,6 +17,8 @@ already execution-verified in test_{c,rust,vhdl,python}_gen.py.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from crcglot.cli import (
@@ -156,6 +158,27 @@ class TestListCommand:
         assert rc == 1
         assert "No algorithms match" in err
 
+    def test_list_json_contains_full_params(self, capsys):
+        rc = main(["list", "crc32", "--json"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        payload = json.loads(out)
+        assert payload["count"] == 1
+        actual = payload["algorithms"][0]
+        assert actual["name"] == "crc32"
+        assert actual["width"] == 32
+        assert actual["poly_hex"] == "0x04C11DB7"
+        assert actual["check_hex"] == "0xCBF43926"
+
+    def test_list_json_respects_glob_filter(self, capsys):
+        rc = main(["list", "crc16-*", "--json"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        payload = json.loads(out)
+        names = [entry["name"] for entry in payload["algorithms"]]
+        assert names, "expected at least one crc16-* algorithm"
+        assert all(name.startswith("crc16-") for name in names)
+
 
 # ─────────────────────────────────────────────────────────────────────
 # `crcglot info`
@@ -185,6 +208,25 @@ class TestInfoCommand:
         _out, err = capsys.readouterr()
         assert rc == 1
         assert "Unknown algorithm" in err
+
+
+# ─────────────────────────────────────────────────────────────────────
+# `crcglot compute`
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestComputeCommand:
+    def test_compute_defaults_to_hex(self, capsys):
+        rc = main(["compute", "crc32", "123456789"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert out.strip() == "0xCBF43926"
+
+    def test_compute_dec_override(self, capsys):
+        rc = main(["compute", "crc32", "123456789", "--dec"])
+        out, _err = capsys.readouterr()
+        assert rc == 0
+        assert out.strip() == "3421780262"
 
 
 # ─────────────────────────────────────────────────────────────────────

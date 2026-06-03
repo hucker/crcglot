@@ -67,13 +67,14 @@ Every generated file also ships its own `_self_test()` carrying that same canoni
 crcglot <command> [options...]
 ```
 
-### `crcglot list [GLOB]`
+### `crcglot list [GLOB] [--json]`
 
 Browse the catalogue.  Optional `GLOB` filters by shell-style pattern (e.g. `crc16-*`).  Exit code 1 if nothing matches.
 
 ```bash
 crcglot list                # all 70 algorithms
 crcglot list 'crc32-*'      # just the CRC-32 family
+crcglot list --json         # machine-readable list with full parameters
 ```
 
 ### `crcglot info <name>`

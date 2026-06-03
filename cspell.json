@@ -21,6 +21,7 @@
         "cksum",
         "codegen",
         "combinational",
+        "coro",
         "cplusplus",
         "crcglot",
         "crcstream",

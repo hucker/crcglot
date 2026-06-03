@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -106,6 +107,31 @@ def _cmd_list(args: argparse.Namespace) -> int:
     if not names:
         print(f"No algorithms match {pat!r}", file=sys.stderr)
         return 1
+    if args.json:
+        payload = {
+            "algorithms": [],
+            "count": len(names),
+        }
+        for n in names:
+            algo = ALGORITHMS[n]
+            hex_w = (algo.width + 3) // 4
+            payload["algorithms"].append({
+                "name": n,
+                "width": algo.width,
+                "poly": algo.poly,
+                "poly_hex": f"0x{algo.poly:0{hex_w}X}",
+                "init": algo.init,
+                "init_hex": f"0x{algo.init:0{hex_w}X}",
+                "refin": algo.refin,
+                "refout": algo.refout,
+                "xorout": algo.xorout,
+                "xorout_hex": f"0x{algo.xorout:0{hex_w}X}",
+                "check": algo.check,
+                "check_hex": f"0x{algo.check:0{hex_w}X}",
+                "desc": algo.desc,
+            })
+        print(json.dumps(payload, indent=2))
+        return 0
     for n in names:
         algo = ALGORITHMS[n]
         print(f"  {n:<24}  width={algo.width:>2}  {algo.desc}")
@@ -288,7 +314,8 @@ def _cmd_compute(args: argparse.Namespace) -> int:
     """Run the ``crcglot compute`` subcommand.
 
     Computes the raw CRC integer of ``data`` (binary or text) under a
-    catalogue algorithm and prints it as decimal or hex.  Pairs with
+    catalogue algorithm and prints it as hex by default (or decimal via
+    ``--dec``).  Pairs with
     ``crcglot encode`` (which packages the same value into a packet) and
     sits below ``crcglot detect`` (which asks the inverse question:
     "which algorithm produces this CRC?").
@@ -560,9 +587,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subs = parser.add_subparsers(dest="command", required=True)
 
-    # crcglot list [glob]
+    # crcglot list [glob] [--json]
     p_list = subs.add_parser("list", help="List catalogue algorithms")
     p_list.add_argument("glob", nargs="?", help="Optional glob filter (e.g. 'crc16-*')")
+    p_list.add_argument(
+        "--json", action="store_true",
+        help="Emit machine-readable JSON with full parameters per algorithm",
+    )
 
     # crcglot info <name>
     p_info = subs.add_parser("info", help="Show algorithm parameters")
@@ -641,7 +672,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Encoding for text-mode data (default: utf-8)",
     )
 
-    # crcglot compute <algorithm> [<data>] [--binary] [--hex] [--encoding]
+    # crcglot compute <algorithm> [<data>] [--binary] [--hex|--dec] [--encoding]
     p_compute = subs.add_parser(
         "compute",
         help="Compute the raw CRC integer of data (no packet framing)",
@@ -655,9 +686,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--binary", action="store_true",
         help="Binary mode: read stdin as bytes instead of taking a text argument",
     )
-    p_compute.add_argument(
-        "--hex", action="store_true",
-        help="Print as 0x-prefixed hex instead of decimal",
+    fmt_group = p_compute.add_mutually_exclusive_group()
+    fmt_group.add_argument(
+        "--hex", dest="hex", action="store_true", default=True,
+        help="Print as 0x-prefixed hex (default)",
+    )
+    fmt_group.add_argument(
+        "--dec", dest="hex", action="store_false",
+        help="Print as decimal integer",
     )
     p_compute.add_argument(
         "--encoding", default="utf-8",
