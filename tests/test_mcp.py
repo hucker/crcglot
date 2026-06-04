@@ -458,6 +458,78 @@ class TestCrcGenerate:
                 },
             )
 
+    def test_multiple_algorithms_as_list_bundle(self):
+        # Act -- a list of names bundles into one C .h/.c pair.
+        out = _call(
+            "crc_generate",
+            {"language": "c", "algorithm": ["crc32", "crc16-modbus", "crc8"]},
+        )
+
+        # Assert -- still two files; the header carries every guard and the
+        # returned 'algorithms' lists all three.
+        assert out["algorithms"] == ["crc32", "crc16-modbus", "crc8"], "lists bundle"
+        header = next(f["content"] for f in out["files"] if f["extension"] == ".h")
+        source = next(f["content"] for f in out["files"] if f["extension"] == ".c")
+        for guard in ("CRC32_H", "CRC16_MODBUS_H", "CRC8_H"):
+            assert f"#ifndef {guard}" in header, f"{guard} present in bundle header"
+        actual_includes = source.count('#include "')
+        assert actual_includes == 1, "combined .c has exactly one quoted include"
+
+    def test_multiple_algorithms_as_space_string(self):
+        # Act -- a space-separated string is split into the same bundle.
+        out = _call(
+            "crc_generate",
+            {"language": "rust", "algorithm": "crc32 crc16-modbus"},
+        )
+
+        # Assert
+        actual = out["algorithms"]
+        expected = ["crc32", "crc16-modbus"]
+        assert actual == expected, "space-separated string splits to names"
+        body = out["files"][0]["content"]
+        assert "fn crc32(" in body and "fn crc16_modbus(" in body, "both functions"
+
+    def test_single_string_still_one_algorithm(self):
+        # Act -- backward compatibility: a lone name is a single algorithm.
+        out = _call(
+            "crc_generate",
+            {"language": "python", "algorithm": "crc32"},
+        )
+
+        # Assert
+        assert out["algorithms"] == ["crc32"], "single name -> single algorithm"
+
+    def test_symbol_with_multiple_rejected(self):
+        with pytest.raises(Exception, match="symbol"):
+            _call(
+                "crc_generate",
+                {
+                    "language": "c",
+                    "algorithm": ["crc32", "crc16-modbus"],
+                    "symbol": "foo",
+                },
+            )
+
+    def test_unknown_name_in_bundle_rejected(self):
+        with pytest.raises(Exception, match="unknown algorithm"):
+            _call(
+                "crc_generate",
+                {"language": "c", "algorithm": ["crc32", "bogus"]},
+            )
+
+    def test_variant_invalid_for_one_bundle_member_rejected(self):
+        # Act / Assert -- slice8 is valid for crc32 (w32) but not crc8 (w8),
+        # so the mixed-width bundle is rejected naming the offender.
+        with pytest.raises(Exception, match="crc8"):
+            _call(
+                "crc_generate",
+                {
+                    "language": "c",
+                    "algorithm": ["crc32", "crc8"],
+                    "variant": "slice8",
+                },
+            )
+
 
 # ---------------------------------------------------------------------------
 # crc_credits

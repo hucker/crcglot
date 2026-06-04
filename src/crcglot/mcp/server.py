@@ -326,13 +326,22 @@ def build_server() -> FastMCP:
             "other 68 catalogue algorithms and for embedded targets "
             "without a zlib equivalent.\n"
             "\n"
-            "Supply algorithm (catalogue name) OR custom_params "
-            "(Rocksoft/Williams tuple); they are mutually exclusive."
+            "Supply algorithm OR custom_params (Rocksoft/Williams tuple); "
+            "they are mutually exclusive.  'algorithm' accepts a single "
+            "catalogue name, several names as a list, or a space-separated "
+            "string (e.g. 'crc32 crc16-modbus crc8') -- multiple names "
+            "bundle into ONE file (one .h + one .c for C), each keeping its "
+            "catalogue-derived function names; per-symbol tables keep the "
+            "bundle collision-free.  'symbol' renames the single emitted "
+            "function and is rejected with more than one algorithm.  The "
+            "chosen 'variant' must be legal for every algorithm's width "
+            "(slice8 is width 32/64 only).  The returned 'algorithms' lists "
+            "what was generated."
         ),
     )
     def crc_generate(
         language: LANG_ENUM,
-        algorithm: str | None = None,
+        algorithm: str | list[str] | None = None,
         variant: VARIANT_ENUM = "bitwise",
         symbol: str | None = None,
         custom_params: dict[str, Any] | None = None,
@@ -340,36 +349,61 @@ def build_server() -> FastMCP:
         info = LANGUAGES[language]
         if (algorithm is None) == (custom_params is None):
             raise ValueError("supply exactly one of algorithm or custom_params")
-        # Pre-validate variant against the width's allowed set so the
-        # LLM gets a structured "here are the legal variants" error
-        # rather than the generator's deeper "slice8 requires width
-        # 32 or 64" message.
+
         if algorithm is not None:
-            if algorithm not in ALGORITHMS:
+            # Accept one name, a space-separated string, or a list -- no
+            # catalogue name contains a space, so splitting is unambiguous.
+            # Several names bundle into one file (one .h + one .c for C);
+            # per-symbol tables keep the merge collision-free.  Dedup,
+            # order-preserving.
+            requested = algorithm.split() if isinstance(algorithm, str) else list(algorithm)
+            names = list(dict.fromkeys(requested))
+            if not names:
+                raise ValueError("algorithm is empty; supply one or more catalogue names")
+            unknown = [n for n in names if n not in ALGORITHMS]
+            if unknown:
                 raise ValueError(
-                    f"unknown algorithm {algorithm!r}; use crc_list to browse"
+                    f"unknown algorithm {unknown[0]!r}; use crc_list to browse"
                 )
-            width = ALGORITHMS[algorithm].width
-        else:
-            assert custom_params is not None
-            width = int(custom_params.get("width", 0))
-        valid_variants = info.variants_for_width(width)
-        if variant not in valid_variants:
-            raise ValueError(
-                f"variant={variant!r} is not valid for language={language!r} "
-                f"at width={width}; valid variants for this cell: "
-                f"{list(valid_variants)}"
+            if symbol is not None and len(names) > 1:
+                raise ValueError(
+                    "symbol names a single function; omit it when generating "
+                    "multiple algorithms (each uses its catalogue name)"
+                )
+            # variant must be legal for EVERY algorithm's width (slice8 is
+            # 32/64-only), so a mixed-width bundle can't silently break one.
+            for n in names:
+                w = ALGORITHMS[n].width
+                valid_variants = info.variants_for_width(w)
+                if variant not in valid_variants:
+                    raise ValueError(
+                        f"variant={variant!r} is not valid for {n!r} (width {w}) "
+                        f"in language={language!r}; valid here: {list(valid_variants)}"
+                    )
+            outputs = [
+                info.generator(  # type: ignore[call-arg]
+                    n,
+                    symbol=(symbol if len(names) == 1 else None),
+                    variant=variant,
+                )
+                for n in names
+            ]
+            result = (
+                outputs[0] if len(names) == 1
+                else info.combiner(outputs, symbol or "crcglot")  # type: ignore[call-arg]
             )
-        if algorithm is not None:
-            # type: ignore[call-arg]  # callable via the registry's Callable
-            result = info.generator(  # type: ignore[call-arg]
-                algorithm,
-                symbol=symbol,
-                variant=variant,
-            )
+            generated = names
         else:
             assert custom_params is not None
             cp = custom_params
+            width = int(cp.get("width", 0))
+            valid_variants = info.variants_for_width(width)
+            if variant not in valid_variants:
+                raise ValueError(
+                    f"variant={variant!r} is not valid for language={language!r} "
+                    f"at width={width}; valid variants for this cell: "
+                    f"{list(valid_variants)}"
+                )
             poly = int(cp["poly"])
             init = int(cp.get("init", 0))
             refin = bool(cp.get("refin", False))
@@ -403,6 +437,7 @@ def build_server() -> FastMCP:
                 symbol=symbol,
                 variant=variant,
             )
+            generated = [cust_name]
 
         files: list[dict[str, str]]
         if isinstance(result, tuple):
@@ -416,6 +451,7 @@ def build_server() -> FastMCP:
         return {
             "language": language,
             "variant": variant,
+            "algorithms": generated,
             "files": files,
         }
 

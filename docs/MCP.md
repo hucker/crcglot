@@ -104,12 +104,21 @@ Compute the raw CRC integer of data without packet framing.  Returns
 
 ### `crc_generate(language, algorithm, variant="bitwise", ...)`
 
-Emit verified source code for one (language, algorithm, variant) cell.
+Emit verified source code for a (language, variant) cell.
 `language` ∈ {`c`, `csharp`, `go`, `python`, `rust`, `typescript`,
 `verilog`, `vhdl`}.  Variants validated against
 `LanguageInfo.variants_for_width(width)` — invalid combinations return
 a structured error listing the valid options.  `custom_params` enables
 off-catalogue Rocksoft tuples.  Mirrors `crcglot <lang>`.
+
+`algorithm` accepts **one name, a list of names, or a space-separated
+string** (`"crc32 crc16-modbus crc8"`) — multiple names **bundle into one
+file** (one `.h` + one `.c` for C), each keeping its catalogue-derived
+function names; per-symbol tables keep the bundle collision-free.  The
+chosen `variant` must be legal for every algorithm's width (`slice8` is
+width 32/64 only), `symbol` is rejected with more than one algorithm, and
+the response's `algorithms` field lists what was generated.  Mirrors
+`crcglot <lang> crc32 crc16-modbus … file=STEM`.
 
 ### `crc_credits()`
 
