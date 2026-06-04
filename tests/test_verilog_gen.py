@@ -12,6 +12,14 @@ Two layers:
   shells out to ``iverilog -g2012`` + ``vvp`` to compile and simulate
   a synthesized testbench, asserting against the reveng canonical
   check value for every algorithm in the catalogue.
+
+There is deliberately no separate "streaming" test class here (unlike
+the software targets and VHDL).  Verilog ships the ``bitwise`` variant
+only -- on silicon, bit-by-bit *is* the streaming datapath, not one of
+several table/RAM tradeoffs -- and the one-shot wrapper that
+``_self_test`` drives already clocks data through ``_update``
+incrementally.  A direct init/update/finalize testbench would re-exercise
+that same datapath with no extra degree of freedom to get wrong.
 """
 
 from __future__ import annotations

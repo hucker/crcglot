@@ -326,3 +326,79 @@ class TestGeneratedTypeScriptSliceBy8Executes:
             f"{name}: tsx exited {result.returncode}: "
             f"{result.stderr.decode(errors='replace')}"
         )
+
+
+def _ts_check_literal(algo: AlgorithmInfo) -> str:
+    """The reveng check value as a TS literal matching the state type.
+
+    Width-64 modules thread state as ``bigint`` (``0x..n`` literals);
+    everything else is a plain ``number``.
+    """
+    return f"0x{algo.check:X}n" if algo.width == 64 else f"0x{algo.check:X}"
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_TSX, reason="tsx not in PATH")
+class TestGeneratedTypeScriptStreaming:
+    """The TS streaming triple (init / update / finalize) must satisfy the
+    splittability invariant: feeding ``123456789`` across arbitrary chunk
+    boundaries yields the reveng check value, just like the one-shot.
+
+    The execute tests above only drive the one-shot self_test (a single
+    update), so chunk-boundary state bugs would slip past them -- this
+    closes that gap to parity with C / Rust / Go / C# / VHDL.
+    """
+
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    def test_split_streaming_matches_check(self, name, variant, tmp_path):
+        # Arrange
+        algo = ALGORITHMS[name]
+        code = generate_typescript(name, variant=variant)
+        assert code is not None, (
+            f"generate_typescript({name!r}, variant={variant!r}) returned None"
+        )
+        fname = _func_name(name)
+        lit = _ts_check_literal(algo)
+        full = "0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39"
+
+        # Three feed patterns: split mid-stream, empty chunk first,
+        # empty chunk last -- each must finalize to the check value.
+        runner = (
+            code
+            + "\n\n"
+            + "function _stream_test(): boolean {\n"
+            + f"    let s1 = {fname}_init();\n"
+            + f"    s1 = {fname}_update(s1, new Uint8Array([0x31,0x32,0x33,0x34]));\n"
+            + f"    s1 = {fname}_update(s1, new Uint8Array([0x35,0x36,0x37,0x38,0x39]));\n"
+            + f"    if ({fname}_finalize(s1) !== {lit}) return false;\n"
+            + f"    let s2 = {fname}_init();\n"
+            + f"    s2 = {fname}_update(s2, new Uint8Array([]));\n"
+            + f"    s2 = {fname}_update(s2, new Uint8Array([{full}]));\n"
+            + f"    if ({fname}_finalize(s2) !== {lit}) return false;\n"
+            + f"    let s3 = {fname}_init();\n"
+            + f"    s3 = {fname}_update(s3, new Uint8Array([{full}]));\n"
+            + f"    s3 = {fname}_update(s3, new Uint8Array([]));\n"
+            + f"    if ({fname}_finalize(s3) !== {lit}) return false;\n"
+            + "    return true;\n"
+            + "}\n"
+            + "if (!_stream_test()) {\n"
+            + f'    throw new Error("{fname} split-streaming mismatch");\n'
+            + "}\n"
+        )
+        src = tmp_path / f"{fname}_stream.ts"
+        src.write_text(runner)
+
+        # Act
+        result = subprocess.run(
+            [TSX_PATH, str(src)],
+            capture_output=True,
+            cwd=tmp_path,
+            shell=False,
+        )
+
+        # Assert
+        assert result.returncode == 0, (
+            f"{name} (variant={variant}): streaming tsx exited "
+            f"{result.returncode}: {result.stderr.decode(errors='replace')}"
+        )
