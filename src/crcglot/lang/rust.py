@@ -450,4 +450,15 @@ def generate_rust_from_entry(
     lines.append(f"}}")
     lines.append(_self_test_rust(fname, check, w, rtype))
 
-    return "\n".join(lines)
+    module = "\n".join(lines)
+    # Namespace the lookup-table consts per symbol so several generated
+    # modules (different algorithms, or one algorithm in multiple variants)
+    # can live in one crate/module without colliding.  The emitters use the
+    # fixed placeholders ``CRC_TABLE`` / ``CRC_SLICE_TABLES``; rewrite them
+    # to the SCREAMING_SNAKE ``CRCGLOT_TABLE_<SYMBOL>`` /
+    # ``CRCGLOT_SLICE_<SYMBOL>`` here.  Slice first; ``CRC_TABLE`` is not a
+    # substring of ``CRC_SLICE_TABLES``.
+    sym = fname.upper()
+    module = module.replace("CRC_SLICE_TABLES", f"CRCGLOT_SLICE_{sym}")
+    module = module.replace("CRC_TABLE", f"CRCGLOT_TABLE_{sym}")
+    return module

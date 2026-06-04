@@ -122,8 +122,8 @@ class TestGenerateC:
 class TestGenerateCTableVariants:
     """Table-driven update-loop variants emit different inner loops:
 
-    * refin=True: ``crc_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8)``
-    * refin=False: ``crc_table[((crc >> {w-8}) ^ data[i]) & 0xFF] ^
+    * refin=True: ``crcglot_table_<sym>[(crc ^ data[i]) & 0xFF] ^ (crc >> 8)``
+    * refin=False: ``crcglot_table_<sym>[((crc >> {w-8}) ^ data[i]) & 0xFF] ^
       ((crc << 8) & {mask})`` -- fully parenthesized so gcc's
       ``-Wparentheses`` (in ``-Wall``) doesn't complain about
       ``a ^ b & c`` precedence ambiguity.
@@ -146,7 +146,8 @@ class TestGenerateCTableVariants:
 
         # Assert
         assert (
-            "crc = crc_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);" in source
+            "crc = crcglot_table_crc16_modbus[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);"
+            in source
         ), "reflected table loop right-shifts and uses simple xor index"
 
     def test_table_normal_uses_left_shift(self):
@@ -157,7 +158,7 @@ class TestGenerateCTableVariants:
 
         # Assert -- fully parenthesized for -Wall -Werror survival.
         assert (
-            "crc = crc_table[((crc >> 8) ^ data[i]) & 0xFF]"
+            "crc = crcglot_table_crc16_xmodem[((crc >> 8) ^ data[i]) & 0xFF]"
             " ^ ((crc << 8) & 0xFFFF);" in source
         ), "non-reflected w=16 table loop is the fully-parenthesized form"
 
@@ -166,7 +167,7 @@ class TestGenerateCSliceBy8Variants:
     """Slice-by-8 emits four distinct update-loop variants depending on
     (width, refin).  Each loads chunks of 8 bytes in either little-endian
     (refin=True) or big-endian (refin=False) order before chaining
-    through ``crc_slice_tables[7..0]``.
+    through ``crcglot_slice_<sym>[7..0]``.
 
     The TestSliceBy8GeneratorAPI test in test_catalogue.py covers the
     crc32 (w=32, refin=True) variant; these add the other three to
@@ -200,7 +201,7 @@ class TestGenerateCSliceBy8Variants:
         )
         # Tail right-shifts state by 8 each iteration.
         assert (
-            "crc = crc_slice_tables[0][(crc ^ *data++) & 0xFF] ^ (crc >> 8);"
+            "crc = crcglot_slice_crc64_xz[0][(crc ^ *data++) & 0xFF] ^ (crc >> 8);"
             in source
         ), "reflected w=64 tail right-shifts"
 

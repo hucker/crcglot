@@ -126,8 +126,8 @@ class TestGenerateRust:
 class TestGenerateRustTableVariants:
     """Table-driven update-loop variants emit different inner loops:
 
-    * w == 8: simplified ``CRC_TABLE[(crc ^ byte) as usize]`` (Rust
-      rejects ``u8 << 8`` so the generic shift form would fail to
+    * w == 8: simplified ``CRCGLOT_TABLE_<SYM>[(crc ^ byte) as usize]``
+      (Rust rejects ``u8 << 8`` so the generic shift form would fail to
       compile).
     * w > 8, refin=True: right-shift form (``>> 8`` after table xor).
     * w > 8, refin=False: left-shift form (``(crc >> {w-8}) ^ byte``).
@@ -143,8 +143,8 @@ class TestGenerateRustTableVariants:
 
         # Assert -- the table-format helper output (lines 41-51 in rust.py).
         assert code is not None
-        assert "const CRC_TABLE: [u16; 256] = [" in code, (
-            "table declaration with correct type and length"
+        assert "const CRCGLOT_TABLE_CRC16_MODBUS: [u16; 256] = [" in code, (
+            "per-symbol table declaration with correct type and length"
         )
 
     def test_table_w8_uses_simplified_loop(self):
@@ -155,7 +155,7 @@ class TestGenerateRustTableVariants:
 
         # Assert
         assert code is not None
-        assert "crc = CRC_TABLE[(crc ^ byte) as usize];" in code, (
+        assert "crc = CRCGLOT_TABLE_CRC8[(crc ^ byte) as usize];" in code, (
             "w=8 table loop is the simplified form"
         )
         # The generic refin=False shift form (`crc >> 0` is nonsense for
@@ -165,8 +165,8 @@ class TestGenerateRustTableVariants:
         )
 
     def test_table_reflected_uses_right_shift(self):
-        """w>8 reflected: ``CRC_TABLE[(crc ^ byte as u16) as usize & 0xFF]
-        ^ (crc >> 8)``."""
+        """w>8 reflected: ``CRCGLOT_TABLE_<SYM>[(crc ^ byte as u16) as usize
+        & 0xFF] ^ (crc >> 8)``."""
         # Act -- crc16-modbus is refin=True.
         code = generate_rust("crc16-modbus", variant='table')
 
@@ -175,8 +175,8 @@ class TestGenerateRustTableVariants:
         assert "^ (crc >> 8)" in code, "reflected table loop right-shifts"
 
     def test_table_normal_uses_left_shift(self):
-        """w>8 non-reflected: ``CRC_TABLE[((crc >> {w-8}) ^ byte as u16)
-        as usize & 0xFF] ^ (crc << 8) & {mask}``."""
+        """w>8 non-reflected: ``CRCGLOT_TABLE_<SYM>[((crc >> {w-8}) ^ byte
+        as u16) as usize & 0xFF] ^ (crc << 8) & {mask}``."""
         # Act -- crc16-xmodem is refin=False.
         code = generate_rust("crc16-xmodem", variant='table')
 
@@ -194,7 +194,7 @@ class TestGenerateRustSliceBy8Variants:
     """Slice-by-8 emits four distinct update-loop variants depending on
     (width, refin).  Each loads chunks of 8 bytes in either little-endian
     (refin=True) or big-endian (refin=False) order before chaining
-    through ``CRC_SLICE_TABLES[7..0]``.
+    through ``CRCGLOT_SLICE_<SYM>[7..0]``.
 
     The TestSliceBy8GeneratorAPI tests in test_catalogue.py only cover
     the crc32 (w=32, refin=True) variant; these add the remaining three.
@@ -475,9 +475,10 @@ class TestGeneratedRustSliceBy8Executes:
         bb_path.write_text(bb_code)
         s8_path.write_text(s8_code)
 
-        # The two files define identically-named CRC_TABLE /
-        # CRC_SLICE_TABLES constants but in disjoint modules, so we
-        # ``include!`` them into separate mods to avoid name collisions.
+        # Each file's table is now per-symbol (CRCGLOT_TABLE_<SYM> /
+        # CRCGLOT_SLICE_<SYM>), so they no longer collide -- but we keep the
+        # separate-``mod`` framing to also exercise that the generated module
+        # compiles cleanly when nested under an outer module.
         lengths_csv = ", ".join(str(n) for n in _SLICE8_INPUT_LENGTHS)
         runner_src = (
             f'mod bb {{ include!("{bb_sym}.rs"); }}\n'

@@ -175,7 +175,7 @@ int crc32_self_test(void);
  */
 #include "crc32.h"
 
-static const uint32_t crc_table[256] = {
+static const uint32_t crcglot_table_crc32[256] = {
     0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
     0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
     0x1DB71064, 0x6AB020F2, 0xF3B97148, 0x84BE41DE, 0x1ADAD47D, 0x6DDDE4EB, 0xF4D4B551, 0x83D385C7,
@@ -217,7 +217,7 @@ uint32_t crc32_init(void) {
 uint32_t crc32_update(uint32_t state, const uint8_t *data, size_t len) {
     uint32_t crc = state;
     for (size_t i = 0; i < len; i++)
-        crc = crc_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+        crc = crcglot_table_crc32[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
     return crc;
 }
 
@@ -298,7 +298,7 @@ int crc32_self_test(void);
  */
 #include "crc32.h"
 
-static const uint32_t crc_slice_tables[8][256] = {
+static const uint32_t crcglot_slice_crc32[8][256] = {
     { /* T0 */
         0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
         0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
@@ -583,15 +583,15 @@ uint32_t crc32_update(uint32_t state, const uint8_t *data, size_t len) {
         uint32_t b03 = (uint32_t)data[0] | (uint32_t)data[1] << 8 | (uint32_t)data[2] << 16 | (uint32_t)data[3] << 24;
         uint32_t b47 = (uint32_t)data[4] | (uint32_t)data[5] << 8 | (uint32_t)data[6] << 16 | (uint32_t)data[7] << 24;
         uint32_t xored = crc ^ b03;
-        crc = crc_slice_tables[7][ xored        & 0xFF] ^ crc_slice_tables[6][(xored >>  8) & 0xFF]
-            ^ crc_slice_tables[5][(xored >> 16) & 0xFF] ^ crc_slice_tables[4][(xored >> 24) & 0xFF]
-            ^ crc_slice_tables[3][ b47          & 0xFF] ^ crc_slice_tables[2][(b47   >>  8) & 0xFF]
-            ^ crc_slice_tables[1][(b47   >> 16) & 0xFF] ^ crc_slice_tables[0][(b47   >> 24) & 0xFF];
+        crc = crcglot_slice_crc32[7][ xored        & 0xFF] ^ crcglot_slice_crc32[6][(xored >>  8) & 0xFF]
+            ^ crcglot_slice_crc32[5][(xored >> 16) & 0xFF] ^ crcglot_slice_crc32[4][(xored >> 24) & 0xFF]
+            ^ crcglot_slice_crc32[3][ b47          & 0xFF] ^ crcglot_slice_crc32[2][(b47   >>  8) & 0xFF]
+            ^ crcglot_slice_crc32[1][(b47   >> 16) & 0xFF] ^ crcglot_slice_crc32[0][(b47   >> 24) & 0xFF];
         data += 8;
         len -= 8;
     }
     while (len--) {
-        crc = crc_slice_tables[0][(crc ^ *data++) & 0xFF] ^ (crc >> 8);
+        crc = crcglot_slice_crc32[0][(crc ^ *data++) & 0xFF] ^ (crc >> 8);
     }
     return crc;
 }
@@ -1650,7 +1650,7 @@ crcglot python crc32 --table
 ```
 
 ```python
-_TABLE = (
+_crcglot_table_crc32 = (
     0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
     0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
     0x1DB71064, 0x6AB020F2, 0xF3B97148, 0x84BE41DE, 0x1ADAD47D, 0x6DDDE4EB, 0xF4D4B551, 0x83D385C7,
@@ -1695,7 +1695,7 @@ def crc32_update(state: int, data: bytes) -> int:
     """Feed bytes into crc32 state; return updated state."""
     crc = state
     for byte in data:
-        crc = _TABLE[(crc ^ byte) & 0xFF] ^ (crc >> 8)
+        crc = _crcglot_table_crc32[(crc ^ byte) & 0xFF] ^ (crc >> 8)
     return crc
 
 
@@ -1788,7 +1788,7 @@ crcglot rust crc32 --table
 ```
 
 ```rust
-const CRC_TABLE: [u32; 256] = [
+const CRCGLOT_TABLE_CRC32: [u32; 256] = [
     0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
     0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
     0x1DB71064, 0x6AB020F2, 0xF3B97148, 0x84BE41DE, 0x1ADAD47D, 0x6DDDE4EB, 0xF4D4B551, 0x83D385C7,
@@ -1835,7 +1835,7 @@ pub fn crc32_init() -> u32 {
 pub fn crc32_update(state: u32, data: &[u8]) -> u32 {
     let mut crc: u32 = state;
     for &byte in data {
-        crc = CRC_TABLE[(crc ^ byte as u32) as usize & 0xFF] ^ (crc >> 8);
+        crc = CRCGLOT_TABLE_CRC32[(crc ^ byte as u32) as usize & 0xFF] ^ (crc >> 8);
     }
     crc
 }
@@ -1869,7 +1869,7 @@ crcglot rust crc32 --slice8
 ```
 
 ```rust
-const CRC_SLICE_TABLES: [[u32; 256]; 8] = [
+const CRCGLOT_SLICE_CRC32: [[u32; 256]; 8] = [
     // T0
     [
         0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
@@ -2170,14 +2170,14 @@ pub fn crc32_update(state: u32, data: &[u8]) -> u32 {
         let b03 = data[i] as u32 | (data[i+1] as u32) << 8 | (data[i+2] as u32) << 16 | (data[i+3] as u32) << 24;
         let b47 = data[i+4] as u32 | (data[i+5] as u32) << 8 | (data[i+6] as u32) << 16 | (data[i+7] as u32) << 24;
         let xored = crc ^ b03;
-        crc = CRC_SLICE_TABLES[7][ (xored        & 0xFF) as usize] ^ CRC_SLICE_TABLES[6][((xored >>  8) & 0xFF) as usize]
-            ^ CRC_SLICE_TABLES[5][((xored >> 16) & 0xFF) as usize] ^ CRC_SLICE_TABLES[4][((xored >> 24) & 0xFF) as usize]
-            ^ CRC_SLICE_TABLES[3][ (b47          & 0xFF) as usize] ^ CRC_SLICE_TABLES[2][((b47   >>  8) & 0xFF) as usize]
-            ^ CRC_SLICE_TABLES[1][((b47   >> 16) & 0xFF) as usize] ^ CRC_SLICE_TABLES[0][((b47   >> 24) & 0xFF) as usize];
+        crc = CRCGLOT_SLICE_CRC32[7][ (xored        & 0xFF) as usize] ^ CRCGLOT_SLICE_CRC32[6][((xored >>  8) & 0xFF) as usize]
+            ^ CRCGLOT_SLICE_CRC32[5][((xored >> 16) & 0xFF) as usize] ^ CRCGLOT_SLICE_CRC32[4][((xored >> 24) & 0xFF) as usize]
+            ^ CRCGLOT_SLICE_CRC32[3][ (b47          & 0xFF) as usize] ^ CRCGLOT_SLICE_CRC32[2][((b47   >>  8) & 0xFF) as usize]
+            ^ CRCGLOT_SLICE_CRC32[1][((b47   >> 16) & 0xFF) as usize] ^ CRCGLOT_SLICE_CRC32[0][((b47   >> 24) & 0xFF) as usize];
         i += 8;
     }
     while i < n {
-        crc = CRC_SLICE_TABLES[0][((crc ^ data[i] as u32) & 0xFF) as usize] ^ (crc >> 8);
+        crc = CRCGLOT_SLICE_CRC32[0][((crc ^ data[i] as u32) & 0xFF) as usize] ^ (crc >> 8);
         i += 1;
     }
     crc
@@ -2267,7 +2267,7 @@ crcglot typescript crc32 --table
 ```
 
 ```typescript
-const CRC_TABLE: number[] = [
+const crcglot_table_crc32: number[] = [
     0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
     0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
     0x1DB71064, 0x6AB020F2, 0xF3B97148, 0x84BE41DE, 0x1ADAD47D, 0x6DDDE4EB, 0xF4D4B551, 0x83D385C7,
@@ -2315,7 +2315,7 @@ export function crc32_init(): number {
 export function crc32_update(state: number, data: Uint8Array): number {
     let crc: number = state;
     for (const byte of data) {
-        crc = CRC_TABLE[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
+        crc = crcglot_table_crc32[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
     }
     return crc;
 }
@@ -2350,7 +2350,7 @@ crcglot typescript crc32 --slice8
 ```
 
 ```typescript
-const CRC_SLICE_TABLES: number[][] = [
+const crcglot_slice_crc32: number[][] = [
     // T0
     [
         0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
@@ -2653,19 +2653,19 @@ export function crc32_update(state: number, data: Uint8Array): number {
         const b47 = data[i+4] | (data[i+5] << 8) | (data[i+6] << 16) | (data[i+7] << 24);
         const xored = (crc ^ b03) >>> 0;
         crc = (
-            CRC_SLICE_TABLES[7][ xored         & 0xFF]
-          ^ CRC_SLICE_TABLES[6][(xored >>>  8) & 0xFF]
-          ^ CRC_SLICE_TABLES[5][(xored >>> 16) & 0xFF]
-          ^ CRC_SLICE_TABLES[4][(xored >>> 24) & 0xFF]
-          ^ CRC_SLICE_TABLES[3][ b47          & 0xFF]
-          ^ CRC_SLICE_TABLES[2][(b47   >>>  8) & 0xFF]
-          ^ CRC_SLICE_TABLES[1][(b47   >>> 16) & 0xFF]
-          ^ CRC_SLICE_TABLES[0][(b47   >>> 24) & 0xFF]
+            crcglot_slice_crc32[7][ xored         & 0xFF]
+          ^ crcglot_slice_crc32[6][(xored >>>  8) & 0xFF]
+          ^ crcglot_slice_crc32[5][(xored >>> 16) & 0xFF]
+          ^ crcglot_slice_crc32[4][(xored >>> 24) & 0xFF]
+          ^ crcglot_slice_crc32[3][ b47          & 0xFF]
+          ^ crcglot_slice_crc32[2][(b47   >>>  8) & 0xFF]
+          ^ crcglot_slice_crc32[1][(b47   >>> 16) & 0xFF]
+          ^ crcglot_slice_crc32[0][(b47   >>> 24) & 0xFF]
         ) >>> 0;
         i += 8;
     }
     while (i < n) {
-        crc = (CRC_SLICE_TABLES[0][(crc ^ data[i]) & 0xFF] ^ (crc >>> 8)) >>> 0;
+        crc = (crcglot_slice_crc32[0][(crc ^ data[i]) & 0xFF] ^ (crc >>> 8)) >>> 0;
         i += 1;
     }
     return crc;

@@ -496,4 +496,15 @@ def generate_c_from_entry(
 
     header = _header_c(name, fname, ctype, desc)
     source = "\n".join(lines)
+    # Namespace the lookup tables per symbol so multiple generated units
+    # (different algorithms, or one algorithm in several variants) link
+    # into one program without colliding.  The emitters use the fixed
+    # placeholders ``crc_table`` / ``crc_slice_tables``; rewrite them to
+    # ``crcglot_table_<symbol>`` / ``crcglot_slice_<symbol>`` at this single
+    # assembly point.  (The tables are file-static, so distinct .c units
+    # already don't clash at link time -- but a unique name keeps the
+    # symbols unambiguous in a debugger / single-TU build too.)  Slice
+    # first; ``crc_table`` is not a substring of ``crc_slice_tables``.
+    source = source.replace("crc_slice_tables", f"crcglot_slice_{fname}")
+    source = source.replace("crc_table", f"crcglot_table_{fname}")
     return header, source

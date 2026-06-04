@@ -220,4 +220,10 @@ def generate_python_from_entry(
     # ----- <fname>_self_test() -----
     lines.extend(_self_test_python(fname, check, w))
 
-    return "\n".join(lines)
+    module = "\n".join(lines)
+    # Namespace the lookup table per symbol so several generated modules
+    # pasted into one file/namespace don't shadow each other's table.  The
+    # emitter uses the fixed placeholder ``_TABLE``; rewrite it to
+    # ``_crcglot_table_<symbol>`` at this single assembly point.
+    module = module.replace("_TABLE", f"_crcglot_table_{fname}")
+    return module

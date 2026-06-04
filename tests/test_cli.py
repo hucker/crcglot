@@ -350,26 +350,26 @@ class TestCodegenOptions:
         rc = main(["python", "crc16-modbus", "--table"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        # Table-driven Python embeds a module-level _TABLE constant.
-        assert "_TABLE = (" in out
+        # Table-driven Python embeds a per-symbol module-level table.
+        assert "_crcglot_table_crc16_modbus = (" in out
 
     def test_table_c(self, capsys):
         rc = main(["c", "crc16-modbus", "--table"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "crc_table[256]" in out
+        assert "crcglot_table_crc16_modbus[256]" in out
 
     def test_slice8_c_crc32(self, capsys):
         rc = main(["c", "crc32", "--slice8"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "crc_slice_tables[8][256]" in out
+        assert "crcglot_slice_crc32[8][256]" in out
 
     def test_slice8_rust_crc32(self, capsys):
         rc = main(["rust", "crc32", "--slice8"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "CRC_SLICE_TABLES: [[u32; 256]; 8]" in out
+        assert "CRCGLOT_SLICE_CRC32: [[u32; 256]; 8]" in out
 
     def test_slice8_and_table_mutually_exclusive(self, capsys):
         rc = main(["c", "crc32", "--slice8", "--table"])
@@ -384,8 +384,8 @@ class TestCodegenOptions:
         out, err = capsys.readouterr()
         assert rc == 0
         assert "slower than --table" in err
-        # Table-driven output emitted (module-level _TABLE constant).
-        assert "_TABLE = (" in out
+        # Table-driven output emitted (per-symbol module-level table).
+        assert "_crcglot_table_crc32 = (" in out
 
     def test_slice8_narrow_width_returns_2(self, capsys):
         """generate_c('crc8', variant="slice8") raises ValueError; CLI
@@ -406,14 +406,14 @@ class TestCodegenIntentFlags:
         rc = main(["c", "crc32", "--fast"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "crc_slice_tables[8][256]" in out, "fast crc32 should be slice-by-8"
+        assert "crcglot_slice_crc32[8][256]" in out, "fast crc32 should be slice-by-8"
 
     def test_fast_rust_crc64_picks_slice8(self, capsys):
         # width 64 also gets slice-by-8.
         rc = main(["rust", "crc64-xz", "--fast"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "CRC_SLICE_TABLES" in out, "fast crc64 should be slice-by-8"
+        assert "CRCGLOT_SLICE_CRC64_XZ" in out, "fast crc64 should be slice-by-8"
 
     def test_fast_narrow_width_picks_table(self, capsys):
         # width 16 can't use slice-by-8, so --fast falls to table-driven --
@@ -421,8 +421,8 @@ class TestCodegenIntentFlags:
         rc = main(["c", "crc16-modbus", "--fast"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "crc_table[256]" in out, "fast crc16 should be table-driven"
-        assert "slice_tables" not in out, "width 16 has no slice-by-8"
+        assert "crcglot_table_crc16_modbus[256]" in out, "fast crc16 should be table-driven"
+        assert "crcglot_slice" not in out, "width 16 has no slice-by-8"
 
     def test_fast_python_picks_table(self, capsys):
         # Python lists no slice8 variant, so --fast is table-driven, silently
@@ -430,14 +430,14 @@ class TestCodegenIntentFlags:
         rc = main(["python", "crc32", "--fast"])
         out, err = capsys.readouterr()
         assert rc == 0
-        assert "_TABLE = (" in out, "fast python should be table-driven"
+        assert "_crcglot_table_crc32 = (" in out, "fast python should be table-driven"
         assert err == "", "--fast should not emit a fallback note"
 
     def test_small_is_bit_by_bit(self, capsys):
         rc = main(["c", "crc32", "--small"])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "crc_table" not in out and "slice_tables" not in out, (
+        assert "crcglot_table" not in out and "crcglot_slice" not in out, (
             "--small should be bit-by-bit, no tables"
         )
 
@@ -475,7 +475,7 @@ class TestCodegenIntentFlags:
         ])
         out, _err = capsys.readouterr()
         assert rc == 0
-        assert "crc_slice_tables[8][256]" in out
+        assert "crcglot_slice_crc_custom[8][256]" in out
 
 
 class TestCodegenSymbolOverride:

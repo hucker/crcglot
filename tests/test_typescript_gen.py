@@ -116,7 +116,8 @@ class TestGenerateTypeScript:
 
 
 class TestGenerateTypeScriptTableVariant:
-    """``generate_typescript(..., variant='table')`` emits a CRC_TABLE."""
+    """``generate_typescript(..., variant='table')`` emits a per-symbol
+    ``crcglot_table_<symbol>`` so multiple modules coexist in one file."""
 
     def test_table_declaration(self):
         # Act
@@ -124,8 +125,8 @@ class TestGenerateTypeScriptTableVariant:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "const CRC_TABLE: number[] = [" in code, (
-            "table declaration with number type"
+        assert "const crcglot_table_crc32: number[] = [" in code, (
+            "per-symbol table declaration with number type"
         )
         assert "for (const byte of data)" in code, "iteration over Uint8Array"
 
@@ -135,8 +136,8 @@ class TestGenerateTypeScriptTableVariant:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "const CRC_TABLE: bigint[] = [" in code, (
-            "table declaration with bigint type for CRC-64"
+        assert "const crcglot_table_crc64_xz: bigint[] = [" in code, (
+            "per-symbol table declaration with bigint type for CRC-64"
         )
 
 
@@ -149,8 +150,8 @@ class TestGenerateTypeScriptSlice8Variant:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "const CRC_SLICE_TABLES: number[][] = [" in code, (
-            "2D slice table declaration"
+        assert "const crcglot_slice_crc32: number[][] = [" in code, (
+            "per-symbol 2D slice table declaration"
         )
 
     def test_slice8_declaration_width64(self):
@@ -159,8 +160,8 @@ class TestGenerateTypeScriptSlice8Variant:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "const CRC_SLICE_TABLES: bigint[][] = [" in code, (
-            "2D bigint slice table for CRC-64"
+        assert "const crcglot_slice_crc64_xz: bigint[][] = [" in code, (
+            "per-symbol 2D bigint slice table for CRC-64"
         )
 
     @pytest.mark.parametrize("name", ["crc8", "crc16-modbus"])
