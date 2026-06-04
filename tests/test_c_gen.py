@@ -26,7 +26,13 @@ from typing import Literal
 
 import pytest
 
-from crcglot import ALGORITHMS, AlgorithmInfo, generate_c, generate_c_from_entry
+from crcglot import (
+    ALGORITHMS,
+    LANGUAGES,
+    AlgorithmInfo,
+    generate_c,
+    generate_c_from_entry,
+)
 
 
 HAS_GCC = shutil.which("gcc") is not None
@@ -667,4 +673,51 @@ def test_c_batch_execution(name, variant, c_batch_results):
     assert actual == "PASS", (
         f"{key}: expected PASS, got {actual!r} "
         f"(missing => absent from the one-shot batch run's output)"
+    )
+
+
+_MULTI_ALGOS = ["crc32", "crc16-modbus", "crc8"]
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GCC, reason="gcc not in PATH")
+@pytest.mark.xdist_group("c_multi")
+def test_c_combined_multi_algorithm_compiles_and_runs(tmp_path):
+    """The CLI's multi-algorithm bundle (combine_c) must produce a .h/.c
+    pair that compiles as one TU and whose self_tests all pass -- proving
+    the header merge + self-include rewrite + per-symbol tables."""
+    # Arrange -- combine several algorithms exactly as the CLI does.
+    outputs = []
+    for name in _MULTI_ALGOS:
+        out = generate_c(name)
+        assert out is not None, f"generate_c({name!r}) returned None"
+        outputs.append(out)
+    header, source = LANGUAGES["c"].combiner(outputs, "bundle")
+    (tmp_path / "bundle.h").write_text(header)
+    (tmp_path / "bundle.c").write_text(source)
+    calls = "\n".join(
+        f"    if ({_func_name(n)}_self_test() != 0) return {i + 1};"
+        for i, n in enumerate(_MULTI_ALGOS)
+    )
+    (tmp_path / "runner.c").write_text(
+        '#include "bundle.h"\nint main(void) {\n' + calls + "\n    return 0;\n}\n"
+    )
+    binary = tmp_path / ("run.exe" if shutil.which("cmd") else "run")
+
+    # Act
+    compile_result = subprocess.run(
+        ["gcc", "-std=c99", "-Wall", "-Werror", "-o", str(binary),
+         str(tmp_path / "bundle.c"), str(tmp_path / "runner.c")],
+        capture_output=True, cwd=tmp_path,
+    )
+    assert compile_result.returncode == 0, (
+        f"combined .h/.c failed to compile: "
+        f"{compile_result.stderr.decode(errors='replace')}"
+    )
+    run_result = subprocess.run([str(binary)], cwd=tmp_path)
+
+    # Assert -- 0 means every bundled algorithm's self_test passed.
+    assert run_result.returncode == 0, (
+        f"bundled self_test #{run_result.returncode} "
+        f"({_MULTI_ALGOS[run_result.returncode - 1]}) failed"
     )

@@ -24,9 +24,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from crcglot.lang.c import generate_c, generate_c_from_entry
-from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
-from crcglot.lang.go import generate_go, generate_go_from_entry
+from crcglot._helpers import combine_concat
+from crcglot.lang.c import combine_c, generate_c, generate_c_from_entry
+from crcglot.lang.csharp import (
+    combine_csharp,
+    generate_csharp,
+    generate_csharp_from_entry,
+)
+from crcglot.lang.go import combine_go, generate_go, generate_go_from_entry
 from crcglot.lang.python import generate_python, generate_python_from_entry
 from crcglot.lang.rust import generate_rust, generate_rust_from_entry
 from crcglot.lang.typescript import (
@@ -69,6 +74,11 @@ class LanguageInfo:
         generator: Name-lookup generator -- ``generator(name, ...)``.
         generator_from_entry: Entry-dispatch generator --
             ``generator_from_entry(name, AlgorithmInfo, ...)``.
+        combiner: Merge several generator outputs into one file --
+            ``combiner(outputs, stem)``.  Lets the CLI bundle multiple
+            algorithms into a single output file; per-symbol table names
+            make the merged unit collision-free.  C takes/returns
+            ``(header, source)`` pairs; others take/return strings.
         emoji: Short pictographic identifier for terminals / docs
             (e.g. "\U0001F980" for Rust).  One grapheme cluster.
         display_name: Human-readable name for documentation and CLI
@@ -82,6 +92,7 @@ class LanguageInfo:
     variants: frozenset[str]
     generator: Callable
     generator_from_entry: Callable
+    combiner: Callable
     emoji: str
     display_name: str
 
@@ -130,6 +141,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         generator=generate_c,
         generator_from_entry=generate_c_from_entry,
+        combiner=combine_c,
         emoji="⚙️",  # gear
         display_name="C / C++",
     ),
@@ -139,6 +151,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         generator=generate_csharp,
         generator_from_entry=generate_csharp_from_entry,
+        combiner=combine_csharp,
         emoji="\U0001F4A0",  # diamond with a dot
         display_name="C#",
     ),
@@ -148,6 +161,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         generator=generate_go,
         generator_from_entry=generate_go_from_entry,
+        combiner=combine_go,
         emoji="\U0001F6A6",  # vertical traffic light
         display_name="Go",
     ),
@@ -157,6 +171,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE,
         generator=generate_python,
         generator_from_entry=generate_python_from_entry,
+        combiner=combine_concat,
         emoji="\U0001F40D",  # snake
         display_name="Python",
     ),
@@ -166,6 +181,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         generator=generate_rust,
         generator_from_entry=generate_rust_from_entry,
+        combiner=combine_concat,
         emoji="\U0001F980",  # crab
         display_name="Rust",
     ),
@@ -175,6 +191,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         generator=generate_typescript,
         generator_from_entry=generate_typescript_from_entry,
+        combiner=combine_concat,
         emoji="\U0001F537",  # large blue diamond
         display_name="TypeScript",
     ),
@@ -184,6 +201,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_ONLY,
         generator=generate_verilog,
         generator_from_entry=generate_verilog_from_entry,
+        combiner=combine_concat,
         emoji="\U0001F527",  # wrench
         display_name="Verilog",
     ),
@@ -193,6 +211,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_ONLY,
         generator=generate_vhdl,
         generator_from_entry=generate_vhdl_from_entry,
+        combiner=combine_concat,
         emoji="\U0001F50C",  # electric plug
         display_name="VHDL",
     ),

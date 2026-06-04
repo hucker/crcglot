@@ -527,37 +527,67 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             print(f"Error: {e}", file=sys.stderr)
             return 2
     else:
-        # ----- Catalogue lookup -----
+        # ----- Catalogue lookup (one or more algorithms) -----
         if not bare:
             print(
-                f"Error: usage: crcglot {lang} <algorithm> [--table|--slice8] "
-                f"[file=STEM] [symbol=NAME]",
+                f"Error: usage: crcglot {lang} <algorithm> [<algorithm>...] "
+                f"[--table|--slice8] [file=STEM] [symbol=NAME]",
                 file=sys.stderr,
             )
             return 2
-        name = bare[0].lower()
-        if name not in ALGORITHMS:
+        # Multiple algorithm names bundle into one output file; dedup
+        # (order-preserving) so a repeat can't collide with itself.
+        names = list(dict.fromkeys(b.lower() for b in bare))
+        unknown = [n for n in names if n not in ALGORITHMS]
+        if unknown:
             print(
-                f"Error: unknown algorithm {name!r}. Use 'crcglot list' to browse.",
+                f"Error: unknown algorithm {unknown[0]!r}. "
+                "Use 'crcglot list' to browse.",
                 file=sys.stderr,
             )
             return 2
-        variant, note = _resolve_variant(
-            small=args.small, fast=args.fast,
-            table=args.table, slice8=args.slice8,
-            lang=lang, width=ALGORITHMS[name].width,
-        )
-        if note:
-            print(note, file=sys.stderr)
-        symbol = (
-            symbol_override
-            or (_symbol_from_stem(file_stem) if file_stem else None)
-        )
+        # ``symbol=`` renames the single emitted function; it can't name
+        # many.  With >1 algorithm each uses its catalogue-derived name.
+        if symbol_override is not None and len(names) > 1:
+            print(
+                "Error: symbol= names a single function; omit it when "
+                "generating multiple algorithms (each uses its catalogue name).",
+                file=sys.stderr,
+            )
+            return 2
+        outputs = []
+        notes_seen: set[str] = set()
         try:
-            result = LANGUAGES[lang].generator(name, symbol=symbol, variant=variant)
+            for nm in names:
+                # --fast resolves per width, so resolve inside the loop;
+                # print any fallback note at most once across the bundle.
+                variant, note = _resolve_variant(
+                    small=args.small, fast=args.fast,
+                    table=args.table, slice8=args.slice8,
+                    lang=lang, width=ALGORITHMS[nm].width,
+                )
+                if note and note not in notes_seen:
+                    print(note, file=sys.stderr)
+                    notes_seen.add(note)
+                # Single algo keeps today's stem->symbol behaviour; for a
+                # bundle each algo defaults to its own (unique) name.
+                if len(names) == 1:
+                    sym = (
+                        symbol_override
+                        or (_symbol_from_stem(file_stem) if file_stem else None)
+                    )
+                else:
+                    sym = None
+                outputs.append(
+                    LANGUAGES[lang].generator(nm, symbol=sym, variant=variant)
+                )
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 2
+        if len(names) == 1:
+            result = outputs[0]
+        else:
+            result = LANGUAGES[lang].combiner(outputs, file_stem or "crcglot")
 
     # ----- Output -----
     if file_stem is not None:

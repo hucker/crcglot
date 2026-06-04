@@ -2,17 +2,17 @@
 
 ## Commenting
 
-- Google Style Docstrings for all public funcitons
+- Google Style Docstrings for all public functions
 - Docstring sections in this order: Args, Returns, Raises, Examples
 - Use `"""` triple-quote style for docstrings, even for one-liners.  This
   is the standard convention in the Python ecosystem and supported by
   all major docstring parsers.  It also allows for easy expansion of
   one-liners into multi-line docstrings without needing to change the
   quoting style.
-- Do not be super verbose.  Explain the "why" and any non-obvious "what". The docstring 
+- Do not be super verbose.  Explain the "why" and any non-obvious "what". The docstring
   should add value.
 - For public functions, include an "Examples" section with a minimal usage example for
-  non trivial functinons
+  non trivial functions
 - For private functions, docstrings are optional.  If the function is non-trivial,
   a docstring is recommended; if it's trivial, a well-chosen name may suffice.
 

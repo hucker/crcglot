@@ -341,6 +341,117 @@ class TestCodegenFile:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Codegen -- multiple algorithms bundled into one output file.
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCodegenMultiAlgorithm:
+    """Passing >1 catalogue name emits every algorithm into one file (or
+    one .h/.c pair for C).  Per-symbol table names make the bundle
+    collision-free; single-algorithm output is unchanged."""
+
+    def test_python_bundle_one_file_all_symbols(self, tmp_path, monkeypatch, capsys):
+        # Arrange / Act
+        monkeypatch.chdir(tmp_path)
+        rc = main(["python", "crc32", "crc16-modbus", "crc8", "file=multi"])
+        out, _err = capsys.readouterr()
+
+        # Assert -- one file with all three functions.
+        body = (tmp_path / "multi.py").read_text()
+        assert rc == 0, "bundle exits 0"
+        for fn in ("def crc32(", "def crc16_modbus(", "def crc8("):
+            assert fn in body, f"{fn} present in bundle"
+        actual_files = sorted(p.name for p in tmp_path.iterdir())
+        expected_files = ["multi.py"]
+        assert actual_files == expected_files, "exactly one output file"
+
+    def test_c_bundle_combined_header_and_source(self, tmp_path, monkeypatch, capsys):
+        # Act
+        monkeypatch.chdir(tmp_path)
+        rc = main(["c", "crc32", "crc16-modbus", "crc8", "file=multi"])
+        _out, _err = capsys.readouterr()
+
+        # Assert -- one .h + one .c; combined .c includes ONLY the merged
+        # header (each source's own per-symbol include was rewritten away).
+        assert rc == 0, "bundle exits 0"
+        source = (tmp_path / "multi.c").read_text()
+        header = (tmp_path / "multi.h").read_text()
+        actual_includes = source.count('#include "')
+        assert actual_includes == 1, "exactly one quoted include in combined .c"
+        assert '#include "multi.h"' in source, "combined .c includes the merged header"
+        for guard in ("CRC32_H", "CRC16_MODBUS_H", "CRC8_H"):
+            assert f"#ifndef {guard}" in header, f"{guard} guard present"
+
+    def test_go_bundle_one_package_clause(self, tmp_path, monkeypatch, capsys):
+        # Act
+        monkeypatch.chdir(tmp_path)
+        rc = main(["go", "crc32", "crc16-modbus", "file=multi"])
+        _out, _err = capsys.readouterr()
+
+        # Assert -- Go allows exactly one package clause per file.
+        body = (tmp_path / "multi.go").read_text()
+        actual_pkg = body.count("package crc")
+        assert rc == 0, "bundle exits 0"
+        assert actual_pkg == 1, "exactly one package clause"
+
+    def test_csharp_bundle_one_using_directive(self, tmp_path, monkeypatch, capsys):
+        # Act
+        monkeypatch.chdir(tmp_path)
+        rc = main(["csharp", "crc32", "crc16-modbus", "crc8", "file=multi"])
+        _out, _err = capsys.readouterr()
+
+        # Assert -- one hoisted `using System;` (a second, following a type,
+        # would not compile) and a distinct class per algorithm.
+        body = (tmp_path / "multi.cs").read_text()
+        actual_using = body.count("using System;")
+        actual_classes = body.count("public static class")
+        assert rc == 0, "bundle exits 0"
+        assert actual_using == 1, "exactly one using directive"
+        assert actual_classes == 3, "one class per algorithm"
+
+    def test_duplicate_names_deduped(self, capsys):
+        # Act -- the same algorithm twice collapses to one copy.  (No file=,
+        # so the symbol stays the algorithm name rather than a stem rename.)
+        rc = main(["python", "crc32", "crc32"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        actual_defs = out.count("def crc32(")
+        assert rc == 0, "dedup exits 0"
+        assert actual_defs == 1, "duplicate name emitted once"
+
+    def test_bundle_to_stdout(self, capsys):
+        # Act -- no file= bundles to stdout.
+        rc = main(["rust", "crc32", "crc16-modbus"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        assert rc == 0, "stdout bundle exits 0"
+        assert "fn crc32(" in out and "fn crc16_modbus(" in out, "both functions"
+
+    def test_symbol_with_multiple_is_error(self, capsys):
+        # Act
+        rc = main(["c", "crc32", "crc16-modbus", "symbol=foo"])
+        _out, err = capsys.readouterr()
+
+        # Assert
+        assert rc == 2, "symbol= with >1 algorithm is rejected"
+        assert "symbol=" in err and "single function" in err, "explains why"
+
+    def test_unknown_name_in_bundle_fails_fast(self, tmp_path, monkeypatch, capsys):
+        # Act -- one bad name aborts the whole bundle, nothing written.
+        monkeypatch.chdir(tmp_path)
+        rc = main(["c", "crc32", "bogus", "crc8", "file=multi"])
+        _out, err = capsys.readouterr()
+
+        # Assert
+        assert rc == 2, "unknown name in list exits 2"
+        assert "bogus" in err, "names the offending algorithm"
+        actual_files = list(tmp_path.iterdir())
+        assert actual_files == [], "nothing written on error"
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Codegen -- options (--table, --slice8, mutual exclusion, fallbacks).
 # ─────────────────────────────────────────────────────────────────────
 

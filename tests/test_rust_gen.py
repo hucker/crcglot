@@ -28,6 +28,7 @@ import pytest
 
 from crcglot import (
     ALGORITHMS,
+    LANGUAGES,
     AlgorithmInfo,
     generate_rust,
     generate_rust_from_entry,
@@ -639,4 +640,46 @@ def test_rust_batch_execution(name, variant, rust_batch_results):
     assert actual == "PASS", (
         f"{key}: expected PASS, got {actual!r} "
         f"(missing => absent from the one-shot batch run's output)"
+    )
+
+
+_MULTI_ALGOS = ["crc32", "crc16-modbus", "crc8"]
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_RUSTC, reason="rustc not in PATH")
+@pytest.mark.xdist_group("rust_multi")
+def test_rust_combined_multi_algorithm_compiles_and_runs(tmp_path):
+    """The CLI's multi-algorithm bundle (combine_concat) must produce a
+    single crate that compiles and whose self_tests all pass."""
+    # Arrange -- combine several algorithms exactly as the CLI does.
+    outputs = []
+    for name in _MULTI_ALGOS:
+        out = generate_rust(name)
+        assert out is not None, f"generate_rust({name!r}) returned None"
+        outputs.append(out)
+    combined = LANGUAGES["rust"].combiner(outputs, None)
+    driver = "\n\nfn main() {\n" + "\n".join(
+        f"    if !{_func_name(n)}_self_test() {{ std::process::exit({i + 1}); }}"
+        for i, n in enumerate(_MULTI_ALGOS)
+    ) + "\n}\n"
+    (tmp_path / "main.rs").write_text(combined + driver)
+    binary = tmp_path / "run.exe"
+
+    # Act
+    comp = subprocess.run(
+        ["rustc", "--edition=2021", "-A", "warnings", "-o", str(binary),
+         str(tmp_path / "main.rs")],
+        capture_output=True, cwd=tmp_path,
+    )
+    assert comp.returncode == 0, (
+        f"combined crate failed to compile: "
+        f"{comp.stderr.decode(errors='replace')}"
+    )
+    run = subprocess.run([str(binary)], cwd=tmp_path)
+
+    # Assert -- 0 means every bundled algorithm's self_test passed.
+    assert run.returncode == 0, (
+        f"bundled self_test #{run.returncode} "
+        f"({_MULTI_ALGOS[run.returncode - 1]}) failed"
     )
