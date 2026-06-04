@@ -1,5 +1,63 @@
 # Changelog
 
+## v0.12.0 — 2026-06-04
+
+A ninth target language (Java), the ability to bundle several algorithms
+into one generated file, and a generator change so multiple generated
+outputs coexist in one translation unit.  Everything here is backward
+compatible — single-algorithm output is byte-for-byte unchanged.
+
+### NEW: Java target
+
+`crcglot java crc32` generates Java, at full parity with the other
+targets: every catalogue algorithm, the `--small` / `--table` / `--fast`
+variants, and an embedded `_self_test()`.  Java has no unsigned integer
+types, so the generator uses `int` (width ≤ 32) / `long` (width 64) with
+logical (`>>>`) shifts and `& 0xFF` byte masking — and every (algorithm ×
+variant) cell is verified by compiling and running it through `javac` /
+`java`.
+
+Java puts every algorithm into one container class named from `file=`
+(default `CrcGlot`):
+
+```bash
+crcglot java crc32 file=Crc32        # -> Crc32.java, public final class Crc32
+```
+
+### NEW: bundle multiple algorithms into one file
+
+Name more than one algorithm and crcglot emits them all into a single
+file, each keeping its own catalogue-derived function names:
+
+```bash
+crcglot c crc32 crc16-modbus crc8 file=mycrcs    # -> mycrcs.h + mycrcs.c
+crcglot rust crc32 crc64-xz file=crcs            # -> crcs.rs
+```
+
+Works for every language and over MCP — `crc_generate` now accepts a list
+*or* a space-separated string of algorithm names.  `symbol=` is rejected
+with more than one algorithm, duplicates are de-duplicated, and an unknown
+name aborts the whole bundle (nothing is written).
+
+### Generator change: per-symbol table names
+
+Generated lookup tables are now named per symbol
+(`crcglot_table_<algorithm>` / `crcglot_slice_<algorithm>`) instead of a
+fixed `CRC_TABLE`, so several generated outputs — different algorithms, or
+one algorithm in several variants — coexist in one translation unit
+without colliding.  This is what lets the multi-algorithm bundles above
+link cleanly.  CRC values are unchanged; only the internal table
+identifiers differ.
+
+### Also
+
+- `--custom` now rejects a stray catalogue name (e.g.
+  `crcglot c --custom width=16 poly=0x1234 crc32`) instead of silently
+  dropping it.
+- The execution test tier was overhauled to compile each language's whole
+  catalogue in a single toolchain invocation (an internal speedup; no
+  user-visible change).
+
 ## v0.11.0 — 2026-06-03
 
 Three additions: an optional MCP server for LLM integration, two new
