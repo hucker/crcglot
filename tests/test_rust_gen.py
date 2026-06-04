@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from typing import Literal
 
 import pytest
 
@@ -299,6 +300,7 @@ class TestGenerateRustFromEntryReflectionPaths:
 # ─────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_RUSTC, reason="rustc not in PATH")
 class TestGeneratedRustExecutes:
@@ -386,6 +388,7 @@ class TestGeneratedRustExecutes:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_RUSTC, reason="rustc not in PATH")
 class TestGeneratedRustStreaming:
@@ -450,6 +453,7 @@ class TestGeneratedRustStreaming:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_RUSTC, reason="rustc not in PATH")
 class TestGeneratedRustSliceBy8Executes:
@@ -526,3 +530,113 @@ class TestGeneratedRustSliceBy8Executes:
             f"{_SLICE8_INPUT_LENGTHS[run_result.returncode - 1]}: "
             f"{run_result.stderr.decode(errors='replace')}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Batch execution -- whole catalogue x every variant concatenated into one
+# crate, compiled + run in ONE rustc invocation instead of one per case.
+# DEFAULT path; the per-algorithm classes above are kept behind
+# ``exhaustive`` for isolation.  The single crate is also the coexistence
+# proof: every top-level item (fns and CRCGLOT_TABLE_<SYM> consts) is unique
+# so it compiles.  Full rationale incl. the mandatory ``xdist_group`` pin is
+# in CLAUDE.md, "Execution tests: batch vs exhaustive".
+# ─────────────────────────────────────────────────────────────────────
+
+_RsVariant = Literal["bitwise", "table", "slice8"]
+_RS_VARIANT_TAG: dict[_RsVariant, str] = {"bitwise": "b", "table": "t", "slice8": "s8"}
+
+
+def _rust_batch_cases() -> list[tuple[str, _RsVariant]]:
+    """(name, variant) for every algorithm x supported Rust variant."""
+    cases: list[tuple[str, _RsVariant]] = []
+    for name in sorted(ALGORITHMS.keys()):
+        variants: list[_RsVariant] = ["bitwise", "table"]
+        if ALGORITHMS[name].width in (32, 64):
+            variants.append("slice8")
+        for v in variants:
+            cases.append((name, v))
+    return cases
+
+
+def _rust_batch_driver_case(name: str, variant: _RsVariant) -> str:
+    """One Rust block: <sym>_self_test() + split-streaming check, printing
+    ``<name>/<variant> PASS|FAIL:<phase>``."""
+    sym = f"{_func_name(name)}_{_RS_VARIANT_TAG[variant]}"
+    algo = ALGORITHMS[name]
+    rtype = _rust_state_type(algo.width)
+    lit = f"0x{algo.check:X}{rtype}"
+    tag = f"{name}/{variant}"
+    return (
+        "    {\n"
+        f"        if !{sym}_self_test() {{ println!(\"{tag} FAIL:oneshot\"); }}\n"
+        "        else {\n"
+        "            let full: [u8; 9] = [0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39];\n"
+        f"            let mut s = {sym}_init();\n"
+        f"            s = {sym}_update(s, &full[0..4]);\n"
+        f"            s = {sym}_update(s, &full[4..9]);\n"
+        f"            if {sym}_finalize(s) != {lit} {{ println!(\"{tag} FAIL:streaming\"); }}\n"
+        f"            else {{ println!(\"{tag} PASS\"); }}\n"
+        "        }\n"
+        "    }"
+    )
+
+
+@pytest.fixture(scope="session")
+def rust_batch_results(tmp_path_factory) -> dict[str, str]:
+    """Generate every (algorithm, variant) under a unique symbol into one
+    crate, compile + run once, return ``{"name/variant": result}``."""
+    if not HAS_RUSTC:
+        return {}
+    cases = _rust_batch_cases()
+    bodies, driver = [], []
+    for name, variant in cases:
+        sym = f"{_func_name(name)}_{_RS_VARIANT_TAG[variant]}"
+        bodies.append(generate_rust(name, symbol=sym, variant=variant))
+        driver.append(_rust_batch_driver_case(name, variant))
+    src = (
+        "\n\n".join(bodies)
+        + "\n\nfn main() {\n"
+        + "\n".join(driver)
+        + "\n}\n"
+    )
+    d = tmp_path_factory.mktemp("rust_batch")
+    main_rs = d / "main.rs"
+    main_rs.write_text(src)
+    binary = d / "run.exe"
+    # No -O: we verify correctness, not speed, and optimizing one giant
+    # crate of the whole catalogue is dramatically slower (minutes vs
+    # seconds) than an unoptimized build.  The per-algorithm exhaustive
+    # tests likewise compile without -O.
+    comp = subprocess.run(
+        ["rustc", "--edition=2021", "-A", "warnings",
+         "-o", str(binary), str(main_rs)],
+        capture_output=True, cwd=d,
+    )
+    if comp.returncode != 0:
+        pytest.fail(
+            "Rust batch failed to compile (a collision or codegen error):\n"
+            + comp.stderr.decode(errors="replace")[:3000]
+        )
+    run = subprocess.run([str(binary)], capture_output=True, cwd=d)
+    results: dict[str, str] = {}
+    for line in run.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_RUSTC, reason="rustc not in PATH")
+# One xdist worker so the session-scoped rustc build runs once, not per
+# worker.  See CLAUDE.md "Execution tests: batch vs exhaustive".
+@pytest.mark.xdist_group("rust_batch")
+@pytest.mark.parametrize("name,variant", _rust_batch_cases())
+def test_rust_batch_execution(name, variant, rust_batch_results):
+    # Assert -- the single-build driver reported PASS for this case.
+    key = f"{name}/{variant}"
+    actual = rust_batch_results.get(key)
+    assert actual == "PASS", (
+        f"{key}: expected PASS, got {actual!r} "
+        f"(missing => absent from the one-shot batch run's output)"
+    )

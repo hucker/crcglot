@@ -22,6 +22,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import textwrap
+from typing import Literal
 
 import pytest
 
@@ -229,6 +230,7 @@ _CSHARP_EXIT_CODE_LABEL = {
 }
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_DOTNET_SDK, reason="dotnet SDK not available")
 class TestGeneratedCSharpExecutes:
@@ -324,6 +326,7 @@ class TestGeneratedCSharpExecutes:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_DOTNET_SDK, reason="dotnet SDK not available")
 class TestGeneratedCSharpSliceBy8Executes:
@@ -407,3 +410,127 @@ class TestGeneratedCSharpSliceBy8Executes:
             f"{name}: dotnet run exited {result.returncode} "
             f"(length index, 0 = ok); stderr={result.stderr!r}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Batch execution -- whole catalogue x every variant as one project, built
+# + run in ONE dotnet invocation instead of one per case.  DEFAULT path;
+# the per-algorithm classes above are kept behind ``exhaustive`` for
+# isolation.  (C# classes are already collision-free -- private _crcTable
+# per class -- so this needs no Phase-1 change; it's the same harness shape
+# for parity.)  Full rationale incl. the mandatory ``xdist_group`` pin is in
+# CLAUDE.md, "Execution tests: batch vs exhaustive".
+# ─────────────────────────────────────────────────────────────────────
+
+_CsVariant = Literal["bitwise", "table", "slice8"]
+_CS_VARIANT_TAG: dict[_CsVariant, str] = {"bitwise": "b", "table": "t", "slice8": "s8"}
+
+
+def _csharp_batch_cases() -> list[tuple[str, _CsVariant]]:
+    """(name, variant) for every algorithm x supported C# variant."""
+    cases: list[tuple[str, _CsVariant]] = []
+    for name in sorted(ALGORITHMS.keys()):
+        variants: list[_CsVariant] = ["bitwise", "table"]
+        if ALGORITHMS[name].width in (32, 64):
+            variants.append("slice8")
+        for v in variants:
+            cases.append((name, v))
+    return cases
+
+
+def _cs_check_literal(width: int, check: int) -> str:
+    """C# literal for the check value, suffixed to match the state type."""
+    suffix = "u" if 16 < width <= 32 else ("UL" if width > 32 else "")
+    return f"{hex(check)}{suffix}"
+
+
+def _csharp_batch_driver_case(name: str, variant: _CsVariant) -> str:
+    """One C# block: <Cls>.<sym>_self_test() + split-streaming check,
+    printing ``<name>/<variant> PASS|FAIL:<phase>``."""
+    sym = f"{_func_name(name)}_{_CS_VARIANT_TAG[variant]}"
+    cls = _pascal(sym)
+    algo = ALGORITHMS[name]
+    cstype = _cs_state_type(algo.width)
+    lit = _cs_check_literal(algo.width, algo.check)
+    tag = f"{name}/{variant}"
+    return (
+        "            try {\n"
+        f"                {cstype} expected = {lit};\n"
+        "                string r;\n"
+        f"                if (!{cls}.{sym}_self_test()) {{ r = \"FAIL:oneshot\"; }}\n"
+        "                else {\n"
+        f"                    {cstype} s = {cls}.{sym}_init();\n"
+        f"                    s = {cls}.{sym}_update(s, FULL04);\n"
+        f"                    s = {cls}.{sym}_update(s, FULL49);\n"
+        f"                    r = ({cls}.{sym}_finalize(s) == expected) ? \"PASS\" : \"FAIL:streaming\";\n"
+        "                }\n"
+        f"                Console.WriteLine(\"{tag} \" + r);\n"
+        f"            }} catch {{ Console.WriteLine(\"{tag} FAIL:exception\"); }}"
+    )
+
+
+@pytest.fixture(scope="session")
+def csharp_batch_results(tmp_path_factory) -> dict[str, str]:
+    """Generate every (algorithm, variant) under a unique symbol/class into
+    one project, build + run once, return ``{"name/variant": result}``."""
+    if not HAS_DOTNET_SDK:
+        return {}
+    cases = _csharp_batch_cases()
+    d = tmp_path_factory.mktemp("cs_batch")
+    (d / "Probe.csproj").write_text(textwrap.dedent("""
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net8.0</TargetFramework>
+            <Nullable>disable</Nullable>
+            <RootNamespace>Probe</RootNamespace>
+          </PropertyGroup>
+        </Project>
+    """).strip(), encoding="utf-8")
+    driver = []
+    for i, (name, variant) in enumerate(cases):
+        sym = f"{_func_name(name)}_{_CS_VARIANT_TAG[variant]}"
+        code = generate_csharp(name, symbol=sym, variant=variant)
+        assert code is not None, f"generate_csharp({name!r}) returned None"
+        (d / f"Gen{i}.cs").write_text(code, encoding="utf-8")
+        driver.append(_csharp_batch_driver_case(name, variant))
+    program = (
+        "using System;\npublic static class Probe {\n"
+        "    public static void Main() {\n"
+        "        byte[] FULL04 = new byte[] { 0x31, 0x32, 0x33, 0x34 };\n"
+        "        byte[] FULL49 = new byte[] { 0x35, 0x36, 0x37, 0x38, 0x39 };\n"
+        + "\n".join(driver)
+        + "\n    }\n}\n"
+    )
+    (d / "Program.cs").write_text(program, encoding="utf-8")
+    proc = subprocess.run(
+        ["dotnet", "run", "--project", str(d / "Probe.csproj")],
+        capture_output=True, text=True, timeout=600, cwd=d,
+    )
+    if proc.returncode != 0:
+        pytest.fail(
+            "C# batch failed to build/run (a collision or codegen error):\n"
+            + proc.stderr[:3000] + proc.stdout[:1500]
+        )
+    results: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_DOTNET_SDK, reason="dotnet SDK not available")
+# One xdist worker so the session-scoped dotnet build runs once, not per
+# worker.  See CLAUDE.md "Execution tests: batch vs exhaustive".
+@pytest.mark.xdist_group("csharp_batch")
+@pytest.mark.parametrize("name,variant", _csharp_batch_cases())
+def test_csharp_batch_execution(name, variant, csharp_batch_results):
+    # Assert -- the single-build driver reported PASS for this case.
+    key = f"{name}/{variant}"
+    actual = csharp_batch_results.get(key)
+    assert actual == "PASS", (
+        f"{key}: expected PASS, got {actual!r} "
+        f"(missing => absent from the one-shot batch run's output)"
+    )

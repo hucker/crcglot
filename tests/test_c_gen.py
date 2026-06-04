@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from typing import Literal
 
 import pytest
 
@@ -272,6 +273,7 @@ class TestGenerateCFromEntryReflectionPaths:
 # ─────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GCC, reason="gcc not in PATH")
 class TestGeneratedCExecutes:
@@ -382,6 +384,7 @@ class TestGeneratedCExecutes:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GCC, reason="gcc not in PATH")
 class TestGeneratedCStreaming:
@@ -451,6 +454,7 @@ class TestGeneratedCStreaming:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GCC, reason="gcc not in PATH")
 class TestGeneratedCSliceBy8Executes:
@@ -552,3 +556,115 @@ class TestGeneratedCSliceBy8Executes:
             f"{_SLICE8_INPUT_LENGTHS[run_result.returncode - 1]}: "
             f"{run_result.stderr.decode(errors='replace')}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Batch execution -- whole catalogue x every variant in ONE gcc link +
+# run, instead of one gcc per case.  DEFAULT path; the per-algorithm
+# classes above are kept behind ``exhaustive`` for isolation.  The single
+# multi-TU link is also the coexistence proof: it only links because the
+# tables are per-symbol (``crcglot_table_<sym>``).  Full rationale (session
+# fixture, parametrized lookup, the mandatory ``xdist_group`` pin) is in
+# CLAUDE.md, "Execution tests: batch vs exhaustive".
+# ─────────────────────────────────────────────────────────────────────
+
+_CVariant = Literal["bitwise", "table", "slice8"]
+_C_VARIANT_TAG: dict[_CVariant, str] = {"bitwise": "b", "table": "t", "slice8": "s8"}
+
+
+def _c_batch_cases() -> list[tuple[str, _CVariant]]:
+    """(name, variant) for every algorithm x supported C variant."""
+    cases: list[tuple[str, _CVariant]] = []
+    for name in sorted(ALGORITHMS.keys()):
+        variants: list[_CVariant] = ["bitwise", "table"]
+        if ALGORITHMS[name].width in (32, 64):
+            variants.append("slice8")
+        for v in variants:
+            cases.append((name, v))
+    return cases
+
+
+def _c_batch_driver_case(name: str, variant: _CVariant) -> str:
+    """One C block: <sym>_self_test() + split-streaming check, printing
+    ``<name>/<variant> PASS|FAIL:<phase>``."""
+    sym = f"{_func_name(name)}_{_C_VARIANT_TAG[variant]}"
+    algo = ALGORITHMS[name]
+    ctype = _c_state_type(algo.width)
+    lit = f"({ctype})0x{algo.check:X}ULL"
+    tag = f"{name}/{variant}"
+    return (
+        "    {\n"
+        f'        if ({sym}_self_test() != 0) {{ printf("{tag} FAIL:oneshot\\n"); }}\n'
+        "        else {\n"
+        f"            {ctype} s = {sym}_init();\n"
+        f"            s = {sym}_update(s, FULL, 4);\n"
+        f"            s = {sym}_update(s, FULL + 4, 5);\n"
+        f'            if ({sym}_finalize(s) != {lit}) printf("{tag} FAIL:streaming\\n");\n'
+        f'            else printf("{tag} PASS\\n");\n'
+        "        }\n"
+        "    }"
+    )
+
+
+@pytest.fixture(scope="session")
+def c_batch_results(tmp_path_factory) -> dict[str, str]:
+    """Generate every (algorithm, variant) under a unique symbol, link them
+    into one gcc binary, run once, return ``{"name/variant": result}``."""
+    if not HAS_GCC:
+        return {}
+    cases = _c_batch_cases()
+    d = tmp_path_factory.mktemp("c_batch")
+    includes, csrcs, driver = [], [], []
+    for name, variant in cases:
+        sym = f"{_func_name(name)}_{_C_VARIANT_TAG[variant]}"
+        result = generate_c(name, symbol=sym, variant=variant)
+        assert result is not None, f"generate_c({name!r}) returned None"
+        header, source = result
+        (d / f"{sym}.h").write_text(header)
+        (d / f"{sym}.c").write_text(source)
+        includes.append(f'#include "{sym}.h"')
+        csrcs.append(f"{sym}.c")
+        driver.append(_c_batch_driver_case(name, variant))
+    runner = (
+        "#include <stdio.h>\n#include <stdint.h>\n#include <stddef.h>\n"
+        + "\n".join(includes)
+        + "\nstatic const uint8_t FULL[9] = {0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39};\n"
+        + "int main(void) {\n"
+        + "\n".join(driver)
+        + "\n    return 0;\n}\n"
+    )
+    (d / "runner.c").write_text(runner)
+    binary = d / "run.exe"
+    comp = subprocess.run(
+        ["gcc", "-std=c99", "-O1", "-w", "-o", str(binary),
+         *[str(d / c) for c in csrcs], str(d / "runner.c")],
+        capture_output=True, cwd=d,
+    )
+    if comp.returncode != 0:
+        pytest.fail(
+            "C batch failed to compile/link (a collision or codegen error):\n"
+            + comp.stderr.decode(errors="replace")[:3000]
+        )
+    run = subprocess.run([str(binary)], capture_output=True, cwd=d)
+    results: dict[str, str] = {}
+    for line in run.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GCC, reason="gcc not in PATH")
+# One xdist worker so the session-scoped gcc link runs once, not per worker.
+# See CLAUDE.md "Execution tests: batch vs exhaustive".
+@pytest.mark.xdist_group("c_batch")
+@pytest.mark.parametrize("name,variant", _c_batch_cases())
+def test_c_batch_execution(name, variant, c_batch_results):
+    # Assert -- the single-build driver reported PASS for this case.
+    key = f"{name}/{variant}"
+    actual = c_batch_results.get(key)
+    assert actual == "PASS", (
+        f"{key}: expected PASS, got {actual!r} "
+        f"(missing => absent from the one-shot batch run's output)"
+    )
