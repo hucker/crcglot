@@ -128,6 +128,7 @@ def _build_testbench(fname: str, algo_name: str) -> str:
     )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(
     not HAS_IVERILOG, reason="iverilog / vvp not in PATH"
@@ -189,3 +190,84 @@ class TestGeneratedVerilogExecutes:
             f"{run_result.stdout.decode(errors='replace')}"
             f"{run_result.stderr.decode(errors='replace')}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Batch execution -- every algorithm's package (Verilog is bitwise-only)
+# compiled with ONE testbench in a single iverilog + vvp run, instead of
+# one simulation per algorithm.  DEFAULT path; the per-algorithm class
+# above is kept behind ``exhaustive`` for isolation.  No streaming case
+# (see the module docstring: bit-by-bit IS the hardware streaming path).
+# Full rationale incl. the ``xdist_group`` pin is in CLAUDE.md, "Execution
+# tests: batch vs exhaustive".
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _verilog_batch_cases() -> list[tuple[str, str]]:
+    """(name, 'bitwise') for every algorithm -- Verilog has one variant."""
+    return [(name, "bitwise") for name in sorted(ALGORITHMS.keys())]
+
+
+@pytest.fixture(scope="session")
+def verilog_batch_results(tmp_path_factory) -> dict[str, str]:
+    """Compile every algorithm's package + one testbench in a single
+    iverilog run, simulate once, return ``{"name/bitwise": result}``."""
+    if not HAS_IVERILOG:
+        return {}
+    d = tmp_path_factory.mktemp("verilog_batch")
+    sv_files, imports, checks = [], [], []
+    for name, _variant in _verilog_batch_cases():
+        sym = f"{_func_name(name)}_b"
+        code = generate_verilog(name, symbol=sym)
+        assert code is not None, f"generate_verilog({name!r}) returned None"
+        (d / f"{sym}.sv").write_text(code)
+        sv_files.append(f"{sym}.sv")
+        # iverilog rejects a ``pkg::fn()`` call inside an expression, so
+        # import each (uniquely-named) package and call it unqualified.
+        imports.append(f"    import {sym}_pkg::*;")
+        checks.append(
+            f"        if ({sym}_self_test()) "
+            f'$display("{name}/bitwise PASS");\n'
+            f'        else $display("{name}/bitwise FAIL:oneshot");'
+        )
+    tb = (
+        "module batch_tb;\n"
+        + "\n".join(imports)
+        + "\n    initial begin\n"
+        + "\n".join(checks)
+        + "\n        $finish;\n    end\nendmodule\n"
+    )
+    (d / "batch_tb.sv").write_text(tb)
+    vvp_file = d / "batch.vvp"
+    comp = subprocess.run(
+        ["iverilog", "-g2012", "-o", str(vvp_file), *sv_files, "batch_tb.sv"],
+        capture_output=True, cwd=d,
+    )
+    if comp.returncode != 0:
+        pytest.fail(
+            "Verilog batch failed to compile (a collision or codegen error):\n"
+            + comp.stderr.decode(errors="replace")[:3000]
+        )
+    run = subprocess.run(["vvp", str(vvp_file)], capture_output=True, cwd=d)
+    results: dict[str, str] = {}
+    for line in run.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_IVERILOG, reason="iverilog / vvp not in PATH")
+# One xdist worker so the session-scoped iverilog build runs once, not per
+# worker.  See CLAUDE.md "Execution tests: batch vs exhaustive".
+@pytest.mark.xdist_group("verilog_batch")
+@pytest.mark.parametrize("name,variant", _verilog_batch_cases())
+def test_verilog_batch_execution(name, variant, verilog_batch_results):
+    # Assert -- the single-build sim reported PASS for this case.
+    key = f"{name}/{variant}"
+    actual = verilog_batch_results.get(key)
+    assert actual == "PASS", (
+        f"{key}: expected PASS, got {actual!r} "
+        f"(missing => absent from the one-shot batch sim's output)"
+    )

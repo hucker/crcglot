@@ -77,6 +77,7 @@ class TestGenerateVhdl:
 # ─────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GHDL, reason="ghdl not in PATH")
 class TestGeneratedVhdlExecutes:
@@ -168,6 +169,7 @@ class TestGeneratedVhdlExecutes:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GHDL, reason="ghdl not in PATH")
 class TestGeneratedVhdlStreaming:
@@ -235,3 +237,130 @@ class TestGeneratedVhdlStreaming:
                 f"{name}: ghdl {stage} failed: "
                 f"{result.stderr.decode(errors='replace')}"
             )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Batch execution -- every algorithm's package (VHDL is bitwise-only)
+# analyzed + elaborated + simulated together via ONE ghdl testbench
+# (one concurrent process per algorithm, each width-typed), instead of a
+# 3-stage ghdl run per algorithm.  DEFAULT path; the per-algorithm classes
+# above are kept behind ``exhaustive`` for isolation.  Covers both the
+# one-shot self_test and the split-streaming invariant.  Full rationale
+# incl. the ``xdist_group`` pin is in CLAUDE.md, "Execution tests: batch
+# vs exhaustive".
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _vhdl_batch_cases() -> list[tuple[str, str]]:
+    """(name, 'bitwise') for every algorithm -- VHDL has one variant."""
+    return [(name, "bitwise") for name in sorted(ALGORITHMS.keys())]
+
+
+def _vhdl_check_lit(width: int, check: int) -> str:
+    """Check value as a VHDL std_logic_vector literal matching the package
+    convention (hex bit-string for multiple-of-4 widths, else to_unsigned)."""
+    if width % 4 == 0:
+        return f'x"{check:0{width // 4}X}"'
+    return f"std_logic_vector(to_unsigned({check}, {width}))"
+
+
+def _vhdl_batch_process(name: str, sym: str) -> str:
+    """One concurrent process: self_test + split-streaming, writing
+    ``<name>/bitwise PASS|FAIL:<phase>`` to OUTPUT."""
+    algo = ALGORITHMS[name]
+    w = algo.width
+    lit = _vhdl_check_lit(w, algo.check)
+    tag = f"{name}/bitwise"
+    return (
+        "    process\n"
+        f"        variable s : std_logic_vector({w - 1} downto 0);\n"
+        "        variable l : line;\n"
+        "    begin\n"
+        f"        if not {sym}_self_test then\n"
+        f"            write(l, string'(\"{tag} FAIL:oneshot\"));\n"
+        "        else\n"
+        f"            s := {sym}_init;\n"
+        f'            s := {sym}_update(s, x"31323334");\n'
+        f'            s := {sym}_update(s, x"3536373839");\n'
+        f"            if {sym}_finalize(s) = {lit} then\n"
+        f"                write(l, string'(\"{tag} PASS\"));\n"
+        "            else\n"
+        f"                write(l, string'(\"{tag} FAIL:streaming\"));\n"
+        "            end if;\n"
+        "        end if;\n"
+        "        writeline(output, l);\n"
+        "        wait;\n"
+        "    end process;"
+    )
+
+
+@pytest.fixture(scope="session")
+def vhdl_batch_results(tmp_path_factory) -> dict[str, str]:
+    """Analyze every algorithm's package + one multi-process testbench,
+    elaborate + run once, return ``{"name/bitwise": result}``."""
+    if not HAS_GHDL:
+        return {}
+    d = tmp_path_factory.mktemp("vhdl_batch")
+    vhd_files, uses, procs = [], [], []
+    for name, _variant in _vhdl_batch_cases():
+        sym = f"{_func_name(name)}_b"
+        code = generate_vhdl(name, symbol=sym)
+        assert code is not None, f"generate_vhdl({name!r}) returned None"
+        (d / f"{sym}.vhd").write_text(code)
+        vhd_files.append(f"{sym}.vhd")
+        uses.append(f"use work.{sym}_pkg.all;")
+        procs.append(_vhdl_batch_process(name, sym))
+    tb = (
+        "library ieee;\n"
+        "use ieee.std_logic_1164.all;\n"
+        "use ieee.numeric_std.all;\n"
+        "use std.textio.all;\n"
+        + "\n".join(uses)
+        + "\n\nentity batch_tb is\nend entity;\n\n"
+        + "architecture sim of batch_tb is\nbegin\n"
+        + "\n".join(procs)
+        + "\nend architecture;\n"
+    )
+    (d / "batch_tb.vhd").write_text(tb)
+    analyze = subprocess.run(
+        ["ghdl", "-a", "--std=08", *vhd_files, "batch_tb.vhd"],
+        capture_output=True, cwd=d,
+    )
+    if analyze.returncode != 0:
+        pytest.fail(
+            "VHDL batch failed to analyze (a collision or codegen error):\n"
+            + analyze.stderr.decode(errors="replace")[:3000]
+        )
+    elaborate = subprocess.run(
+        ["ghdl", "-e", "--std=08", "batch_tb"], capture_output=True, cwd=d,
+    )
+    if elaborate.returncode != 0:
+        pytest.fail(
+            "VHDL batch failed to elaborate:\n"
+            + elaborate.stderr.decode(errors="replace")[:3000]
+        )
+    run = subprocess.run(
+        ["ghdl", "-r", "--std=08", "batch_tb"], capture_output=True, cwd=d,
+    )
+    results: dict[str, str] = {}
+    for line in run.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GHDL, reason="ghdl not in PATH")
+# One xdist worker so the session-scoped ghdl build runs once, not per
+# worker.  See CLAUDE.md "Execution tests: batch vs exhaustive".
+@pytest.mark.xdist_group("vhdl_batch")
+@pytest.mark.parametrize("name,variant", _vhdl_batch_cases())
+def test_vhdl_batch_execution(name, variant, vhdl_batch_results):
+    # Assert -- the single-build sim reported PASS for this case.
+    key = f"{name}/{variant}"
+    actual = vhdl_batch_results.get(key)
+    assert actual == "PASS", (
+        f"{key}: expected PASS, got {actual!r} "
+        f"(missing => absent from the one-shot batch sim's output)"
+    )
