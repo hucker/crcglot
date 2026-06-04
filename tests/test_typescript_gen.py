@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from typing import Literal
 
 import pytest
 
@@ -209,6 +210,7 @@ def _build_runner(fname: str, ts_source: str) -> str:
     )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_TSX, reason="tsx not in PATH")
 class TestGeneratedTypeScriptExecutes:
@@ -271,6 +273,7 @@ class TestGeneratedTypeScriptExecutes:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_TSX, reason="tsx not in PATH")
 class TestGeneratedTypeScriptSliceBy8Executes:
@@ -338,6 +341,7 @@ def _ts_check_literal(algo: AlgorithmInfo) -> str:
     return f"0x{algo.check:X}n" if algo.width == 64 else f"0x{algo.check:X}"
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_TSX, reason="tsx not in PATH")
 class TestGeneratedTypeScriptStreaming:
@@ -403,3 +407,119 @@ class TestGeneratedTypeScriptStreaming:
             f"{name} (variant={variant}): streaming tsx exited "
             f"{result.returncode}: {result.stderr.decode(errors='replace')}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Batch execution -- the whole catalogue (every algorithm x every
+# supported variant) compiled and run in ONE tsx invocation, instead of
+# one process per case.  This is the DEFAULT execution-verification path;
+# the per-algorithm classes above are kept behind the ``exhaustive``
+# marker for single-algorithm isolation.  The single combined module is
+# also the coexistence proof: it only runs because the generated tables
+# are per-symbol (``crcglot_table_<sym>``) and so don't collide.
+#
+# The full run-model rationale -- session fixture builds once, parametrized
+# lookup keeps per-algorithm nodes, ``exhaustive`` opt-in, and why the
+# ``xdist_group`` pin below is mandatory (a session fixture otherwise
+# rebuilds once PER xdist worker) -- lives in CLAUDE.md, section
+# "Execution tests: batch vs exhaustive".  Read it before touching this.
+# ─────────────────────────────────────────────────────────────────────
+
+_Variant = Literal["bitwise", "table", "slice8"]
+_VARIANT_TAG: dict[_Variant, str] = {"bitwise": "b", "table": "t", "slice8": "s8"}
+
+
+def _ts_batch_cases() -> list[tuple[str, _Variant]]:
+    """(name, variant) for every algorithm x supported TS variant."""
+    cases: list[tuple[str, _Variant]] = []
+    for name in sorted(ALGORITHMS.keys()):
+        width = ALGORITHMS[name].width
+        variants: list[_Variant] = ["bitwise", "table"]
+        if width in (32, 64):
+            variants.append("slice8")
+        for v in variants:
+            cases.append((name, v))
+    return cases
+
+
+def _ts_batch_driver_case(name: str, variant: _Variant) -> str:
+    """One JS block: run <sym>_self_test() + a split-streaming check and
+    print ``<name>/<variant> PASS|FAIL:<phase>`` (never throws out)."""
+    sym = f"{_func_name(name)}_{_VARIANT_TAG[variant]}"
+    lit = _ts_check_literal(ALGORITHMS[name])
+    tag = f"{name}/{variant}"
+    return (
+        "{\n"
+        "  try {\n"
+        "    let r: string;\n"
+        f"    if (!{sym}_self_test()) {{ r = 'FAIL:oneshot'; }}\n"
+        "    else {\n"
+        "      const full = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);\n"
+        f"      let s = {sym}_init();\n"
+        f"      s = {sym}_update(s, full.slice(0, 4));\n"
+        f"      s = {sym}_update(s, full.slice(4));\n"
+        f"      r = ({sym}_finalize(s) === {lit}) ? 'PASS' : 'FAIL:streaming';\n"
+        "    }\n"
+        f"    console.log('{tag} ' + r);\n"
+        f"  }} catch (e) {{ console.log('{tag} FAIL:exception'); }}\n"
+        "}"
+    )
+
+
+@pytest.fixture(scope="session")
+def ts_batch_results(tmp_path_factory) -> dict[str, str]:
+    """Generate every (algorithm, variant) under a unique symbol into one
+    module, run it once via tsx, and return ``{"name/variant": result}``.
+
+    Session-scoped so the single build/run is shared across all the
+    parametrized lookups (one tsx invocation per xdist worker).
+    """
+    if not HAS_TSX:
+        return {}
+    cases = _ts_batch_cases()
+    bodies: list[str] = []
+    for name, variant in cases:
+        code = generate_typescript(
+            name, symbol=f"{_func_name(name)}_{_VARIANT_TAG[variant]}",
+            variant=variant,
+        )
+        assert code is not None, f"generate_typescript({name!r}) returned None"
+        bodies.append(code)
+    driver = [_ts_batch_driver_case(name, variant) for name, variant in cases]
+    src = "\n\n".join(bodies) + "\n\n" + "\n".join(driver) + "\n"
+
+    d = tmp_path_factory.mktemp("ts_batch")
+    entry = d / "batch.ts"
+    entry.write_text(src)
+    result = subprocess.run(
+        [TSX_PATH, str(entry)],
+        capture_output=True, cwd=d, shell=False,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            "TS batch failed to compile/run (a collision or codegen error):\n"
+            + result.stderr.decode(errors="replace")[:3000]
+        )
+    results: dict[str, str] = {}
+    for line in result.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_TSX, reason="tsx not in PATH")
+# Pin every case to one xdist worker so the session-scoped batch build runs
+# ONCE, not once per worker.  See CLAUDE.md "Execution tests: batch vs
+# exhaustive".  Removing this silently re-spends most of the speedup.
+@pytest.mark.xdist_group("ts_batch")
+@pytest.mark.parametrize("name,variant", _ts_batch_cases())
+def test_ts_batch_execution(name, variant, ts_batch_results):
+    # Assert -- the single-build driver reported PASS for this case.
+    key = f"{name}/{variant}"
+    actual = ts_batch_results.get(key)
+    assert actual == "PASS", (
+        f"{key}: expected PASS, got {actual!r} "
+        f"(missing => absent from the one-shot batch run's output)"
+    )

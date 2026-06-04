@@ -66,6 +66,47 @@ project stays clean across all checkers:
 - Non-trivial: use `actual` / `expected` variables
 - Multiple checks: `actual_x == expected_x` pattern
 
+## Execution tests: batch (default) vs `exhaustive` (opt-in)
+
+The slow tier *executes* generated code (compiles + runs it through gcc /
+rustc / go / dotnet / tsx / iverilog / ghdl).  There are **two ways it does
+this**, and the difference is the single most important thing to understand
+about how these tests run:
+
+1. **Batch (the default).**  `test_<lang>_batch_execution` generates the
+   **whole catalogue × every supported variant** under per-symbol names
+   (`crc32_t`, `crc32_s8`, …), concatenates it into **one** source unit, and
+   compiles + runs it in a **single** toolchain invocation.  A
+   **session-scoped fixture** (e.g. `ts_batch_results`) does that one
+   build/run and caches a `{"name/variant": "PASS"|"FAIL:phase"}` dict; the
+   test is `@pytest.mark.parametrize`d over every case and just looks up the
+   dict, so each algorithm is still its own pytest node
+   (`test_ts_batch_execution[crc32-table]`).  This is ~40× faster than
+   spawning a process per case, and the single combined build is *also* the
+   coexistence proof — it only links because tables are per-symbol
+   (`crcglot_table_<sym>`); a name collision would fail the build.
+
+2. **`exhaustive` (opt-in isolation).**  The older one-process-per-algorithm
+   classes (`TestGenerated<Lang>Executes`, `…Streaming`, `…SliceBy8Executes`)
+   still exist, marked `@pytest.mark.exhaustive`.  They are **deselected by
+   default** (via `pytest_collection_modifyitems` in `conftest.py` — shown as
+   *deselected*, never *skipped*, so a normal run stays green not amber).
+   Run them with `--exhaustive` when you need to isolate one algorithm in its
+   own translation unit: `uv run pytest --exhaustive -k crc32`.
+
+**Why `@pytest.mark.xdist_group("<lang>_batch")` is on each batch test
+(do not remove it):** under `-n auto` a session-scoped fixture runs **once
+per xdist worker**.  Without the group pin, all ~16 workers would each
+rebuild the batch — re-spending most of the speedup.  `xdist_group` forces
+every case of that batch onto a **single** worker, so the build happens
+**once** while the other workers run the rest of the suite in parallel.  The
+group name must be unique per batch (`ts_batch`, `c_batch`, …).
+
+When adding a new target language, follow this same shape: one session
+fixture that builds the whole catalogue once, a parametrized lookup test, an
+`xdist_group` pin, and move the old per-algorithm classes behind
+`@pytest.mark.exhaustive`.
+
 ## Coverage target
 
 Overall ≥ 90% on the full suite.  Per-module floor: 80%.  The fast

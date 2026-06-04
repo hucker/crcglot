@@ -116,6 +116,8 @@ testpaths = ["tests"]
 addopts = "-v --cov=crcglot --cov-report=term-missing -n auto"
 markers = [
     "slow: subprocess-spawning test (compiles + runs generated code via gcc / rustc / go / dotnet / tsx / iverilog / ghdl).  Skip with -m 'not slow' for fast iteration.",
+    "exhaustive: per-algorithm execution test that spawns one compiler/runtime process per case.  Superseded by the batch-execution tests (whole catalogue in one build) and DESELECTED by default; opt in with --exhaustive (e.g. --exhaustive -k crc32) for single-algorithm isolation.",
+    "xdist_group: (provided by pytest-xdist) pin all cases of a batch-execution test to ONE worker so its session-scoped build runs once, not once per worker.  See CLAUDE.md 'Execution tests: batch vs exhaustive'.  Do not remove from the batch tests.",
 ]
 
 [tool.coverage.run]

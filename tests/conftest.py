@@ -163,6 +163,53 @@ def _add_windows_tool_dirs_to_path() -> None:
 # ---------------------------------------------------------------------------
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add ``--exhaustive`` to opt into the per-algorithm execution tests.
+
+    Those tests (marked ``exhaustive``) spawn one compiler/runtime process
+    per algorithm and are superseded for routine runs by the batch-execution
+    tests, which compile the whole catalogue in a single build.  They stay
+    available as a single-algorithm isolation tool: ``pytest --exhaustive
+    -k crc32``.  Deselected (not skipped) by default -- see
+    ``pytest_collection_modifyitems`` -- so a normal run stays green, not
+    amber, per CLAUDE.md.
+    """
+    parser.addoption(
+        "--exhaustive",
+        action="store_true",
+        default=False,
+        help="run the per-algorithm execution tests (marked 'exhaustive'); "
+        "deselected by default in favour of the batch-execution tests.",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Deselect ``exhaustive``-marked tests unless ``--exhaustive`` is given.
+
+    Uses deselection (reported as ``deselected``), NOT skipping, so the
+    default suite summary never shows a non-zero ``skipped`` count for
+    these -- the green/amber distinction in CLAUDE.md.  Explicit ``-m
+    exhaustive`` also forces them in (a deliberate marker selection
+    shouldn't be silently overridden).
+    """
+    if config.getoption("--exhaustive"):
+        return
+    markexpr = config.getoption("-m", default="")
+    if "exhaustive" in markexpr:
+        return
+    selected, deselected = [], []
+    for item in items:
+        if item.get_closest_marker("exhaustive") is not None:
+            deselected.append(item)
+        else:
+            selected.append(item)
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = selected
+
+
 def pytest_configure(config: pytest.Config) -> None:
     """Run PATH setup before test collection.
 
