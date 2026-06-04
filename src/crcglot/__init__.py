@@ -23,6 +23,7 @@ Public API:
         - generate_c / generate_c_from_entry
         - generate_csharp / generate_csharp_from_entry
         - generate_go / generate_go_from_entry
+        - generate_java / generate_java_from_entry
         - generate_python / generate_python_from_entry
         - generate_rust / generate_rust_from_entry
         - generate_typescript / generate_typescript_from_entry
@@ -59,6 +60,7 @@ from crcglot.encode import encode, encode_int, encode_match, encode_text
 from crcglot.lang.c import generate_c, generate_c_from_entry
 from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
 from crcglot.lang.go import generate_go, generate_go_from_entry
+from crcglot.lang.java import generate_java, generate_java_from_entry
 from crcglot.lang.python import generate_python, generate_python_from_entry
 from crcglot.lang.rust import generate_rust, generate_rust_from_entry
 from crcglot.lang.typescript import (
@@ -96,6 +98,8 @@ __all__ = [
     "generate_csharp_from_entry",
     "generate_go",
     "generate_go_from_entry",
+    "generate_java",
+    "generate_java_from_entry",
     "generate_python",
     "generate_python_from_entry",
     "generate_rust",

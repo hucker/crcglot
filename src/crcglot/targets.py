@@ -9,7 +9,7 @@ Example:
 
     >>> from crcglot import LANGUAGES, ALGORITHMS
     >>> sorted(LANGUAGES.keys())
-    ['c', 'csharp', 'go', 'python', 'rust', 'typescript', 'verilog', 'vhdl']
+    ['c', 'csharp', 'go', 'java', 'python', 'rust', 'typescript', 'verilog', 'vhdl']
     >>> LANGUAGES["c"].extensions
     ('.h', '.c')
     >>> "slice8" in LANGUAGES["vhdl"].variants
@@ -32,6 +32,11 @@ from crcglot.lang.csharp import (
     generate_csharp_from_entry,
 )
 from crcglot.lang.go import combine_go, generate_go, generate_go_from_entry
+from crcglot.lang.java import (
+    combine_java,
+    generate_java,
+    generate_java_from_entry,
+)
 from crcglot.lang.python import generate_python, generate_python_from_entry
 from crcglot.lang.rust import generate_rust, generate_rust_from_entry
 from crcglot.lang.typescript import (
@@ -164,6 +169,16 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_go,
         emoji="\U0001F6A6",  # vertical traffic light
         display_name="Go",
+    ),
+    "java": LanguageInfo(
+        code="java",
+        extensions=(".java",),
+        variants=_BITWISE_TABLE_SLICE8,
+        generator=generate_java,
+        generator_from_entry=generate_java_from_entry,
+        combiner=combine_java,
+        emoji="☕",  # hot beverage (coffee)
+        display_name="Java",
     ),
     "python": LanguageInfo(
         code="python",

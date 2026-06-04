@@ -5,9 +5,9 @@
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
-**Verified CRC source code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.**  Catalogue-driven, execution-verified, self-test embedded, multi-language by design.  **Pure-stdlib package — zero runtime dependencies.**
+**Verified CRC source code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.**  Catalogue-driven, execution-verified, self-test embedded, multi-language by design.  **Pure-stdlib package — zero runtime dependencies.**
 
-LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator — it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 70 algorithms across eight languages, verified by execution rather than inspection — and every generated file ships that same self-test so you can re-prove it on your own toolchain.
+LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator — it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 70 algorithms across nine languages, verified by execution rather than inspection — and every generated file ships that same self-test so you can re-prove it on your own toolchain.
 
 ## Quick start
 
@@ -18,7 +18,7 @@ crcglot c crc32 file=mycrc
 
 That's it.  You now have `mycrc.h` and `mycrc.c` — drop-in CRC-32 with a built-in `_self_test()` you can call to verify it matches the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
 
-**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` shows the more than 70), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
+**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` shows the more than 70), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `java` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
 
 ```bash
 crcglot rust crc32 --fast file=mycrc     # fastest Rust crc32 to file mycrc.rs
@@ -53,13 +53,13 @@ Both surfaces are documented in detail below.
 | `<fname>`                                | One-shot wrapper that calls the streaming triple        |
 | `<fname>_self_test`                      | Verify against the reveng check value on your toolchain |
 
-Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go / C# / TypeScript / Python / Verilog / VHDL return `bool` / `boolean` / `bit`.  No `#[cfg(test)]` gating — call it from your release build, a boot self-check, or a startup assertion.
+Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go / C# / Java / TypeScript / Python / Verilog / VHDL return `bool` / `boolean` / `bit`.  No `#[cfg(test)]` gating — call it from your release build, a boot self-check, or a startup assertion.
 
 ## How it's verified
 
-**The guarantee is behavioral, not structural** — crcglot doesn't lint the generated code, it runs it.  Three axes, fully crossed: every one of the **more than 70 algorithms**, in **every variant** the target supports (bit-by-bit, table-driven, slice-by-8), in **every one of the eight languages**, is executed and its output checked against the hardcoded canonical vector.  Nothing ships on "the generator looks correct."
+**The guarantee is behavioral, not structural** — crcglot doesn't lint the generated code, it runs it.  Three axes, fully crossed: every one of the **more than 70 algorithms**, in **every variant** the target supports (bit-by-bit, table-driven, slice-by-8), in **every one of the nine languages**, is executed and its output checked against the hardcoded canonical vector.  Nothing ships on "the generator looks correct."
 
-CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against its **hardcoded** canonical check value — not the catalogue's own `check` field, so a silent regression in the engine can't hide — and the Python generator is run end-to-end (generated, exec'd, and called on `b"123456789"`) against the same hardcoded vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result — same algorithm coverage, exercised through each real toolchain.
+CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against its **hardcoded** canonical check value — not the catalogue's own `check` field, so a silent regression in the engine can't hide — and the Python generator is run end-to-end (generated, exec'd, and called on `b"123456789"`) against the same hardcoded vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, Java, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `javac`+`java` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result — same algorithm coverage, exercised through each real toolchain.
 
 Every generated file also ships its own `_self_test()` carrying that same canonical vector.  **For every target except Python, you should call `_self_test()` once in your build environment** — wire it into a unit test, a startup assertion, or your boot self-check.  Our CI proves the generator emits correct code on our reference toolchain; only running `_self_test()` on yours proves your compiler version, optimization flags, target endianness, and integer widths haven't introduced a subtle disagreement.  Python is the exception: the interpreter that ran the CI suite is the one running your code, so the in-environment check would be redundant.
 
@@ -128,7 +128,7 @@ crcglot encode crc32-iscsi --binary --little < data.bin         # binary, little
 
 Print acknowledgments for the upstream work crcglot stands on (also exported as `crcglot.ATTRIBUTION` / `crcglot.ACKNOWLEDGMENTS`).  See [Acknowledgments](#acknowledgments).
 
-### `crcglot {c | csharp | go | python | rust | typescript | verilog | vhdl} <algorithm> [<algorithm>...] [options...] [tokens...]`
+### `crcglot {c | csharp | go | java | python | rust | typescript | verilog | vhdl} <algorithm> [<algorithm>...] [options...] [tokens...]`
 
 Generate source code for the chosen target language.  Pick your intent — crcglot picks the implementation:
 
@@ -140,7 +140,7 @@ Generate source code for the chosen target language.  Pick your intent — crcgl
 | `file=STEM`    | Write to disk (extension picked per language; see below).  Omit for stdout.                          |
 | `symbol=NAME`  | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given.  |
 
-File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; TypeScript `.ts`.
+File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; Java `.java`; TypeScript `.ts`.  (For Java, every algorithm shares one container class named after `STEM`, so the stem must be a valid Java identifier.)
 
 **Bundle several algorithms into one file** by naming more than one — `crcglot c crc32 crc16-modbus crc8 file=mycrcs` writes a single `mycrcs.h` / `mycrcs.c` containing all three (one `.go` / `.rs` / `.cs` / … for the other languages).  Each algorithm keeps its own catalogue-derived function names (`crc32`, `crc16_modbus`, …) and the tables are namespaced per symbol, so they never collide.  `symbol=` is rejected with more than one algorithm (it names a single function); duplicates are de-duplicated; an unknown name aborts the whole bundle.
 
@@ -194,6 +194,7 @@ for code, info in LANGUAGES.items():
     # → ⚙️ C / C++       ('.h', '.c')  ['bitwise', 'slice8', 'table']
     # → 💠 C#            ('.cs',)      ['bitwise', 'slice8', 'table']
     # → 🚦 Go            ('.go',)      ['bitwise', 'slice8', 'table']
+    # → ☕ Java          ('.java',)    ['bitwise', 'slice8', 'table']
     # → 🐍 Python        ('.py',)      ['bitwise', 'table']
     # → 🦀 Rust          ('.rs',)      ['bitwise', 'slice8', 'table']
     # → 🔷 TypeScript    ('.ts',)      ['bitwise', 'slice8', 'table']
@@ -322,7 +323,7 @@ See [BENCHMARKS.md](BENCHMARKS.md) for measured throughput of each runtime path 
 
 ## Example output
 
-See [EXAMPLES.md](EXAMPLES.md) for the actual generated source for `crc32` across every language × implementation combination (C / Rust / Python / VHDL / Verilog / Go / C# / TypeScript crossed with bit-by-bit, table-driven, and slice-by-8 where supported).  Every block is reproducible with one CLI command.
+See [EXAMPLES.md](EXAMPLES.md) for the actual generated source for `crc32` across every language × implementation combination (C / Rust / Python / VHDL / Verilog / Go / C# / Java / TypeScript crossed with bit-by-bit, table-driven, and slice-by-8 where supported).  Every block is reproducible with one CLI command.
 
 ## Benchmarks
 

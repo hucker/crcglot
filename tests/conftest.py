@@ -22,6 +22,7 @@ file is preventing future regressions of.
 
 from __future__ import annotations
 
+import glob
 import os
 import subprocess
 import sys
@@ -131,6 +132,9 @@ def _add_windows_tool_dirs_to_path() -> None:
       target depends on it).
     - ``%APPDATA%\\npm``: where ``npm install -g <pkg>`` drops shims
       (tsx, etc.).
+    - A JDK ``bin`` (``javac`` / ``java``): version-stamped install dirs
+      (``...\\jdk-21.0.x\\bin``) can't be hardcoded, so :func:`_find_jdk_bin`
+      checks ``%JAVA_HOME%`` and globs the common vendor roots.
 
     All entries are checked for existence first, so this no-ops on
     Linux/macOS and on Windows shells without the tools installed.
@@ -154,8 +158,41 @@ def _add_windows_tool_dirs_to_path() -> None:
         )
     if appdata:
         candidates.append(os.path.join(appdata, "npm"))
+    jdk_bin = _find_jdk_bin()
+    if jdk_bin:
+        candidates.append(jdk_bin)
     for c in candidates:
         _append_to_path_if_present(c)
+
+
+def _find_jdk_bin() -> str | None:
+    """Locate a JDK ``bin`` directory containing ``javac``.
+
+    JDK install paths are version-stamped, so they can't be hardcoded like
+    the other tool dirs.  Prefer ``%JAVA_HOME%``; otherwise glob the common
+    Windows vendor roots (Microsoft OpenJDK, Adoptium/Temurin, Corretto,
+    Zulu, Oracle).  Returns the first ``bin`` holding ``javac.exe``, or
+    ``None``.  No-op on non-Windows.
+    """
+    if sys.platform != "win32":
+        return None
+    java_home = os.environ.get("JAVA_HOME")
+    if java_home:
+        cand = os.path.join(java_home, "bin")
+        if os.path.isfile(os.path.join(cand, "javac.exe")):
+            return cand
+    patterns = [
+        r"C:\Program Files\Microsoft\jdk-*\bin",
+        r"C:\Program Files\Eclipse Adoptium\jdk-*\bin",
+        r"C:\Program Files\Amazon Corretto\jdk*\bin",
+        r"C:\Program Files\Zulu\zulu-*\bin",
+        r"C:\Program Files\Java\jdk*\bin",
+    ]
+    for pat in patterns:
+        for cand in sorted(glob.glob(pat), reverse=True):  # newest first
+            if os.path.isfile(os.path.join(cand, "javac.exe")):
+                return cand
+    return None
 
 
 # ---------------------------------------------------------------------------
