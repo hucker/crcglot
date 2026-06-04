@@ -143,6 +143,7 @@ _MATRIX: dict[str, list[str]] = {
     "rust":       ["bitwise", "table", "slice8"],
     "go":         ["bitwise", "table", "slice8"],
     "csharp":     ["bitwise", "table", "slice8"],
+    "java":       ["bitwise", "table", "slice8"],
     "typescript": ["bitwise", "table", "slice8"],
     "python":     ["bitwise", "table"],
 }
@@ -156,6 +157,8 @@ _TOOL_BINS = {
     "rustc":   shutil.which("rustc"),
     "go":      shutil.which("go"),
     "dotnet":  shutil.which("dotnet"),
+    "javac":   shutil.which("javac"),
+    "java":    shutil.which("java"),
     "python":  shutil.which("python") or sys.executable,
     "tsx":     (
         shutil.which("tsx")
@@ -359,6 +362,35 @@ public static class Program {{
     (cell_dir / "Bench.csproj").write_text(csproj)
 
 
+def _emit_java(cell_dir: Path, variant: str, size: int) -> None:
+    # Java puts every algorithm in one container class (default CrcGlot);
+    # splice a timing main() into it before the class's closing brace.
+    code = LANGUAGES["java"].generator(_ALGORITHM, **_gen_kwargs(variant))
+    bench_main = f"""
+    public static void main(String[] args) {{
+        final int SIZE = {size};
+        byte[] buf = new byte[SIZE];
+        for (int i = 0; i < SIZE; i++) buf[i] = (byte) (i & 0xFF);
+        int crc = 0;
+        for (int w = 0; w < 5; w++) crc ^= crc32(buf);
+        long t0 = System.nanoTime();
+        long iters = 0;
+        while (true) {{
+            crc ^= crc32(buf);
+            iters++;
+            if (iters >= 3 && (System.nanoTime() - t0) / 1000000L > {_INNER_LOOP_TARGET_MS}) break;
+        }}
+        long ns = System.nanoTime() - t0;
+        double mbps = ((double) iters * SIZE) / ((double) ns / 1e9) / 1e6;
+        System.out.printf("java,{variant},%d,%.3f,%d,%d,0x%08X%n", SIZE, mbps, iters, ns, crc);
+    }}
+"""
+    src = code.rstrip()
+    assert src.endswith("}"), "expected generated Java to end with the class brace"
+    src = src[:-1].rstrip() + "\n" + bench_main + "}\n"
+    (cell_dir / "CrcGlot.java").write_text(src)
+
+
 def _emit_python(cell_dir: Path, variant: str, size: int) -> None:
     code = LANGUAGES["python"].generator(_ALGORITHM, **_gen_kwargs(variant))
     bench_main = f"""
@@ -417,6 +449,7 @@ _EMITTERS = {
     "rust":       _emit_rust,
     "go":         _emit_go,
     "csharp":     _emit_csharp,
+    "java":       _emit_java,
     "python":     _emit_python,
     "typescript": _emit_typescript,
 }
@@ -501,11 +534,26 @@ def _compile_csharp(cell_dir: Path) -> Path | None:
     return exe if exe.exists() else None
 
 
+def _compile_java(cell_dir: Path) -> Path | None:
+    r = subprocess.run(
+        [_tool("javac"), "-d", str(cell_dir), "CrcGlot.java"],
+        capture_output=True, cwd=cell_dir,
+    )
+    if r.returncode != 0:
+        print(f"  ! javac failed:\n{r.stderr.decode(errors='replace')}", file=sys.stderr)
+        return None
+    cls = cell_dir / "CrcGlot.class"
+    # No single binary -- the run is `java -cp <dir> CrcGlot` (see
+    # _exec_args).  Return the .class as a non-None success marker.
+    return cls if cls.exists() else None
+
+
 _COMPILERS = {
     "c":      _compile_c,
     "rust":   _compile_rust,
     "go":     _compile_go,
     "csharp": _compile_csharp,
+    "java":   _compile_java,
 }
 
 
@@ -554,6 +602,8 @@ def _exec_args(lang: str, cell_dir: Path, exe: Path | None) -> list[str] | None:
         if not _TOOL_BINS["tsx"]:
             return None
         return [_tool("tsx"), "bench.ts"]
+    if lang == "java":
+        return [_tool("java"), "-cp", str(cell_dir), "CrcGlot"]
     if exe is None:
         return None
     return [str(exe)]
@@ -574,6 +624,8 @@ def _can_run(lang: str) -> str | None:
         return "go not on PATH"
     if lang == "csharp" and not _TOOL_BINS["dotnet"]:
         return "dotnet not on PATH"
+    if lang == "java" and not (_TOOL_BINS["javac"] and _TOOL_BINS["java"]):
+        return "javac/java not on PATH"
     if lang == "typescript" and not _TOOL_BINS["tsx"]:
         return "tsx not on PATH (npm i -g tsx)"
     if lang == "csharp" and _TOOL_BINS["dotnet"]:
