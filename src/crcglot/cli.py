@@ -467,6 +467,17 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
 
     if args.custom:
         # ----- Custom Rocksoft/Williams parameters -----
+        # --custom builds exactly one CRC from width=/poly=/...; a bare
+        # algorithm name has no meaning here (and bundling is catalogue-only),
+        # so reject stray names loudly instead of silently dropping them.
+        if bare:
+            print(
+                f"Error: --custom takes raw parameters, not algorithm names "
+                f"(got {', '.join(bare)}).  Drop --custom to bundle catalogue "
+                f"algorithms, or drop the name(s) to generate the custom CRC.",
+                file=sys.stderr,
+            )
+            return 2
         if "width" not in kv or "poly" not in kv:
             print(
                 "Error: --custom requires width=N and poly=X (plus optional "

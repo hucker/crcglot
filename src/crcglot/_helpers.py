@@ -29,10 +29,10 @@ def combine_concat(outputs: list[str], stem: str | None = None) -> str:
     """Combine several single-file generator outputs by concatenation.
 
     For languages whose output is self-contained top-level items (Rust,
-    TypeScript, Python) or per-unit-guarded packages (Verilog ``\`ifndef``
-    guards, VHDL per-package ``library/use`` clauses), several algorithms'
-    modules sit in one file unchanged -- per-symbol table names already
-    prevent collisions.  ``stem`` is accepted for a uniform combiner
+    TypeScript, Python) or per-unit-guarded packages (Verilog include
+    guards, VHDL per-package ``library``/``use`` clauses), several
+    algorithms' modules sit in one file unchanged -- per-symbol table names
+    already prevent collisions.  ``stem`` is accepted for a uniform combiner
     signature but unused (only the C combiner needs it).
 
     Args:
