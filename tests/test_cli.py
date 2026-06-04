@@ -685,6 +685,19 @@ class TestCodegenCustom:
         assert rc == 2
         assert "width=N and poly=X" in err
 
+    def test_custom_with_algorithm_name_returns_2(self, tmp_path, monkeypatch, capsys):
+        # Act -- --custom builds one CRC from params; a stray catalogue name
+        # is rejected (not silently dropped) since custom makes one function.
+        monkeypatch.chdir(tmp_path)
+        rc = main(["c", "--custom", "width=16", "poly=0x8005", "crc32", "file=x"])
+        _out, err = capsys.readouterr()
+
+        # Assert
+        assert rc == 2, "--custom with an algorithm name exits 2"
+        assert "crc32" in err, "names the offending token"
+        actual_files = list(tmp_path.iterdir())
+        assert actual_files == [], "nothing written on error"
+
     def test_custom_missing_poly_returns_2(self, capsys):
         rc = main(["c", "--custom", "width=16"])
         _out, err = capsys.readouterr()
