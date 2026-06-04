@@ -732,7 +732,7 @@ class TestSliceBy8GeneratorAPI:
         # source contains the 2D slice-table declaration.
         assert result is not None, "generate_c crc32 variant='slice8' returned None"
         _header, source = result
-        assert "crc_slice_tables[8][256]" in source, (
+        assert "crcglot_slice_crc32[8][256]" in source, (
             "C source missing 2D slice-table declaration"
         )
 
@@ -742,7 +742,7 @@ class TestSliceBy8GeneratorAPI:
 
         # Assert
         assert code is not None, "generate_rust crc32 variant='slice8' returned None"
-        assert "CRC_SLICE_TABLES: [[u32; 256]; 8]" in code, (
+        assert "CRCGLOT_SLICE_CRC32: [[u32; 256]; 8]" in code, (
             "Rust source missing 2D slice-table declaration"
         )
 

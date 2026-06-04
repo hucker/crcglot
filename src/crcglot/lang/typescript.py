@@ -517,4 +517,16 @@ def generate_typescript_from_entry(
     # ----- self-test -----
     lines.extend(_self_test_ts(fname, check, w))
 
-    return "\n".join(lines)
+    module = "\n".join(lines)
+    # Namespace the lookup-table identifiers per symbol so multiple
+    # generated modules (different algorithms, or the same algorithm in
+    # several variants) can coexist in one file/translation unit without
+    # colliding.  The emitters above use the fixed placeholders
+    # ``CRC_TABLE`` / ``CRC_SLICE_TABLES``; rewrite them to
+    # ``crcglot_table_<symbol>`` / ``crcglot_slice_<symbol>`` here -- the
+    # single assembly point -- so the loop bodies reference the unique
+    # name directly with no aliasing.  Slice first (its name is a strict
+    # superset spelling, though not a substring of the table token).
+    module = module.replace("CRC_SLICE_TABLES", f"crcglot_slice_{fname}")
+    module = module.replace("CRC_TABLE", f"crcglot_table_{fname}")
+    return module
