@@ -26,6 +26,7 @@ import pytest
 
 from crcglot import (
     ALGORITHMS,
+    LANGUAGES,
     AlgorithmInfo,
     generate_go,
     generate_go_from_entry,
@@ -470,4 +471,42 @@ def test_go_batch_execution(name, variant, go_batch_results):
     assert actual == "PASS", (
         f"{key}: expected PASS, got {actual!r} "
         f"(missing => absent from the one-shot batch run's output)"
+    )
+
+
+_MULTI_ALGOS = ["crc32", "crc16-modbus", "crc8"]
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GO, reason="go toolchain not on PATH")
+@pytest.mark.xdist_group("go_multi")
+def test_go_combined_multi_algorithm_compiles_and_runs(tmp_path):
+    """The CLI's multi-algorithm bundle (combine_go) must produce one
+    valid `package crc` file whose self_tests all pass."""
+    # Arrange -- combine several algorithms exactly as the CLI does, then
+    # swap the package clause for an executable main (as the exec tests do).
+    outputs = []
+    for name in _MULTI_ALGOS:
+        out = generate_go(name)
+        assert out is not None, f"generate_go({name!r}) returned None"
+        outputs.append(out)
+    combined = LANGUAGES["go"].combiner(outputs, None)
+    assert combined.count("package crc") == 1, "exactly one package clause"
+    src = combined.replace("package crc", 'package main\n\nimport "os"', 1)
+    src += "\n\nfunc main() {\n" + "\n".join(
+        f"\tif !{_func_name(n)}_self_test() {{ os.Exit({i + 1}) }}"
+        for i, n in enumerate(_MULTI_ALGOS)
+    ) + "\n\tos.Exit(0)\n}\n"
+    (tmp_path / "main.go").write_text(src, encoding="utf-8")
+
+    # Act
+    result = subprocess.run(
+        ["go", "run", str(tmp_path / "main.go")],
+        capture_output=True, text=True, timeout=60, cwd=tmp_path,
+    )
+
+    # Assert -- 0 means every bundled algorithm's self_test passed.
+    assert result.returncode == 0, (
+        f"combined package failed (rc {result.returncode}); "
+        f"stderr={result.stderr!r}"
     )

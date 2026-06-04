@@ -128,7 +128,7 @@ crcglot encode crc32-iscsi --binary --little < data.bin         # binary, little
 
 Print acknowledgments for the upstream work crcglot stands on (also exported as `crcglot.ATTRIBUTION` / `crcglot.ACKNOWLEDGMENTS`).  See [Acknowledgments](#acknowledgments).
 
-### `crcglot {c | csharp | go | python | rust | typescript | verilog | vhdl} <algorithm> [options...] [tokens...]`
+### `crcglot {c | csharp | go | python | rust | typescript | verilog | vhdl} <algorithm> [<algorithm>...] [options...] [tokens...]`
 
 Generate source code for the chosen target language.  Pick your intent — crcglot picks the implementation:
 
@@ -141,6 +141,8 @@ Generate source code for the chosen target language.  Pick your intent — crcgl
 | `symbol=NAME`  | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given.  |
 
 File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; TypeScript `.ts`.
+
+**Bundle several algorithms into one file** by naming more than one — `crcglot c crc32 crc16-modbus crc8 file=mycrcs` writes a single `mycrcs.h` / `mycrcs.c` containing all three (one `.go` / `.rs` / `.cs` / … for the other languages).  Each algorithm keeps its own catalogue-derived function names (`crc32`, `crc16_modbus`, …) and the tables are namespaced per symbol, so they never collide.  `symbol=` is rejected with more than one algorithm (it names a single function); duplicates are de-duplicated; an unknown name aborts the whole bundle.
 
 **Expert overrides** (you usually don't need these — `--fast` chooses for you): `--table` forces the 256-entry single-table form, and `--slice8` forces the 8-table form.  They exist for the rare case where you want the *middle* of the size/speed curve explicitly — e.g. a RAM-constrained target where the 1 KiB table is fine but slice-by-8's 8 KiB isn't.  `--slice8` is CRC-32/64 + compiled targets only.
 
@@ -206,6 +208,7 @@ Each entry is a frozen `LanguageInfo` dataclass with:
 - `variants` — subset of `{"bitwise", "table", "slice8"}` that the generator accepts
 - `generator(name, ...)` — name-lookup callable (returns source string, or `(header, source)` tuple for C)
 - `generator_from_entry(name, algo, ...)` — bypass the catalogue with a custom `AlgorithmInfo`
+- `combiner(outputs, stem)` — merge several generator outputs into one file (powers multi-algorithm bundling); per-symbol tables keep the merge collision-free
 - `emoji` — single-grapheme pictographic identifier for terminals / docs
 - `display_name` — human-readable name (e.g. `"C / C++"`, `"TypeScript"`) — distinct from `code`
 

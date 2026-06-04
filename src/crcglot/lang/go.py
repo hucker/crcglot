@@ -243,6 +243,34 @@ def _self_test_go(fname: str, check: int, width: int) -> list[str]:
     ]
 
 
+def combine_go(outputs: list[str], stem: str | None = None) -> str:
+    """Combine several Go outputs into one ``package crc`` file.
+
+    Go allows exactly one ``package`` clause per file, so the first
+    output is kept intact (banner + ``package crc`` + body) and only the
+    body (everything after ``package crc``) of the rest is appended.
+    Per-symbol table names (``_<sym>_table``) keep the merged package
+    collision-free.
+
+    Args:
+        outputs: Individual :func:`generate_go` results, one per algorithm.
+        stem: Unused; present for signature parity with the C combiner.
+
+    Returns:
+        One valid ``package crc`` Go source string with all algorithms.
+
+    Examples:
+        >>> a = generate_go("crc32")
+        >>> b = generate_go("crc16-modbus")
+        >>> combine_go([a, b]).count("package crc")
+        1
+    """
+    del stem
+    first = outputs[0]
+    rest = [o.partition("package crc")[2] for o in outputs[1:]]
+    return first.rstrip("\n") + "\n" + "".join(rest)
+
+
 def generate_go(
     name: str,
     symbol: str | None = None,

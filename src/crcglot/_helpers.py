@@ -25,6 +25,31 @@ def _func_name(algo_name: str) -> str:
     return algo_name.replace("-", "_").replace(".", "_")
 
 
+def combine_concat(outputs: list[str], stem: str | None = None) -> str:
+    """Combine several single-file generator outputs by concatenation.
+
+    For languages whose output is self-contained top-level items (Rust,
+    TypeScript, Python) or per-unit-guarded packages (Verilog ``\`ifndef``
+    guards, VHDL per-package ``library/use`` clauses), several algorithms'
+    modules sit in one file unchanged -- per-symbol table names already
+    prevent collisions.  ``stem`` is accepted for a uniform combiner
+    signature but unused (only the C combiner needs it).
+
+    Args:
+        outputs: Individual ``generate_<lang>`` results, one per algorithm.
+        stem: Unused here; present for signature parity with ``combine_c``.
+
+    Returns:
+        The outputs joined with a blank line between them.
+
+    Examples:
+        >>> combine_concat(["fn a() {}", "fn b() {}"])
+        'fn a() {}\\n\\nfn b() {}'
+    """
+    del stem  # only C's combiner needs the output stem
+    return "\n\n".join(outputs)
+
+
 def _hex(value: int, width: int) -> str:
     """Format an integer as a ``0xHEX`` literal sized for ``width`` bits.
 

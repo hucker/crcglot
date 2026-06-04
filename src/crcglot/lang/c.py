@@ -341,6 +341,55 @@ def _header_c(name: str, fname: str, ctype: str, desc: str) -> str:
     return "\n".join(lines)
 
 
+def combine_c(
+    outputs: list[tuple[str, str]], stem: str | None = None,
+) -> tuple[str, str]:
+    """Combine several C ``(header, source)`` outputs into one .h + one .c.
+
+    The combined header concatenates each algorithm's header verbatim --
+    each carries its own ``#ifndef <SYM>_H`` guard, and duplicate
+    ``<stdint.h>`` / ``<stddef.h>`` includes (themselves guarded) and
+    sequential ``extern "C"`` blocks are harmless.
+
+    The combined source is the catch: each generated source begins with
+    ``#include "<fname>.h"`` naming ITS OWN per-symbol header, which is not
+    written in combined mode (only the one merged ``<stem>.h`` is).  So
+    strip that self-include from each source and prepend a single
+    ``#include "<stem>.h"``.  Per-symbol table names
+    (``crcglot_table_<symbol>``) and symbol-qualified functions mean the
+    merged translation unit has no name collisions.
+
+    Args:
+        outputs: ``(header, source)`` pairs from :func:`generate_c`, one
+            per algorithm.
+        stem: Output file stem; the combined ``.c`` does
+            ``#include "<stem>.h"``.  Defaults to ``"crcglot"`` (used for
+            stdout, where no file stem is supplied).
+
+    Returns:
+        ``(combined_header, combined_source)``.
+
+    Examples:
+        >>> a = generate_c("crc32")
+        >>> b = generate_c("crc16-modbus")
+        >>> assert a is not None and b is not None
+        >>> _h, src = combine_c([a, b], stem="bundle")
+        >>> src.count('#include "bundle.h"')
+        1
+    """
+    stem = stem or "crcglot"
+    combined_header = "\n\n".join(h for h, _ in outputs)
+    bodies = []
+    for _header, source in outputs:
+        kept = [
+            ln for ln in source.split("\n")
+            if not (ln.startswith('#include "') and ln.endswith('.h"'))
+        ]
+        bodies.append("\n".join(kept).strip("\n"))
+    combined_source = f'#include "{stem}.h"\n\n' + "\n\n".join(bodies) + "\n"
+    return combined_header, combined_source
+
+
 def generate_c(
     name: str,
     symbol: str | None = None,

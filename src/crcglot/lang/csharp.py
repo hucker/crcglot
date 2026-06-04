@@ -373,6 +373,36 @@ def _self_test_csharp(fname: str, check: int, width: int) -> list[str]:
     ]
 
 
+def combine_csharp(outputs: list[str], stem: str | None = None) -> str:
+    """Combine several C# class outputs into one file.
+
+    Each output is ``using System;`` + a uniquely-named
+    ``public static class``.  C# requires every ``using`` directive to
+    precede all type declarations, so a naive concatenation (``using;
+    class A; using; class B``) would NOT compile -- the second ``using``
+    follows a type.  Hoist a single ``using System;`` to the top and strip
+    it from each output.  Class names (and their private tables) are
+    already per-symbol, so the classes coexist.
+
+    Args:
+        outputs: Individual :func:`generate_csharp` results, one per algorithm.
+        stem: Unused; present for signature parity with the C combiner.
+
+    Returns:
+        One compilable C# source string with one ``using System;`` and all
+        classes.
+
+    Examples:
+        >>> a = generate_csharp("crc32")
+        >>> b = generate_csharp("crc16-modbus")
+        >>> combine_csharp([a, b]).count("using System;")
+        1
+    """
+    del stem
+    classes = [o.replace("using System;\n", "", 1).strip("\n") for o in outputs]
+    return "using System;\n\n" + "\n\n".join(classes) + "\n"
+
+
 def generate_csharp(
     name: str,
     symbol: str | None = None,
