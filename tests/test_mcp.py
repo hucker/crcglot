@@ -371,7 +371,7 @@ class TestCrcGenerate:
 
     @pytest.mark.parametrize(
         "language",
-        ["c", "csharp", "go", "python", "rust", "typescript", "verilog", "vhdl"],
+        ["c", "csharp", "go", "java", "python", "rust", "typescript", "verilog", "vhdl"],
     )
     def test_each_language_emits_files(self, language):
         # Act

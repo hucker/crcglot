@@ -54,6 +54,7 @@ LANG_ENUM = Literal[
     "c",
     "csharp",
     "go",
+    "java",
     "python",
     "rust",
     "typescript",
@@ -307,7 +308,7 @@ def build_server() -> FastMCP:
         name="crc_generate",
         description=(
             "Generate verified CRC source code for one (language, "
-            "algorithm, variant) cell.  Supports C, C#, Go, Python, "
+            "algorithm, variant) cell.  Supports C, C#, Go, Java, Python, "
             "Rust, TypeScript, Verilog, VHDL.  Variants: 'bitwise' "
             "(smallest, default), 'table' (256-entry LUT, faster), "
             "'slice8' (8 tables, fastest, width 32/64 only, not on "

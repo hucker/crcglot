@@ -65,6 +65,37 @@ def _symbol_from_stem(file_stem: str) -> str:
     return base.replace("-", "_").replace(".", "_")
 
 
+_JAVA_KEYWORDS = frozenset({
+    "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+    "char", "class", "const", "continue", "default", "do", "double", "else",
+    "enum", "extends", "final", "finally", "float", "for", "goto", "if",
+    "implements", "import", "instanceof", "int", "interface", "long",
+    "native", "new", "package", "private", "protected", "public", "return",
+    "short", "static", "strictfp", "super", "switch", "synchronized", "this",
+    "throw", "throws", "transient", "try", "void", "volatile", "while",
+    "true", "false", "null",
+})
+
+
+def _is_legal_java_identifier(s: str) -> bool:
+    """True iff ``s`` is usable as a Java class name.
+
+    Java ties the public class name to the file name, so the stem can't be
+    mangled the way other languages' symbols can -- it must already be a
+    legal identifier (and not a reserved word).
+    """
+    if not s or not (s[0].isalpha() or s[0] in "_$"):
+        return False
+    if not all(c.isalnum() or c in "_$" for c in s):
+        return False
+    return s not in _JAVA_KEYWORDS
+
+
+def _java_container_name(file_stem: str | None) -> str:
+    """Java container class name: the file stem's basename, or ``CrcGlot``."""
+    return Path(file_stem).name if file_stem else "CrcGlot"
+
+
 def _parse_kv_tokens(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
     """Split a list of CLI tokens into ``key=value`` pairs vs bare tokens."""
     kv: dict[str, str] = {}
@@ -465,6 +496,29 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         print("Error: symbol= requires a value", file=sys.stderr)
         return 2
 
+    if lang == "java":
+        # Java puts every algorithm's methods in one container class named
+        # after file=STEM (Java requires class name == file name); methods
+        # are named after their algorithm, so symbol= has no role.
+        if symbol_override is not None:
+            print(
+                "Error: symbol= is not used for Java -- methods are named "
+                "after their algorithm and the class after file=STEM; omit it.",
+                file=sys.stderr,
+            )
+            return 2
+        if file_stem is not None and not _is_legal_java_identifier(
+            _java_container_name(file_stem)
+        ):
+            print(
+                f"Error: file={file_stem!r} yields class name "
+                f"{_java_container_name(file_stem)!r}, which is not a legal "
+                f"Java identifier (the public class name must equal the file "
+                f"name). Start with a letter; use only letters/digits/_.",
+                file=sys.stderr,
+            )
+            return 2
+
     if args.custom:
         # ----- Custom Rocksoft/Williams parameters -----
         # --custom builds exactly one CRC from width=/poly=/...; a bare
@@ -525,15 +579,25 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             desc=desc,
             source="custom",
         )
-        symbol = (
-            symbol_override
-            or (_symbol_from_stem(file_stem) if file_stem else None)
-            or _symbol_from_stem(custom_name)
-        )
+        # Java: methods are named from the algorithm (custom_name) and the
+        # class from the stem, so don't derive the method symbol from the
+        # stem; wrap the single result in the stem-named container class.
+        if lang == "java":
+            symbol = None
+        else:
+            symbol = (
+                symbol_override
+                or (_symbol_from_stem(file_stem) if file_stem else None)
+                or _symbol_from_stem(custom_name)
+            )
         try:
             result = LANGUAGES[lang].generator_from_entry(
                 custom_name, algo, symbol=symbol, variant=variant,
             )
+            if lang == "java":
+                result = LANGUAGES[lang].combiner(
+                    [result], _java_container_name(file_stem)
+                )
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 2
@@ -581,8 +645,10 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                     print(note, file=sys.stderr)
                     notes_seen.add(note)
                 # Single algo keeps today's stem->symbol behaviour; for a
-                # bundle each algo defaults to its own (unique) name.
-                if len(names) == 1:
+                # bundle each algo defaults to its own (unique) name.  Java
+                # always uses the algorithm name (the class, not the methods,
+                # carries the stem) and routes through its container combiner.
+                if len(names) == 1 and lang != "java":
                     sym = (
                         symbol_override
                         or (_symbol_from_stem(file_stem) if file_stem else None)
@@ -595,7 +661,11 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 2
-        if len(names) == 1:
+        if lang == "java":
+            result = LANGUAGES[lang].combiner(
+                outputs, _java_container_name(file_stem)
+            )
+        elif len(names) == 1:
             result = outputs[0]
         else:
             result = LANGUAGES[lang].combiner(outputs, file_stem or "crcglot")
@@ -624,8 +694,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="crcglot",
         description=(
-            "Verified CRC source-code generator for C, C#, Go, Python, "
-            "Rust, TypeScript, Verilog, and VHDL.  Catalogue-driven, "
+            "Verified CRC source-code generator for C, C#, Go, Java, "
+            "Python, Rust, TypeScript, Verilog, and VHDL.  Catalogue-driven, "
             "self-test embedded."
         ),
     )
@@ -750,7 +820,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show acknowledgments for the projects crcglot builds on",
     )
 
-    # crcglot {c,csharp,go,python,rust,typescript,verilog,vhdl} <algo>
+    # crcglot {c,csharp,go,java,python,rust,typescript,verilog,vhdl} <algo>
     # [--table|--slice8] [file=STEM] [symbol=NAME]
     # Or: crcglot c --custom width=... poly=... ...
     for lang in LANGUAGES:

@@ -85,17 +85,17 @@ class TestLanguageMetadata:
     def test_all_languages_present(self):
         # Assert
         assert set(LANGUAGES.keys()) == {
-            "c", "csharp", "go", "python", "rust",
+            "c", "csharp", "go", "java", "python", "rust",
             "typescript", "verilog", "vhdl",
         }, (
-            "expected c / csharp / go / python / rust / typescript / "
+            "expected c / csharp / go / java / python / rust / typescript / "
             "verilog / vhdl in LANGUAGES"
         )
 
     @pytest.mark.parametrize(
         "code",
         [
-            "c", "csharp", "go", "python", "rust",
+            "c", "csharp", "go", "java", "python", "rust",
             "typescript", "verilog", "vhdl",
         ],
     )
@@ -129,6 +129,7 @@ class TestLanguageMetadata:
         [
             ("csharp", ".cs"),
             ("go", ".go"),
+            ("java", ".java"),
             ("python", ".py"),
             ("rust", ".rs"),
             ("typescript", ".ts"),
@@ -161,9 +162,9 @@ class TestLanguageMetadata:
             code for code, info in LANGUAGES.items() if "slice8" in info.variants
         }
         assert slice8_langs == {
-            "c", "csharp", "go", "rust", "typescript",
+            "c", "csharp", "go", "java", "rust", "typescript",
         }, (
-            "slice8 is supported on c / csharp / go / rust / typescript; "
+            "slice8 is supported on c / csharp / go / java / rust / typescript; "
             f"got {sorted(slice8_langs)}"
         )
 
@@ -277,7 +278,7 @@ class TestVariantsForWidth:
         # Assert -- slice-by-8 is meaningless below width 32; the
         # generator would raise.  variants_for_width drops it so
         # callers don't even offer the option.
-        for code in ("c", "csharp", "go", "rust", "typescript"):
+        for code in ("c", "csharp", "go", "java", "rust", "typescript"):
             actual = LANGUAGES[code].variants_for_width(width)
             assert "slice8" not in actual, (
                 f"{code}@{width}: slice8 should be filtered out, got {actual}"
@@ -324,7 +325,7 @@ class TestVariantKwargValidation:
     """
 
     @pytest.mark.parametrize(
-        "code", ["c", "csharp", "go", "rust", "typescript"]
+        "code", ["c", "csharp", "go", "java", "rust", "typescript"]
     )
     @pytest.mark.parametrize("variant", ["bitwise", "table", "slice8"])
     def test_all_supported_variants_generate_at_width_32(self, code, variant):
