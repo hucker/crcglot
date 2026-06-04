@@ -20,6 +20,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import textwrap
+from typing import Literal
 
 import pytest
 
@@ -195,6 +196,7 @@ _EXIT_CODE_LABEL = {
 }
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GO, reason="go toolchain not on PATH")
 class TestGeneratedGoExecutes:
@@ -280,6 +282,7 @@ class TestGeneratedGoExecutes:
         )
 
 
+@pytest.mark.exhaustive
 @pytest.mark.slow
 @pytest.mark.skipif(not HAS_GO, reason="go toolchain not on PATH")
 class TestGeneratedGoSliceBy8Executes:
@@ -359,3 +362,112 @@ class TestGeneratedGoSliceBy8Executes:
             f"{name}: go run exited {result.returncode} "
             f"(length index, 0 = ok); stderr={result.stderr!r}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Batch execution -- whole catalogue x every variant merged into one
+# ``package main`` and built + run in ONE go invocation instead of one per
+# case.  DEFAULT path; the per-algorithm classes above are kept behind
+# ``exhaustive`` for isolation.  Go tables are already per-symbol
+# (``_<sym>_table``), so this needs no Phase-1 change.  Full rationale incl.
+# the mandatory ``xdist_group`` pin is in CLAUDE.md, "Execution tests:
+# batch vs exhaustive".
+# ─────────────────────────────────────────────────────────────────────
+
+_GoVariant = Literal["bitwise", "table", "slice8"]
+_GO_VARIANT_TAG: dict[_GoVariant, str] = {"bitwise": "b", "table": "t", "slice8": "s8"}
+
+
+def _go_batch_cases() -> list[tuple[str, _GoVariant]]:
+    """(name, variant) for every algorithm x supported Go variant."""
+    cases: list[tuple[str, _GoVariant]] = []
+    for name in sorted(ALGORITHMS.keys()):
+        variants: list[_GoVariant] = ["bitwise", "table"]
+        if ALGORITHMS[name].width in (32, 64):
+            variants.append("slice8")
+        for v in variants:
+            cases.append((name, v))
+    return cases
+
+
+def _go_batch_driver_case(name: str, variant: _GoVariant) -> str:
+    """One Go block: <sym>_self_test() + split-streaming check, printing
+    ``<name>/<variant> PASS|FAIL:<phase>``."""
+    sym = f"{_func_name(name)}_{_GO_VARIANT_TAG[variant]}"
+    algo = ALGORITHMS[name]
+    gtype = _go_state_type(algo.width)
+    lit = f"{gtype}({hex(algo.check)})"
+    tag = f"{name}/{variant}"
+    return (
+        f"\tif !{sym}_self_test() {{\n"
+        f'\t\tfmt.Println("{tag} FAIL:oneshot")\n'
+        "\t} else {\n"
+        f"\t\ts := {sym}_init()\n"
+        f'\t\ts = {sym}_update(s, []byte("1234"))\n'
+        f'\t\ts = {sym}_update(s, []byte("56789"))\n'
+        f"\t\tif {sym}_finalize(s) != {lit} {{\n"
+        f'\t\t\tfmt.Println("{tag} FAIL:streaming")\n'
+        "\t\t} else {\n"
+        f'\t\t\tfmt.Println("{tag} PASS")\n'
+        "\t\t}\n"
+        "\t}"
+    )
+
+
+@pytest.fixture(scope="session")
+def go_batch_results(tmp_path_factory) -> dict[str, str]:
+    """Generate every (algorithm, variant) under a unique symbol, merge into
+    one ``package main``, build + run once, return ``{"name/variant": ...}``."""
+    if not HAS_GO:
+        return {}
+    cases = _go_batch_cases()
+    bodies, driver = [], []
+    for name, variant in cases:
+        sym = f"{_func_name(name)}_{_GO_VARIANT_TAG[variant]}"
+        code = generate_go(name, symbol=sym, variant=variant)
+        assert code is not None, f"generate_go({name!r}) returned None"
+        # Drop each module's comment header + ``package crc`` line; keep the
+        # code after it.  One ``package main`` is prepended for the whole file.
+        bodies.append(code.partition("package crc")[2])
+        driver.append(_go_batch_driver_case(name, variant))
+    src = (
+        'package main\n\nimport "fmt"\n'
+        + "".join(bodies)
+        + "\n\nfunc main() {\n"
+        + "\n".join(driver)
+        + "\n}\n"
+    )
+    d = tmp_path_factory.mktemp("go_batch")
+    main_go = d / "main.go"
+    main_go.write_text(src, encoding="utf-8")
+    proc = subprocess.run(
+        ["go", "run", str(main_go)],
+        capture_output=True, text=True, timeout=300, cwd=d,
+    )
+    if proc.returncode != 0:
+        pytest.fail(
+            "Go batch failed to build/run (a collision or codegen error):\n"
+            + proc.stderr[:3000]
+        )
+    results: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GO, reason="go toolchain not on PATH")
+# One xdist worker so the session-scoped go build runs once, not per worker.
+# See CLAUDE.md "Execution tests: batch vs exhaustive".
+@pytest.mark.xdist_group("go_batch")
+@pytest.mark.parametrize("name,variant", _go_batch_cases())
+def test_go_batch_execution(name, variant, go_batch_results):
+    # Assert -- the single-build driver reported PASS for this case.
+    key = f"{name}/{variant}"
+    actual = go_batch_results.get(key)
+    assert actual == "PASS", (
+        f"{key}: expected PASS, got {actual!r} "
+        f"(missing => absent from the one-shot batch run's output)"
+    )
