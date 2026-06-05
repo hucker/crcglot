@@ -380,18 +380,32 @@ class TestLanguageInfoRichAccessors:
                 for i in infos:
                     assert i.label and i.description, f"{code}: incomplete {i.name}"
 
+    def test_variant_infos_for_width_filters_slice8(self):
+        # Act -- the canonical consumer check: slice8 only at width 32/64.
+        names16 = [v.name for v in LANGUAGES["c"].variant_infos_for_width(16)]
+        names32 = [v.name for v in LANGUAGES["c"].variant_infos_for_width(32)]
+
+        # Assert
+        assert names16 == ["bitwise", "table"], f"c@16 should drop slice8: {names16}"
+        assert names32 == ["bitwise", "table", "slice8"], f"c@32: {names32}"
+
 
 class TestVersion:
     """``crcglot.__version__`` is exported for boot-time version assertions."""
 
-    def test_version_is_a_nonempty_string(self):
+    def test_version_matches_package_metadata(self):
         # Act
+        from importlib.metadata import version
+
         import crcglot
 
-        # Assert
+        # Assert -- the exported string is exactly the installed distribution
+        # version, so an app can assert a minimum against it at import time.
         actual = crcglot.__version__
-        assert isinstance(actual, str), f"__version__ must be a string, got {actual!r}"
-        assert actual, "__version__ must be non-empty"
+        expected = version("crcglot")
+        assert actual == expected, (
+            f"__version__ {actual!r} != metadata version {expected!r}"
+        )
 
 
 class TestVariantKwargValidation:

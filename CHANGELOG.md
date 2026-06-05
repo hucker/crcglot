@@ -1,5 +1,51 @@
 # Changelog
 
+## v0.14.0 — 2026-06-05
+
+Ergonomic, **fully additive** introspection helpers for apps building UIs on
+top of crcglot.  Nothing in 0.13.0 changed — every existing import keeps
+working byte-for-byte; this release only *adds* symbols.  The theme, from a
+downstream integration: fewer hardcoded label/description maps in client apps,
+and fewer reach-ins to submodules from the `LanguageInfo` surface.
+
+### NEW: `crcglot.__version__`
+
+A module-level version string (resolved from installed package metadata).  An
+app can now assert a minimum crcglot version at import time instead of
+discovering a missing symbol as a runtime `AttributeError` mid-render.
+
+### NEW: `variant_info(name)` / `VariantInfo`
+
+`crcglot.variant_info("slice8")` returns a frozen
+`VariantInfo(name, label, description, widths)` — the variant twin of the
+existing `crcglot.comments.style_info` / `StyleInfo`.  `widths` is `None` for
+"any width" and `frozenset({32, 64})` for slice-by-8.  A UI renders the
+canonical `label` / `description` instead of maintaining its own
+`{name: (label, description)}` table, removing a class of "what does this
+variant mean" drift between an app and the CLI.
+
+### NEW: `LanguageInfo.styles`
+
+A property returning the comment styles valid for a language as rich
+`StyleInfo` records, mirroring the `.variants` shape:
+`LANGUAGES["java"].styles` instead of reaching into
+`crcglot.comments.styles_for_language("java")`.  Everything a UI needs about a
+target now lives on the one `LanguageInfo` object.
+
+### NEW: `LanguageInfo.variant_infos_for_width(width)`
+
+The rich companion to `variants_for_width`: returns `VariantInfo` records
+instead of bare name strings, width-filtered the same way (slice-by-8 dropped
+below width 32 / 64).  Same "one object per target, records not bare strings"
+principle.
+
+### Also
+
+The benchmark gallery (`BENCHMARKS.md`) was restructured to lead with the data
+and fold crcglot's runtime engines (the compiled C extension and the
+`crc32` -> `zlib` dispatcher) into the single results table, so the fast Python
+paths sit beside the compiled languages.  Documentation only; no code change.
+
 ## v0.13.0 — 2026-06-05
 
 Generated code is now **documented**, not just correct.  Every emitted file
