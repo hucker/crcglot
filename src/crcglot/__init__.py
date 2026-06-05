@@ -40,6 +40,8 @@ Public API:
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 from crcglot.attribution import ACKNOWLEDGMENTS, ATTRIBUTION
 from crcglot.catalogue import (
     ALGORITHMS,
@@ -69,7 +71,18 @@ from crcglot.lang.typescript import (
 )
 from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
 from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
-from crcglot.targets import LANGUAGES, VARIANT_ORDER, LanguageInfo
+from crcglot.targets import (
+    LANGUAGES,
+    VARIANT_ORDER,
+    LanguageInfo,
+    VariantInfo,
+    variant_info,
+)
+
+try:
+    __version__ = version("crcglot")
+except PackageNotFoundError:  # pragma: no cover - source tree without metadata
+    __version__ = "0.0.0+unknown"
 
 
 __all__ = [
@@ -85,7 +98,10 @@ __all__ = [
     "LanguageInfo",
     "TextFormat",
     "VARIANT_ORDER",
+    "VariantInfo",
+    "__version__",
     "_reflect",
+    "variant_info",
     "detect",
     "detect_iter",
     "encode",

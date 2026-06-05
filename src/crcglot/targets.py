@@ -22,9 +22,12 @@ Example:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from crcglot._helpers import combine_concat
+
+if TYPE_CHECKING:
+    from crcglot.comments import StyleInfo
 from crcglot.lang.c import combine_c, generate_c, generate_c_from_entry
 from crcglot.lang.csharp import (
     combine_csharp,
@@ -59,6 +62,66 @@ appears first.
 
 
 @dataclass(frozen=True)
+class VariantInfo:
+    """Display metadata for one implementation variant, for building UIs.
+
+    Mirrors :class:`crcglot.comments.StyleInfo`: ``name`` is the
+    machine-readable code passed to the generator / CLI (the dropdown's
+    value); ``label`` and ``description`` are human-readable; ``widths`` is
+    the set of CRC widths the variant applies to, or ``None`` for "any width".
+
+    Examples:
+        >>> from crcglot import variant_info
+        >>> variant_info("slice8").label
+        'Slice-by-8'
+        >>> variant_info("slice8").widths
+        frozenset({32, 64})
+        >>> variant_info("table").widths is None
+        True
+    """
+
+    name: str
+    label: str
+    description: str
+    widths: frozenset[int] | None
+
+
+_VARIANT_INFO: dict[str, VariantInfo] = {
+    "bitwise": VariantInfo(
+        "bitwise", "Bit-by-bit",
+        "Smallest code, no lookup table.  Works for any width.",
+        None,
+    ),
+    "table": VariantInfo(
+        "table", "Table-driven",
+        "One 256-entry lookup table; ~10x faster than bit-by-bit.",
+        None,
+    ),
+    "slice8": VariantInfo(
+        "slice8", "Slice-by-8",
+        "Eight tables; fastest, for width 32 / 64 on compiled targets.",
+        frozenset({32, 64}),
+    ),
+}
+
+
+def variant_info(variant: str) -> VariantInfo:
+    """Display metadata (name / label / description / widths) for one variant.
+
+    The variant analogue of :func:`crcglot.comments.style_info`, so UIs read
+    one canonical label/description instead of hardcoding their own.
+
+    Raises:
+        KeyError: Unknown variant.
+
+    Examples:
+        >>> variant_info("bitwise").name
+        'bitwise'
+    """
+    return _VARIANT_INFO[variant]
+
+
+@dataclass(frozen=True)
 class LanguageInfo:
     """Typed metadata for one target language.
 
@@ -80,8 +143,10 @@ class LanguageInfo:
         generator_from_entry: Entry-dispatch generator --
             ``generator_from_entry(name, AlgorithmInfo, ...)``.
         combiner: Merge several generator outputs into one file --
-            ``combiner(outputs, stem)``.  Lets the CLI bundle multiple
-            algorithms into a single output file; per-symbol table names
+            ``combiner(outputs, stem)``.  To bundle multiple algorithms into
+            one file, call ``generator`` once per algorithm and pass the list
+            of results to ``combiner``: e.g. ``combiner([generator("crc32"),
+            generator("crc16-modbus")], "mycrcs")``.  Per-symbol table names
             make the merged unit collision-free.  C takes/returns
             ``(header, source)`` pairs; others take/return strings.
         emoji: Short pictographic identifier for terminals / docs
@@ -132,6 +197,41 @@ class LanguageInfo:
             if v in self.variants
             and not (v == "slice8" and width not in (32, 64))
         )
+
+    def variant_infos_for_width(self, width: int) -> tuple[VariantInfo, ...]:
+        """:meth:`variants_for_width` as rich :class:`VariantInfo` records.
+
+        The UI-facing companion: a front end can show each variant's
+        ``label`` / ``description`` and submit its ``name``, with no hardcoded
+        variant metadata.
+
+        Examples:
+            >>> [v.name for v in LANGUAGES["c"].variant_infos_for_width(32)]
+            ['bitwise', 'table', 'slice8']
+            >>> LANGUAGES["c"].variant_infos_for_width(32)[2].label
+            'Slice-by-8'
+        """
+        return tuple(variant_info(v) for v in self.variants_for_width(width))
+
+    @property
+    def styles(self) -> tuple[StyleInfo, ...]:
+        """The comment styles valid for this language, as rich records.
+
+        Mirrors :attr:`variants` on the documentation axis, so everything a UI
+        needs about a target lives on :class:`LanguageInfo`:
+        ``LANGUAGES[code].styles`` instead of reaching into
+        :mod:`crcglot.comments`.  Each :class:`~crcglot.comments.StyleInfo`
+        carries ``name`` / ``label`` / ``description``.
+
+        Examples:
+            >>> [s.name for s in LANGUAGES["python"].styles]
+            ['plain', 'google', 'numpy', 'rest']
+        """
+        # Lazy import: comments depends on nothing here, but targets is
+        # imported early, so keep the comment subsystem off the import path.
+        from crcglot.comments import comment_styles_for_language
+
+        return comment_styles_for_language(self.code)
 
 
 _BITWISE_TABLE = frozenset({"bitwise", "table"})

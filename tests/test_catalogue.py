@@ -317,6 +317,83 @@ class TestVariantsForWidth:
                     )
 
 
+class TestVariantInfo:
+    """``variant_info`` / ``VariantInfo`` mirror the comment-style metadata."""
+
+    def test_variant_info_carries_label_description_widths(self):
+        # Arrange
+        from crcglot import variant_info
+
+        # Act
+        bw = variant_info("bitwise")
+        s8 = variant_info("slice8")
+
+        # Assert -- machine name + human label/description + width applicability.
+        assert bw.name == "bitwise", "machine name"
+        assert bw.label == "Bit-by-bit", "human label"
+        assert bw.description, "must carry a description"
+        assert bw.widths is None, "bitwise applies to any width"
+        assert s8.widths == frozenset({32, 64}), "slice8 is width 32/64 only"
+
+    def test_every_canonical_variant_resolves(self):
+        # Arrange
+        from crcglot import VARIANT_ORDER, variant_info
+
+        # Act / Assert -- every canonical variant has complete metadata.
+        for v in VARIANT_ORDER:
+            info = variant_info(v)
+            assert info.name == v, f"{v}: name mismatch"
+            assert info.label and info.description, f"{v}: incomplete record"
+
+    def test_unknown_variant_raises(self):
+        # Act / Assert
+        from crcglot import variant_info
+
+        with pytest.raises(KeyError):
+            variant_info("nope")
+
+
+class TestLanguageInfoRichAccessors:
+    """Everything-on-LanguageInfo: ``.styles`` and ``.variant_infos_for_width``."""
+
+    def test_styles_property_returns_style_records(self):
+        # Act -- mirrors crcglot.comments.comment_styles_for_language.
+        py = LANGUAGES["python"].styles
+        c = LANGUAGES["c"].styles
+
+        # Assert
+        actual = [s.name for s in py]
+        expected = ["plain", "google", "numpy", "rest"]
+        assert actual == expected, f"python styles: {actual}"
+        assert all(s.label and s.description for s in c), "records complete"
+
+    def test_variant_infos_for_width_mirror_variants_for_width(self):
+        # Act / Assert -- same names + order, but as rich records, per width.
+        for code in LANGUAGES:
+            for width in (8, 16, 32, 64):
+                names = list(LANGUAGES[code].variants_for_width(width))
+                infos = LANGUAGES[code].variant_infos_for_width(width)
+                actual = [i.name for i in infos]
+                assert actual == names, (
+                    f"{code}@{width}: variant_infos out of sync ({actual} vs {names})"
+                )
+                for i in infos:
+                    assert i.label and i.description, f"{code}: incomplete {i.name}"
+
+
+class TestVersion:
+    """``crcglot.__version__`` is exported for boot-time version assertions."""
+
+    def test_version_is_a_nonempty_string(self):
+        # Act
+        import crcglot
+
+        # Assert
+        actual = crcglot.__version__
+        assert isinstance(actual, str), f"__version__ must be a string, got {actual!r}"
+        assert actual, "__version__ must be non-empty"
+
+
 class TestVariantKwargValidation:
     """The ``variant=`` kwarg replaced the old ``table=`` / ``slice8=``
     boolean pair across all generators.  Cross-cutting validation:

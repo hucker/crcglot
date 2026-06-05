@@ -156,6 +156,35 @@ refactor, the Go toolchain detection).
 - The `slow` marker is applied per-class on execution-verified test
   classes (the ones that shell out to a compiler/simulator).
 
+## Public API ergonomics & stability
+
+These are load-bearing conventions for the public surface (anything an
+integrator imports).  They exist because real consumers have hit friction
+when we broke them — honor them when touching public API.
+
+- **Every metadata axis ships a record + a lookup, never a bare name tuple.**
+  Languages, variants, and comment styles each expose a frozen
+  `*Info(name, label, description, …)` dataclass, a `*_info(name)` lookup, and
+  a per-language accessor.  Follow the established shape — `StyleInfo` /
+  `style_info` / `comment_styles_for_language`, `VariantInfo` / `variant_info`
+  — when adding a new axis.  Do **not** ship a bare `tuple[str, …]` and force
+  callers to hardcode their own `{name: (label, description)}` map.
+- **Everything about a target lives on `LanguageInfo`.**  Per-target
+  capabilities are accessors/properties on `LanguageInfo`
+  (`.variants_for_width`, `.variant_infos_for_width`, `.styles`), so a UI
+  reaches one object instead of stitching two namespaces together.  A new
+  per-language capability gets a `LanguageInfo` member, not a free function
+  in another module.
+- **No silent breaking changes.**  Never remove or rename a public field,
+  function, or CLI flag without a one-release `DeprecationWarning` cycle:
+  release N keeps the old name working but warns ("use X instead"); release
+  N+1 removes it.  Prefer additive changes (a new field/alias) over edits.  A
+  field that simply vanishes (as `AlgorithmInfo.name` did pre-0.11) turns a
+  consumer's upgrade into a runtime `AttributeError` instead of a visible,
+  pre-upgrade warning their test suite can catch.
+- **`crcglot.__version__`** is the supported way for apps to assert a minimum
+  version at import time; keep it exported and accurate.
+
 ## Readme
 
 - Update the badge counts at the top if test count or coverage % changed
