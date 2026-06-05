@@ -34,6 +34,7 @@ from crcglot import (
     encode_text,
     generic_crc,
 )
+from crcglot.comments import styles_for_language
 
 
 _CUSTOM_KV_KEYS = {
@@ -593,6 +594,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         try:
             result = LANGUAGES[lang].generator_from_entry(
                 custom_name, algo, symbol=symbol, variant=variant,
+                comment_style=args.comment,
             )
             if lang == "java":
                 result = LANGUAGES[lang].combiner(
@@ -656,7 +658,10 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 else:
                     sym = None
                 outputs.append(
-                    LANGUAGES[lang].generator(nm, symbol=sym, variant=variant)
+                    LANGUAGES[lang].generator(
+                        nm, symbol=sym, variant=variant,
+                        comment_style=args.comment,
+                    )
                 )
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -858,6 +863,27 @@ def build_parser() -> argparse.ArgumentParser:
                 "catalogue lookup. Required follow-up tokens: "
                 "width=N poly=X. Optional: init=, refin=, refout=, "
                 "xorout=, name=, desc="
+            ),
+        )
+        # Only the styles valid for THIS language -- derived from each style's
+        # own `languages`, so argparse rejects e.g. `rust --comment=doxygen`
+        # up front with the right options, no hardcoded matrix here.
+        p.add_argument(
+            "--comment", choices=styles_for_language(lang), default="plain",
+            metavar="STYLE",
+            help=(
+                "Comment / documentation style for the generated code. "
+                "'plain' (default) is professional human-readable comments "
+                "in the language's native syntax; 'doxygen' emits "
+                "/** @brief @param */ markup for C / C# / Java; Python has "
+                "'google' (Args / Returns), 'numpy' (underlined Parameters / "
+                "Returns) and 'rest' (Sphinx :param: field lists); 'rustdoc' "
+                "emits /// Markdown (# Arguments / "
+                "# Returns) for Rust; 'godoc' emits identifier-led // docs "
+                "for Go; 'javadoc' emits /** @param @return */ for Java; "
+                "'jsdoc' emits TSDoc /** @param x - ... @returns */ for "
+                "TypeScript; 'docfx' emits /// <summary> <param> <returns> "
+                "XML doc comments for C#."
             ),
         )
         p.add_argument(

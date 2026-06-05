@@ -38,6 +38,13 @@ from crcglot._helpers import (
     _variant_to_flags,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
+from crcglot.comments import (
+    AlgoMeta,
+    DocParam,
+    UsageExample,
+    comment_style_for,
+    standard_doc_blocks,
+)
 
 
 def _format_table_python(table: list[int], width: int) -> str:
@@ -53,7 +60,7 @@ def _format_table_python(table: list[int], width: int) -> str:
     return "\n".join(lines)
 
 
-def _self_test_python(fname: str, check: int, width: int) -> list[str]:
+def _self_test_python(fname, check, width, style, docs) -> list[str]:
     """Emit a Python self-test function returning True on success.
 
     Designed to be called from a downstream test framework
@@ -64,7 +71,7 @@ def _self_test_python(fname: str, check: int, width: int) -> list[str]:
     """
     return [
         f"def {fname}_self_test() -> bool:",
-        f'    """Return True if {fname} reproduces the reveng check value."""',
+        *style.doc_block(docs["self_test"], indent=4),
         f"    return {fname}(b'123456789') == {_hex(check, width)}",
     ]
 
@@ -73,6 +80,7 @@ def generate_python(
     name: str,
     symbol: str | None = None,
     variant: Literal["bitwise", "table"] = "bitwise",
+    comment_style: str = "plain",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Python source for it.
 
@@ -87,6 +95,8 @@ def generate_python(
         variant: ``"bitwise"`` (default) or ``"table"`` (256-entry
             lookup, ~10x faster).  No ``"slice8"`` -- Python's per-int
             overhead eats the win.
+        comment_style: Documentation style for the generated comments
+            (default ``"plain"``); see :func:`crcglot.comments.comment_style_for`.
 
     Returns:
         Python source code string, or None if algorithm not found.
@@ -94,7 +104,9 @@ def generate_python(
     algo = ALGORITHMS.get(name)
     if algo is None:
         return None
-    return generate_python_from_entry(name, algo, symbol=symbol, variant=variant)
+    return generate_python_from_entry(
+        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+    )
 
 
 def generate_python_from_entry(
@@ -102,6 +114,7 @@ def generate_python_from_entry(
     algo: AlgorithmInfo,
     symbol: str | None = None,
     variant: Literal["bitwise", "table"] = "bitwise",
+    comment_style: str = "plain",
 ) -> str:
     """Generate Python source from an :class:`AlgorithmInfo`.
 
@@ -135,7 +148,30 @@ def generate_python_from_entry(
     # This is what crc_init() returns and what callers pass into update().
     init_state = _reflect(init, w) if refin else init
 
+    style = comment_style_for("python", comment_style)
+    meta = AlgoMeta(
+        name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
+        refout=refout, xorout=xorout, check=check, variant=variant,
+    )
+    usage = UsageExample(
+        streaming=(
+            f"s = {fname}_init()",
+            f"s = {fname}_update(s, chunk)  # over each chunk of the message",
+            f"crc = {fname}_finalize(s)",
+        ),
+        oneshot=f"{fname}(data)",
+        selftest=f"{fname}_self_test()",
+        selftest_returns="returns True on success",
+    )
+    docs = standard_doc_blocks(
+        fname, state_type="int",
+        data_params=(DocParam("data", "the message bytes (a bytes-like object)."),),
+        selftest_returns="True",
+    )
+
     lines: list[str] = []
+    lines += style.file_header(meta, usage)
+    lines.append("")
 
     # Table literal (table-driven variant only).
     if table:
@@ -146,14 +182,14 @@ def generate_python_from_entry(
 
     # ----- <fname>_init() -----
     lines.append(f"def {fname}_init() -> int:")
-    lines.append(f'    """Return the initial state for {name} streaming CRC."""')
+    lines += style.doc_block(docs["init"], indent=4)
     lines.append(f"    return {_hex(init_state, w)}")
     lines.append("")
     lines.append("")
 
     # ----- <fname>_update(state, data) -----
     lines.append(f"def {fname}_update(state: int, data: bytes) -> int:")
-    lines.append(f'    """Feed bytes into {name} state; return updated state."""')
+    lines += style.doc_block(docs["update"], indent=4)
     lines.append(f"    crc = state")
     lines.append(f"    for byte in data:")
     if table:
@@ -185,9 +221,7 @@ def generate_python_from_entry(
 
     # ----- <fname>_finalize(state) -----
     lines.append(f"def {fname}_finalize(state: int) -> int:")
-    lines.append(
-        f'    """Apply output reflection and xorout to finalize {name}."""'
-    )
+    lines += style.doc_block(docs["finalize"], indent=4)
     if refout != refin:
         lines.append(f"    # reflect output (refout != refin)")
         lines.append(
@@ -202,15 +236,7 @@ def generate_python_from_entry(
 
     # ----- <fname>(data) one-shot wrapper -----
     lines.append(f"def {fname}(data: bytes) -> int:")
-    lines.append(f'    """{name} - {desc}')
-    lines.append(f"")
-    lines.append(f"    check: crc(b'123456789') == {_hex(check, w)}")
-    lines.append(f"")
-    lines.append(
-        f"    One-shot wrapper.  For streaming use "
-        f"{fname}_init / _update / _finalize."
-    )
-    lines.append(f'    """')
+    lines += style.doc_block(docs["oneshot"], indent=4)
     lines.append(
         f"    return {fname}_finalize({fname}_update({fname}_init(), data))"
     )
@@ -218,7 +244,7 @@ def generate_python_from_entry(
     lines.append("")
 
     # ----- <fname>_self_test() -----
-    lines.extend(_self_test_python(fname, check, w))
+    lines.extend(_self_test_python(fname, check, w, style, docs))
 
     module = "\n".join(lines)
     # Namespace the lookup table per symbol so several generated modules

@@ -63,6 +63,13 @@ LANG_ENUM = Literal[
 ]
 
 VARIANT_ENUM = Literal["bitwise", "table", "slice8"]
+# Comment / documentation style.  ``plain`` is the only one implemented
+# today; the doc-tool styles are accepted by the schema but raise an
+# informative ValueError until shipped (see crcglot.comments).
+COMMENT_STYLE_ENUM = Literal[
+    "plain", "doxygen", "google", "numpy", "rest", "rustdoc", "godoc", "docfx",
+    "javadoc", "jsdoc",
+]
 ENDIAN_ENUM = Literal["big", "little", "both"]
 MATCH_ENUM = Literal["first", "all", "set"]
 CRC_BYTE_ORDER_ENUM = Literal["big", "little"]
@@ -336,8 +343,18 @@ def build_server() -> FastMCP:
             "bundle collision-free.  'symbol' renames the single emitted "
             "function and is rejected with more than one algorithm.  The "
             "chosen 'variant' must be legal for every algorithm's width "
-            "(slice8 is width 32/64 only).  The returned 'algorithms' lists "
-            "what was generated."
+            "(slice8 is width 32/64 only).  'comment_style' selects the "
+            "documentation style of the emitted comments: 'plain' (default) "
+            "is professional human-readable comments in each language's "
+            "native syntax; 'doxygen' emits /** @brief @param */ markup for "
+            "C / C# / Java; Python has 'google' (Args / Returns), 'numpy' "
+            "(underlined Parameters / Returns) and 'rest' (Sphinx :param: "
+            "field lists); 'rustdoc' emits /// Markdown for "
+            "Rust; 'godoc' emits identifier-led // docs for Go; 'javadoc' "
+            "emits /** @param @return */ for Java; 'jsdoc' emits TSDoc "
+            "markup for TypeScript; 'docfx' emits /// <summary> <param> "
+            "<returns> XML doc comments for C#.  The returned 'algorithms' "
+            "lists what was generated."
         ),
     )
     def crc_generate(
@@ -346,6 +363,7 @@ def build_server() -> FastMCP:
         variant: VARIANT_ENUM = "bitwise",
         symbol: str | None = None,
         custom_params: dict[str, Any] | None = None,
+        comment_style: COMMENT_STYLE_ENUM = "plain",
     ) -> dict[str, Any]:
         info = LANGUAGES[language]
         if (algorithm is None) == (custom_params is None):
@@ -386,6 +404,7 @@ def build_server() -> FastMCP:
                     n,
                     symbol=(symbol if len(names) == 1 else None),
                     variant=variant,
+                    comment_style=comment_style,
                 )
                 for n in names
             ]
@@ -437,6 +456,7 @@ def build_server() -> FastMCP:
                 algo_info,
                 symbol=symbol,
                 variant=variant,
+                comment_style=comment_style,
             )
             generated = [cust_name]
 
@@ -452,6 +472,7 @@ def build_server() -> FastMCP:
         return {
             "language": language,
             "variant": variant,
+            "comment_style": comment_style,
             "algorithms": generated,
             "files": files,
         }

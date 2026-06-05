@@ -154,13 +154,24 @@ def language_to_dict(code: str, info: LanguageInfo) -> dict[str, Any]:
 
     Drops the two ``generator`` callables (not JSON-serializable);
     keeps everything else.  ``variants`` is sorted into a list so the
-    output order is deterministic across runs.
+    output order is deterministic across runs.  ``comment_styles`` lists the
+    documentation styles valid for this language as ``{name, label,
+    description}`` records -- enough for a UI to build a dropdown (show the
+    label, submit the name) without hardcoding the matrix.
     """
+    # Imported lazily to keep this module free of comment-subsystem imports
+    # at module load (it is otherwise pure wire helpers).
+    from crcglot.comments import comment_styles_for_language
+
     return {
         "code": code,
         "display_name": info.display_name,
         "extensions": list(info.extensions),
         "variants": sorted(info.variants),
+        "comment_styles": [
+            {"name": s.name, "label": s.label, "description": s.description}
+            for s in comment_styles_for_language(code)
+        ],
         "emoji": info.emoji,
     }
 

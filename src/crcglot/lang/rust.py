@@ -41,6 +41,13 @@ from crcglot._helpers import (
     _variant_to_flags,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
+from crcglot.comments import (
+    AlgoMeta,
+    DocParam,
+    UsageExample,
+    comment_style_for,
+    standard_doc_blocks,
+)
 
 
 def _format_table_rust(table: list[int], width: int, rtype: str) -> str:
@@ -290,7 +297,7 @@ def _update_loop_rust(
     ]
 
 
-def _self_test_rust(fname: str, check: int, width: int, rtype: str) -> str:
+def _self_test_rust(fname, check, width, rtype, style, docs) -> str:
     """Emit a Rust ``pub fn <fname>_self_test() -> bool``.
 
     Returns true iff the one-shot CRC of ``b"123456789"`` matches the
@@ -302,6 +309,7 @@ def _self_test_rust(fname: str, check: int, width: int, rtype: str) -> str:
     """
     lines = [
         f"",
+        *style.doc_block(docs["self_test"]),
         f"pub fn {fname}_self_test() -> bool {{",
         f'    {fname}(b"123456789") == {_hex(check, width)}_{rtype}',
         f"}}",
@@ -313,6 +321,7 @@ def generate_rust(
     name: str,
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    comment_style: str = "plain",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Rust source for it.
 
@@ -324,7 +333,7 @@ def generate_rust(
     if algo is None:
         return None
     return generate_rust_from_entry(
-        name, algo, symbol=symbol, variant=variant,
+        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
     )
 
 
@@ -333,6 +342,7 @@ def generate_rust_from_entry(
     algo: AlgorithmInfo,
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    comment_style: str = "plain",
 ) -> str:
     """Generate Rust source from an :class:`AlgorithmInfo`.
 
@@ -381,6 +391,32 @@ def generate_rust_from_entry(
     # Pre-loaded init state for streaming entry.
     init_state = _reflect(init, w) if refin else init
 
+    style = comment_style_for("rust", comment_style)
+    meta = AlgoMeta(
+        name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
+        refout=refout, xorout=xorout, check=check, variant=variant,
+    )
+    usage = UsageExample(
+        streaming=(
+            f"let s = {fname}_init();",
+            f"let s = {fname}_update(s, chunk);  // over each chunk",
+            f"let crc = {fname}_finalize(s);",
+        ),
+        oneshot=f"{fname}(data)",
+        selftest=f"{fname}_self_test()",
+        selftest_returns="returns true on success",
+        caveats=(
+            ("Variant: slice-by-8 (8 tables, ~10x throughput vs a plain "
+             "table for large buffers).",)
+            if slice8 else ()
+        ),
+    )
+    docs = standard_doc_blocks(
+        fname, state_type=rtype,
+        data_params=(DocParam("data", "the message bytes."),),
+        selftest_returns="true",
+    )
+
     lines: list[str] = []
     if slice8:
         slice_tables = _build_slice8_tables(w, poly, refin)
@@ -390,16 +426,8 @@ def generate_rust_from_entry(
         tbl = _build_table(w, poly, refin)
         lines.append(_format_table_rust(tbl, w, rtype))
         lines.append("")
-    lines.append(f"/// {name} - {desc}")
-    lines.append(f'/// check: crc(b"123456789") == {_hex(check, w)}')
-    lines.append(f"///")
-    lines.append(f"/// Streaming: init -> update (any number of times) -> finalize.")
-    lines.append(f"/// One-shot:  call {fname}(data).")
-    if slice8:
-        lines.append(
-            f"/// Variant:   slice-by-8 (8 tables, ~10x throughput vs "
-            f"plain table for large buffers)."
-        )
+    lines += style.file_header(meta, usage)
+    lines.append("")
 
     # ``pub fn`` (not plain ``fn``) so the same file works equally well
     # as a standalone crate (where ``fn`` would suffice) and as a module
@@ -408,12 +436,14 @@ def generate_rust_from_entry(
     # ``fn`` is private-to-mod by default in Rust.
 
     # ----- <fname>_init() -----
+    lines += style.doc_block(docs["init"])
     lines.append(f"pub fn {fname}_init() -> {rtype} {{")
     lines.append(f"    {_hex(init_state, w)}")
     lines.append(f"}}")
     lines.append("")
 
     # ----- <fname>_update(state, data) -----
+    lines += style.doc_block(docs["update"])
     lines.append(
         f"pub fn {fname}_update(state: {rtype}, data: &[u8]) -> {rtype} {{"
     )
@@ -427,6 +457,7 @@ def generate_rust_from_entry(
     lines.append("")
 
     # ----- <fname>_finalize(state) -----
+    lines += style.doc_block(docs["finalize"])
     lines.append(f"pub fn {fname}_finalize(state: {rtype}) -> {rtype} {{")
     if refout != refin:
         lines.append(f"    // reflect output (refout != refin)")
@@ -443,12 +474,13 @@ def generate_rust_from_entry(
     lines.append("")
 
     # ----- one-shot wrapper -----
+    lines += style.doc_block(docs["oneshot"])
     lines.append(f"pub fn {fname}(data: &[u8]) -> {rtype} {{")
     lines.append(
         f"    {fname}_finalize({fname}_update({fname}_init(), data))"
     )
     lines.append(f"}}")
-    lines.append(_self_test_rust(fname, check, w, rtype))
+    lines.append(_self_test_rust(fname, check, w, rtype, style, docs))
 
     module = "\n".join(lines)
     # Namespace the lookup-table consts per symbol so several generated

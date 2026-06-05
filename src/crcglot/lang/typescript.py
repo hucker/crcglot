@@ -49,6 +49,13 @@ from crcglot._helpers import (
     _variant_to_flags,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
+from crcglot.comments import (
+    AlgoMeta,
+    DocParam,
+    UsageExample,
+    comment_style_for,
+    standard_doc_blocks,
+)
 
 
 def _ts_type(width: int) -> str:
@@ -342,10 +349,11 @@ def _mask_int(width: int) -> int:
     return (1 << width) - 1
 
 
-def _self_test_ts(fname: str, check: int, width: int) -> list[str]:
+def _self_test_ts(fname, check, width, style, docs) -> list[str]:
     """Emit a TS self-test returning true iff one-shot matches reveng."""
     return [
         f"",
+        *style.doc_block(docs["self_test"]),
         f"export function {fname}_self_test(): boolean {{",
         f'    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);',
         f"    return {fname}(input) === {_ts_lit(check, width)};",
@@ -357,6 +365,7 @@ def generate_typescript(
     name: str,
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    comment_style: str = "plain",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate TypeScript source.
 
@@ -367,7 +376,7 @@ def generate_typescript(
     if algo is None:
         return None
     return generate_typescript_from_entry(
-        name, algo, symbol=symbol, variant=variant,
+        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
     )
 
 
@@ -376,6 +385,7 @@ def generate_typescript_from_entry(
     algo: AlgorithmInfo,
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    comment_style: str = "plain",
 ) -> str:
     """Generate TypeScript source from an :class:`AlgorithmInfo`.
 
@@ -413,6 +423,32 @@ def generate_typescript_from_entry(
 
     init_state = _reflect(init, w) if refin else init
 
+    style = comment_style_for("typescript", comment_style)
+    meta = AlgoMeta(
+        name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
+        refout=refout, xorout=xorout, check=check, variant=variant,
+    )
+    usage = UsageExample(
+        streaming=(
+            f"let s = {fname}_init();",
+            f"s = {fname}_update(s, chunk);  // over each chunk of the message",
+            f"const crc = {fname}_finalize(s);",
+        ),
+        oneshot=f"{fname}(data)",
+        selftest=f"{fname}_self_test()",
+        selftest_returns="returns true on success",
+        caveats=(
+            ("Variant: slice-by-8 (8 tables, ~10x throughput vs a plain "
+             "table for large buffers).",)
+            if slice8 else ()
+        ),
+    )
+    docs = standard_doc_blocks(
+        fname, state_type=ttype,
+        data_params=(DocParam("data", "the message bytes."),),
+        selftest_returns="true",
+    )
+
     lines: list[str] = []
 
     # Tables (if any).
@@ -425,26 +461,19 @@ def generate_typescript_from_entry(
         lines.append(_format_table_ts(tbl, w, ttype))
         lines.append("")
 
-    # Banner comment.
-    lines.append(f"// {name} - {desc}")
-    lines.append(f"// check: crc(b\"123456789\") == {_hex(check, w)}")
-    lines.append(f"//")
-    lines.append(f"// Streaming: init -> update (any number of times) -> finalize.")
-    lines.append(f"// One-shot:  call {fname}(data).")
-    if slice8:
-        lines.append(
-            f"// Variant:   slice-by-8 (8 tables, ~10x throughput vs "
-            f"plain table for large buffers)."
-        )
+    # File header.
+    lines += style.file_header(meta, usage)
     lines.append("")
 
     # ----- <fname>_init() -----
+    lines += style.doc_block(docs["init"])
     lines.append(f"export function {fname}_init(): {ttype} {{")
     lines.append(f"    return {_ts_lit(init_state, w)};")
     lines.append(f"}}")
     lines.append("")
 
     # ----- <fname>_update(state, data) -----
+    lines += style.doc_block(docs["update"])
     lines.append(
         f"export function {fname}_update(state: {ttype}, data: Uint8Array): {ttype} {{"
     )
@@ -458,6 +487,7 @@ def generate_typescript_from_entry(
     lines.append("")
 
     # ----- <fname>_finalize(state) -----
+    lines += style.doc_block(docs["finalize"])
     lines.append(
         f"export function {fname}_finalize(state: {ttype}): {ttype} {{"
     )
@@ -506,6 +536,7 @@ def generate_typescript_from_entry(
     lines.append("")
 
     # ----- one-shot wrapper -----
+    lines += style.doc_block(docs["oneshot"])
     lines.append(
         f"export function {fname}(data: Uint8Array): {ttype} {{"
     )
@@ -515,7 +546,7 @@ def generate_typescript_from_entry(
     lines.append(f"}}")
 
     # ----- self-test -----
-    lines.extend(_self_test_ts(fname, check, w))
+    lines.extend(_self_test_ts(fname, check, w, style, docs))
 
     module = "\n".join(lines)
     # Namespace the lookup-table identifiers per symbol so multiple
