@@ -783,6 +783,50 @@ class TestResources:
         assert c_info["extensions"] == [".h", ".c"], "C extensions"
         assert "slice8" in c_info["variants"], "C supports slice8"
 
+    def test_languages_resource_exposes_comment_styles(self):
+        """The languages resource carries each language's valid comment styles.
+
+        Each is a ``{name, label, description}`` record -- enough for a UI to
+        build a dropdown without hardcoding the matrix.
+        """
+        # Act
+        data = _read_resource("crcglot://languages.json")
+        langs = data["languages"]
+
+        def names(lang):
+            return [s["name"] for s in langs[lang]["comment_styles"]]
+
+        # Assert -- doxygen is offered for C/Java but not Go/Python.
+        assert "doxygen" in names("c"), "C should offer doxygen"
+        assert "doxygen" in names("java"), "Java should offer doxygen"
+        assert "doxygen" not in names("go"), "Go must not offer doxygen"
+        assert names("python") == ["plain", "google", "numpy", "rest"], (
+            f"python styles: {names('python')}"
+        )
+        # Each record carries human-readable label + description for the UI.
+        google = next(s for s in langs["python"]["comment_styles"] if s["name"] == "google")
+        assert google["label"] == "Google", f"google label: {google}"
+        assert google["description"], "google must carry a description"
+
+    def test_comment_style_enum_matches_registry(self):
+        """The MCP param enum must stay in sync with the style registry.
+
+        ``COMMENT_STYLE_ENUM`` is a typing ``Literal`` (can't be derived at
+        runtime), so guard it against drift instead.
+        """
+        # Arrange
+        from typing import get_args
+
+        from crcglot.comments import COMMENT_STYLES
+        from crcglot.mcp.server import COMMENT_STYLE_ENUM
+
+        # Act / Assert
+        actual = set(get_args(COMMENT_STYLE_ENUM))
+        expected = set(COMMENT_STYLES)
+        assert actual == expected, (
+            f"COMMENT_STYLE_ENUM {actual} drifted from registry {expected}"
+        )
+
     def test_variants_resource_excludes_slice8_appropriately(self):
         # Act
         data = _read_resource("crcglot://variants.json")
