@@ -1,5 +1,79 @@
 # Changelog
 
+## v0.13.0 — 2026-06-05
+
+Generated code is now **documented**, not just correct.  Every emitted file
+gets a header (algorithm parameters, a copy-paste streaming example, the
+self-test contract) and a doc comment above each of the five functions — so a
+reader learns the `init → update* → finalize` streaming contract from the
+source rather than the tests.  Backward compatible: the new `plain` style is
+the default, and these comments are the only change to the generated output.
+
+### NEW: pluggable documentation comment styles
+
+Pick the convention with `--comment=<style>`.  `plain` (clean human-readable
+comments in each language's native syntax) is the default; every language also
+has its idiomatic doc-tool style, and each is verified by compiling and running
+the documented code on its real toolchain:
+
+| Language       | `--comment` styles                |
+| -------------- | --------------------------------- |
+| C / C++        | `plain`, `doxygen`                |
+| C#             | `plain`, `doxygen`, `docfx`       |
+| Java           | `plain`, `doxygen`, `javadoc`     |
+| Python         | `plain`, `google`, `numpy`, `rest` |
+| Rust           | `plain`, `rustdoc`                |
+| Go             | `plain`, `godoc`                  |
+| TypeScript     | `plain`, `jsdoc`                  |
+| Verilog / VHDL | `plain`                           |
+
+```bash
+crcglot c crc32 --comment=doxygen        # /** @brief @param @return */
+crcglot python crc32 --comment=numpy     # numpydoc underlined Parameters / Returns
+crcglot rust crc32 --comment=rustdoc     # /// with # Arguments markdown
+```
+
+crcglot offers each language only the styles its tool understands —
+`crcglot rust --comment=doxygen` is rejected, because Doxygen doesn't read
+Rust.  And why generate the docs at all instead of asking an LLM?  Because the
+code is fully known, the documentation can be **deterministic**: the same
+request yields byte-identical comments every time, rendered from the same
+source of truth as the code (so it can't misdescribe the API) — and if a
+description is ever wrong, it is wrong *uniformly*, fixed once in the generator
+and propagated everywhere.  Layer an LLM on top for richer prose; the baseline
+everyone ships is reproducible, uniform, and reviewable.
+
+### NEW: UI-discoverable style matrix
+
+The (language, style) compatibility matrix is derived from self-describing
+styles, never hardcoded, so a front end can build a dropdown from it:
+
+```python
+from crcglot.comments import comment_styles_for_language
+comment_styles_for_language("python")
+# (StyleInfo(name='plain',  label='Plain',  description='…'),
+#  StyleInfo(name='google', label='Google', description='…'), …)
+```
+
+Each record carries a machine `name` (the dropdown's value, handed back to the
+generator), a human `label`, and a `description`.  The same
+`{name, label, description}` records are served over MCP in the
+`crcglot://languages.json` resource, and `crc_generate` takes a `comment_style`
+argument.
+
+### Also: Java in the benchmark gallery
+
+`BENCHMARKS.md` now includes Java throughput figures (bit-by-bit / table /
+slice-by-8), alongside an explicit note that the HDL targets (Verilog / VHDL)
+are simulator-verified only and therefore carry no benchmark numbers.
+
+### Internal
+
+The comment subsystem ships as a `crcglot.comments` package, one small module
+per style; adding a style is one module plus one registry line, with **no
+generator changes** — the generators emit structured doc blocks and the style
+renders the syntax.  3293 tests, 93% coverage.
+
 ## v0.12.0 — 2026-06-04
 
 A ninth target language (Java), the ability to bundle several algorithms
