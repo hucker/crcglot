@@ -59,6 +59,7 @@ from crcglot.detect import (
     detect_iter,
 )
 from crcglot.encode import encode, encode_int, encode_match, encode_text
+from crcglot.stream import CrcStream, crc_stream
 from crcglot.lang.c import generate_c, generate_c_from_entry
 from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
 from crcglot.lang.go import generate_go, generate_go_from_entry
@@ -94,6 +95,7 @@ __all__ = [
     "ATTRIBUTION",
     "AlgorithmInfo",
     "Attempt",
+    "CrcStream",
     "DetectMatch",
     "DetectResult",
     "HexFormat",
@@ -132,5 +134,6 @@ __all__ = [
     "generate_verilog_from_entry",
     "generate_vhdl",
     "generate_vhdl_from_entry",
+    "crc_stream",
     "generic_crc",
 ]

@@ -52,6 +52,8 @@ hardware datapaths, not a software runtime.)
 
 The two **Python (runtime)** rows are crcglot's own engines, not generated source: calling `crcglot.generic_crc` from Python uses the **compiled C extension** (`crcglot._c`, slice-by-8 for *every* algorithm), and for crc32 alone delegates to the stdlib's hardware-accelerated `zlib.crc32`.  They put Python squarely in the compiled-language band -- which is the whole reason the package ships C.  The C extension is ~2,201x faster than the pure-Python CRC.
 
+The same compiled paths back the **streaming** API: `crcglot.crc_stream(name)` / `CrcStream` feed chunks into the C extension's `CrcStream` (or `zlib.crc32` incrementally for crc32), so chunked data -- large files, sockets, sensor logs -- runs at this same compiled speed, paying the Python/C transition once across the whole message rather than per call.
+
 ## Reading the results
 
 The trustworthy signal here is **coarse**: the across-language band and the
