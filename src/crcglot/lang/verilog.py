@@ -160,6 +160,7 @@ def generate_verilog_from_entry(
             DocParam("data", "the packed message as a byte-unsigned array."),
         ),
         selftest_returns="1'b1",
+        refin=refin, refout=refout, xorout=xorout,
         extra_notes={
             "update": (
                 "Consumes one byte per call -- loop over your message bytes.",

@@ -468,6 +468,7 @@ def generate_java_from_entry(
         fname, state_type=jtype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
+        refin=refin, refout=refout, xorout=xorout,
         extra_notes=(
             {"finalize": unsigned_note, "oneshot": unsigned_note}
             if signed32 else None

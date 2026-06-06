@@ -447,6 +447,7 @@ def generate_typescript_from_entry(
         fname, state_type=ttype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
+        refin=refin, refout=refout, xorout=xorout,
     )
 
     lines: list[str] = []

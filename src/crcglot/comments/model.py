@@ -73,12 +73,49 @@ class DocBlock:
 _CALL_ORDER = "Call init -> update (any number of times) -> finalize."
 
 
+def _finalize_summary(refin: bool, refout: bool, xorout: int) -> str:
+    """Describe what ``finalize`` actually does for these parameters.
+
+    The body emitted by every generator reflects only ``if refout != refin``
+    and XORs only ``if xorout != 0``, so a single hardcoded summary mislabels
+    the common cases (no catalogue algorithm reflects in finalize, and 47 of
+    72 have ``xorout == 0``, making finalize a no-op).  This selects wording
+    matching the four possible shapes.
+
+    Args:
+        refin: Whether input bytes are reflected.
+        refout: Whether the output is reflected.
+        xorout: The final XOR mask (``0`` means no final XOR).
+
+    Returns:
+        The summary line for the ``finalize`` doc block.
+
+    Examples:
+        >>> _finalize_summary(refin=True, refout=True, xorout=0)
+        'Return the finished CRC; this algorithm applies no final transform.'
+        >>> _finalize_summary(refin=True, refout=True, xorout=0xFFFFFFFF)
+        'Apply the final XOR to produce the CRC.'
+    """
+    reflects = refout != refin
+    xors = xorout != 0
+    if reflects and xors:
+        return "Reflect the CRC and apply the final XOR to produce the result."
+    if reflects:
+        return "Reflect the CRC to produce the final result."
+    if xors:
+        return "Apply the final XOR to produce the CRC."
+    return "Return the finished CRC; this algorithm applies no final transform."
+
+
 def standard_doc_blocks(
     fname: str,
     *,
     state_type: str,
     data_params: tuple[DocParam, ...],
     selftest_returns: str,
+    refin: bool,
+    refout: bool,
+    xorout: int,
     extra_notes: dict[str, tuple[str, ...]] | None = None,
     oneshot_params: tuple[DocParam, ...] | None = None,
 ) -> dict[str, DocBlock]:
@@ -92,6 +129,10 @@ def standard_doc_blocks(
             (e.g. C ``(data, len)``; Verilog ``(byte_in,)``).
         selftest_returns: e.g. ``"0 on success, 1 on failure"`` /
             ``"true on success"``.
+        refin: Whether input bytes are reflected -- selects the ``finalize``
+            summary wording (see :func:`_finalize_summary`).
+        refout: Whether the output is reflected.
+        xorout: The final XOR mask (``0`` means finalize applies no XOR).
         extra_notes: Optional per-function extra ``notes`` keyed by
             ``init|update|finalize|oneshot|self_test``.
         oneshot_params: The one-shot's parameters when they differ from
@@ -122,7 +163,7 @@ def standard_doc_blocks(
             symbol=f"{fname}_update",
         ),
         "finalize": DocBlock(
-            summary="Apply output reflection and the final XOR to produce the CRC.",
+            summary=_finalize_summary(refin, refout, xorout),
             params=(DocParam("state", f"accumulated {state_type} state from update."),),
             returns="the finished CRC value.",
             notes=("Do not feed the finalized value back into update.",)

@@ -167,6 +167,7 @@ def generate_python_from_entry(
         fname, state_type="int",
         data_params=(DocParam("data", "the message bytes (a bytes-like object)."),),
         selftest_returns="True",
+        refin=refin, refout=refout, xorout=xorout,
     )
 
     lines: list[str] = []

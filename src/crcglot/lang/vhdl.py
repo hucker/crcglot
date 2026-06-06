@@ -183,6 +183,7 @@ def generate_vhdl_from_entry(
         fname, state_type=f"{w}-bit std_logic_vector",
         data_params=data_params,
         selftest_returns="true",
+        refin=refin, refout=refout, xorout=xorout,
     )
 
     # ---- package declaration (forward declarations + API docs) ----
