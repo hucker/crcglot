@@ -41,6 +41,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
@@ -241,12 +242,12 @@ def _update_loop_go(
     ]
 
 
-def _self_test_go(fname, check, width, style, docs) -> list[str]:
+def _self_test_go(names, check, width, style, docs) -> list[str]:
     """Emit a Go self-test function returning true on success."""
     return [
         *style.doc_block(docs["self_test"]),
-        f"func {fname}_self_test() bool {{",
-        f'    return {fname}([]byte("123456789")) == {_hex(check, width)}',
+        f"func {names['self_test']}() bool {{",
+        f'    return {names["oneshot"]}([]byte("123456789")) == {_hex(check, width)}',
         f"}}",
     ]
 
@@ -284,6 +285,7 @@ def generate_go(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "pascal",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Go source for it.
 
@@ -295,7 +297,8 @@ def generate_go(
     if algo is None:
         return None
     return generate_go_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -305,6 +308,7 @@ def generate_go_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "pascal",
 ) -> str:
     """Generate a Go source file from an :class:`AlgorithmInfo`.
 
@@ -331,7 +335,11 @@ def generate_go_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("go", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
     mask = _mask(w)
 
     if slice8 and w not in (32, 64):
@@ -361,16 +369,16 @@ def generate_go_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"s := {fname}_init()",
-            f"s = {fname}_update(s, chunk)  // over each chunk of the message",
-            f"crc := {fname}_finalize(s)",
+            f"s := {names['init']}()",
+            f"s = {names['update']}(s, chunk)  // over each chunk of the message",
+            f"crc := {names['finalize']}(s)",
         ),
-        oneshot=f"{fname}(data)",
-        selftest=f"{fname}_self_test()",
+        oneshot=f"{names['oneshot']}(data)",
+        selftest=f"{names['self_test']}()",
         selftest_returns="returns true on success",
     )
     docs = standard_doc_blocks(
-        fname, state_type=gtype,
+        names, state_type=gtype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
@@ -384,35 +392,35 @@ def generate_go_from_entry(
 
     if slice8:
         slice_tables = _build_slice8_tables(w, poly, refin)
-        lines.append(_format_slice8_tables_go(slice_tables, w, gtype, fname))
+        lines.append(_format_slice8_tables_go(slice_tables, w, gtype, base))
         lines.append("")
     elif table:
         tbl = _build_table(w, poly, refin)
-        lines.append(_format_table_go(tbl, w, gtype, fname))
+        lines.append(_format_table_go(tbl, w, gtype, base))
         lines.append("")
 
-    # ----- <fname>_init() -----
+    # ----- <init>() -----
     lines += style.doc_block(docs["init"])
-    lines.append(f"func {fname}_init() {gtype} {{")
+    lines.append(f"func {names['init']}() {gtype} {{")
     lines.append(f"    return {_hex(init_state, w)}")
     lines.append(f"}}")
     lines.append("")
 
-    # ----- <fname>_update(state, data) -----
+    # ----- <update>(state, data) -----
     lines += style.doc_block(docs["update"])
-    lines.append(f"func {fname}_update(state {gtype}, data []byte) {gtype} {{")
+    lines.append(f"func {names['update']}(state {gtype}, data []byte) {gtype} {{")
     lines.append(f"    crc := state")
     if slice8:
-        lines.extend(_update_loop_go_slice8(w, refin, gtype, fname))
+        lines.extend(_update_loop_go_slice8(w, refin, gtype, base))
     else:
-        lines.extend(_update_loop_go(w, poly, refin, mask, gtype, table, fname))
+        lines.extend(_update_loop_go(w, poly, refin, mask, gtype, table, base))
     lines.append(f"    return crc")
     lines.append(f"}}")
     lines.append("")
 
-    # ----- <fname>_finalize(state) -----
+    # ----- <finalize>(state) -----
     lines += style.doc_block(docs["finalize"])
-    lines.append(f"func {fname}_finalize(state {gtype}) {gtype} {{")
+    lines.append(f"func {names['finalize']}(state {gtype}) {gtype} {{")
     if refout != refin:
         lines.append(f"    // reflect output (refout != refin)")
         lines.append(f"    var reflected {gtype} = 0")
@@ -429,14 +437,14 @@ def generate_go_from_entry(
 
     # ----- one-shot wrapper -----
     lines += style.doc_block(docs["oneshot"])
-    lines.append(f"func {fname}(data []byte) {gtype} {{")
+    lines.append(f"func {names['oneshot']}(data []byte) {gtype} {{")
     lines.append(
-        f"    return {fname}_finalize({fname}_update({fname}_init(), data))"
+        f"    return {names['finalize']}({names['update']}({names['init']}(), data))"
     )
     lines.append(f"}}")
     lines.append("")
 
     # ----- self-test -----
-    lines.extend(_self_test_go(fname, check, w, style, docs))
+    lines.extend(_self_test_go(names, check, w, style, docs))
 
     return "\n".join(lines)

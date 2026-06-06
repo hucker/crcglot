@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from crcglot._helpers import _func_name, _variant_to_flags
+from crcglot._helpers import _func_name, _variant_to_flags, crc_function_names
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -50,7 +50,7 @@ def _sv_lit(value: int, width: int) -> str:
     return f"{width}'h{value:0{hex_w}X}"
 
 
-def _self_test_sv(fname, check, width, style, docs) -> list[str]:
+def _self_test_sv(names, check, width, style, docs) -> list[str]:
     """Emit a SystemVerilog self_test function returning 1'b1 on success.
 
     The reveng check input ``"123456789"`` is hardcoded as a byte
@@ -61,12 +61,12 @@ def _self_test_sv(fname, check, width, style, docs) -> list[str]:
     return [
         f"",
         *style.doc_block(docs["self_test"], indent=4),
-        f"    function automatic bit {fname}_self_test();",
+        f"    function automatic bit {names['self_test']}();",
         f"        byte unsigned data[] = '{{",
         f"            8'h31, 8'h32, 8'h33, 8'h34, 8'h35,",
         f"            8'h36, 8'h37, 8'h38, 8'h39",
         f"        }};",
-        f"        return ({fname}(data) == {_sv_lit(check, width)});",
+        f"        return ({names['oneshot']}(data) == {_sv_lit(check, width)});",
         f"    endfunction",
     ]
 
@@ -76,6 +76,7 @@ def generate_verilog(
     symbol: str | None = None,
     variant: Literal["bitwise"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate a Verilog package.
 
@@ -86,7 +87,8 @@ def generate_verilog(
     if algo is None:
         return None
     return generate_verilog_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -96,6 +98,7 @@ def generate_verilog_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str:
     """Generate a SystemVerilog package from an :class:`AlgorithmInfo`.
 
@@ -122,8 +125,12 @@ def generate_verilog_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
-    pkg = f"{fname}_pkg"
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("verilog", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
+    pkg = f"{base}_pkg"
 
     if refin:
         init_state = _reflect(init, w)
@@ -139,12 +146,12 @@ def generate_verilog_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"state = {fname}_init();",
-            f"state = {fname}_update(state, byte_in);  // call once per byte",
-            f"crc = {fname}_finalize(state);",
+            f"state = {names['init']}();",
+            f"state = {names['update']}(state, byte_in);  // call once per byte",
+            f"crc = {names['finalize']}(state);",
         ),
-        oneshot=f"{fname}(data)",
-        selftest=f"{fname}_self_test",
+        oneshot=f"{names['oneshot']}(data)",
+        selftest=f"{names['self_test']}",
         selftest_returns="returns 1'b1 on success",
         caveats=(
             "update consumes ONE byte per call -- the one-shot wrapper "
@@ -154,7 +161,7 @@ def generate_verilog_from_entry(
         ),
     )
     docs = standard_doc_blocks(
-        fname, state_type=f"{w}-bit",
+        names, state_type=f"{w}-bit",
         data_params=(DocParam("byte_in", "a single input byte (8 bits)."),),
         oneshot_params=(
             DocParam("data", "the packed message as a byte-unsigned array."),
@@ -182,8 +189,8 @@ def generate_verilog_from_entry(
     lines.append(f"")
     lines += style.doc_block(docs["init"], indent=4)
     lines += [
-        f"    function automatic [{w - 1}:0] {fname}_init();",
-        f"        {fname}_init = {_sv_lit(init_state, w)};",
+        f"    function automatic [{w - 1}:0] {names['init']}();",
+        f"        {names['init']} = {_sv_lit(init_state, w)};",
         f"    endfunction",
     ]
 
@@ -194,7 +201,7 @@ def generate_verilog_from_entry(
     lines.append(f"")
     lines += style.doc_block(docs["update"], indent=4)
     lines += [
-        f"    function automatic [{w - 1}:0] {fname}_update("
+        f"    function automatic [{w - 1}:0] {names['update']}("
         f"input [{w - 1}:0] state, input [7:0] byte_in);",
         f"        logic [{w - 1}:0] crc;",
         f"        crc = state;",
@@ -237,7 +244,7 @@ def generate_verilog_from_entry(
             f"        end",
         ]
     lines += [
-        f"        {fname}_update = crc;",
+        f"        {names['update']} = crc;",
         f"    endfunction",
     ]
 
@@ -245,7 +252,7 @@ def generate_verilog_from_entry(
     lines.append(f"")
     lines += style.doc_block(docs["finalize"], indent=4)
     lines += [
-        f"    function automatic [{w - 1}:0] {fname}_finalize("
+        f"    function automatic [{w - 1}:0] {names['finalize']}("
         f"input [{w - 1}:0] state);",
         f"        logic [{w - 1}:0] crc;",
         f"        crc = state;",
@@ -262,27 +269,27 @@ def generate_verilog_from_entry(
             f"        end",
         ]
     if xorout:
-        lines.append(f"        {fname}_finalize = crc ^ {_sv_lit(xorout, w)};")
+        lines.append(f"        {names['finalize']} = crc ^ {_sv_lit(xorout, w)};")
     else:
-        lines.append(f"        {fname}_finalize = crc;")
+        lines.append(f"        {names['finalize']} = crc;")
     lines.append(f"    endfunction")
 
     # ---- one-shot ----
     lines.append(f"")
     lines += style.doc_block(docs["oneshot"], indent=4)
     lines += [
-        f"    function automatic [{w - 1}:0] {fname}("
+        f"    function automatic [{w - 1}:0] {names['oneshot']}("
         f"input byte unsigned data[]);",
         f"        logic [{w - 1}:0] s;",
-        f"        s = {fname}_init();",
+        f"        s = {names['init']}();",
         f"        foreach (data[i])",
-        f"            s = {fname}_update(s, data[i]);",
-        f"        {fname} = {fname}_finalize(s);",
+        f"            s = {names['update']}(s, data[i]);",
+        f"        {names['oneshot']} = {names['finalize']}(s);",
         f"    endfunction",
     ]
 
     # ---- self-test ----
-    lines.extend(_self_test_sv(fname, check, w, style, docs))
+    lines.extend(_self_test_sv(names, check, w, style, docs))
 
     lines += [
         f"",

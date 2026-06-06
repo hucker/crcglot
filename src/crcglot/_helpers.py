@@ -25,6 +25,80 @@ def _func_name(algo_name: str) -> str:
     return algo_name.replace("-", "_").replace(".", "_")
 
 
+# The five public functions every generator emits, with the role-suffix
+# tokens appended to the algorithm-name tokens.  ``oneshot`` has no suffix
+# (its name is the bare algorithm), so snake ``oneshot`` equals the ``base``
+# stem -- a property the C ``#include`` and per-symbol table rewrites rely on.
+_ROLE_TOKENS: dict[str, tuple[str, ...]] = {
+    "oneshot": (),
+    "init": ("init",),
+    "update": ("update",),
+    "finalize": ("finalize",),
+    "self_test": ("self", "test"),
+}
+
+
+def _title(token: str) -> str:
+    """Title-case one token: ``crc16`` -> ``Crc16`` (matches `_cs_pascal_class`)."""
+    return token[:1].upper() + token[1:].lower()
+
+
+def _join_naming(tokens: list[str], convention: str) -> str:
+    """Join identifier tokens under a casing convention.
+
+    Snake preserves token text verbatim (so an explicit ``symbol=`` keeps its
+    case); pascal/camel re-case per token.  Catalogue stems are already
+    lowercase, so snake is a no-op for them.
+
+    Raises:
+        KeyError: Unknown convention.
+    """
+    if convention == "snake":
+        return "_".join(tokens)
+    if convention == "pascal":
+        return "".join(_title(t) for t in tokens)
+    if convention == "camel":
+        if not tokens:
+            return ""
+        return tokens[0].lower() + "".join(_title(t) for t in tokens[1:])
+    raise KeyError(convention)
+
+
+def crc_function_names(
+    base_snake: str, convention: str, *, is_override: bool = False
+) -> dict[str, str]:
+    """Build the five public function identifiers under a naming convention.
+
+    ``base_snake`` is the snake-case stem (``crc16_modbus``).  The result maps
+    each role (``oneshot|init|update|finalize|self_test``) to its emitted
+    identifier.  An explicit ``symbol=`` override (``is_override``) is always
+    joined snake-style and emitted verbatim, regardless of ``convention`` --
+    the user named it, so we honor it.
+
+    Args:
+        base_snake: The snake-case identifier stem.
+        convention: ``"snake"``, ``"camel"``, or ``"pascal"``.
+        is_override: True when ``base_snake`` came from a user ``symbol=``.
+
+    Returns:
+        Role -> identifier, e.g. ``{"update": "Crc16ModbusUpdate", ...}``.
+
+    Examples:
+        >>> crc_function_names("crc16_modbus", "pascal")["update"]
+        'Crc16ModbusUpdate'
+        >>> crc_function_names("crc16_modbus", "camel")["self_test"]
+        'crc16ModbusSelfTest'
+        >>> crc_function_names("my_check", "pascal", is_override=True)["oneshot"]
+        'my_check'
+    """
+    join = "snake" if is_override else convention
+    tokens = base_snake.split("_")
+    return {
+        role: _join_naming(tokens + list(suffix), join)
+        for role, suffix in _ROLE_TOKENS.items()
+    }
+
+
 def combine_concat(outputs: list[str], stem: str | None = None) -> str:
     """Combine several single-file generator outputs by concatenation.
 

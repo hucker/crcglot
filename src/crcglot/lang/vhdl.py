@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from crcglot._helpers import _func_name, _variant_to_flags
+from crcglot._helpers import _func_name, _variant_to_flags, crc_function_names
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -69,7 +69,7 @@ def _vhdl_lit(value: int, width: int) -> str:
     return f"to_unsigned({value}, {width})"
 
 
-def _self_test_vhdl(fname: str, check: int, width: int) -> str:
+def _self_test_vhdl(names, check: int, width: int) -> str:
     """Emit a VHDL self-test function returning ``true`` / ``false``.
 
     Designed to be called from a testbench process via ``assert ...
@@ -78,11 +78,11 @@ def _self_test_vhdl(fname: str, check: int, width: int) -> str:
     """
     lines = [
         f"    -- Run the canonical reveng check value; returns true on success.",
-        f"    function {fname}_self_test return boolean is",
+        f"    function {names['self_test']} return boolean is",
         f'        constant kCheckInput: std_logic_vector(71 downto 0) :=',
         f'            x"313233343536373839";  -- ASCII "123456789"',
         f"    begin",
-        f"        return unsigned({fname}(kCheckInput)) = "
+        f"        return unsigned({names['oneshot']}(kCheckInput)) = "
         f"{_vhdl_lit(check, width)};",
         f"    end function;",
     ]
@@ -94,6 +94,7 @@ def generate_vhdl(
     symbol: str | None = None,
     variant: Literal["bitwise"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate a VHDL package.
 
@@ -105,7 +106,8 @@ def generate_vhdl(
     if algo is None:
         return None
     return generate_vhdl_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -115,6 +117,7 @@ def generate_vhdl_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str:
     """Generate a VHDL package from an :class:`AlgorithmInfo`.
 
@@ -140,8 +143,12 @@ def generate_vhdl_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
-    pkg = f"{fname}_pkg"
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("vhdl", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
+    pkg = f"{base}_pkg"
 
     # Pre-loaded init state and (for reflected algorithms) the reflected
     # polynomial used in the right-shift loop.
@@ -159,12 +166,12 @@ def generate_vhdl_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"s := {fname}_init();",
-            f"s := {fname}_update(s, chunk);  -- chunk length a multiple of 8",
-            f"crc := {fname}_finalize(s);",
+            f"s := {names['init']}();",
+            f"s := {names['update']}(s, chunk);  -- chunk length a multiple of 8",
+            f"crc := {names['finalize']}(s);",
         ),
-        oneshot=f"{fname}(data)",
-        selftest=f"{fname}_self_test",
+        oneshot=f"{names['oneshot']}(data)",
+        selftest=f"{names['self_test']}",
         selftest_returns="returns true on success",
         caveats=(
             "Input vectors are packed bytes; the length must be a multiple "
@@ -180,7 +187,7 @@ def generate_vhdl_from_entry(
         ),
     )
     docs = standard_doc_blocks(
-        fname, state_type=f"{w}-bit std_logic_vector",
+        names, state_type=f"{w}-bit std_logic_vector",
         data_params=data_params,
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
@@ -199,28 +206,28 @@ def generate_vhdl_from_entry(
         f"",
     ]
     lines += style.doc_block(docs["init"], indent=4)
-    lines.append(f"    function {fname}_init return std_logic_vector;")
+    lines.append(f"    function {names['init']} return std_logic_vector;")
     lines.append(f"")
     lines += style.doc_block(docs["update"], indent=4)
     lines.append(
-        f"    function {fname}_update(state: std_logic_vector; "
+        f"    function {names['update']}(state: std_logic_vector; "
         f"data: std_logic_vector) return std_logic_vector;"
     )
     lines.append(f"")
     lines += style.doc_block(docs["finalize"], indent=4)
     lines.append(
-        f"    function {fname}_finalize(state: std_logic_vector) "
+        f"    function {names['finalize']}(state: std_logic_vector) "
         f"return std_logic_vector;"
     )
     lines.append(f"")
     lines += style.doc_block(docs["oneshot"], indent=4)
     lines.append(
-        f"    function {fname}(data: std_logic_vector) return std_logic_vector;"
+        f"    function {names['oneshot']}(data: std_logic_vector) return std_logic_vector;"
     )
     lines.append(f"")
     lines += style.doc_block(docs["self_test"], indent=4)
     lines += [
-        f"    function {fname}_self_test return boolean;",
+        f"    function {names['self_test']} return boolean;",
         f"end package;",
         f"",
         f"package body {pkg} is",
@@ -229,7 +236,7 @@ def generate_vhdl_from_entry(
     # ---- <fname>_init ----
     lines += [
         f"",
-        f"    function {fname}_init return std_logic_vector is",
+        f"    function {names['init']} return std_logic_vector is",
         f"        variable s: unsigned({w - 1} downto 0) := "
         f"{_vhdl_lit(init_state, w)};",
         f"    begin",
@@ -240,7 +247,7 @@ def generate_vhdl_from_entry(
     # ---- <fname>_update(state, data) ----
     lines += [
         f"",
-        f"    function {fname}_update(state: std_logic_vector; "
+        f"    function {names['update']}(state: std_logic_vector; "
         f"data: std_logic_vector) return std_logic_vector is",
         f"        variable crc: unsigned({w - 1} downto 0) := unsigned(state);",
         f"        variable byte: unsigned(7 downto 0);",
@@ -285,7 +292,7 @@ def generate_vhdl_from_entry(
     # ---- <fname>_finalize(state) ----
     finalize_lines: list[str] = [
         f"",
-        f"    function {fname}_finalize(state: std_logic_vector) "
+        f"    function {names['finalize']}(state: std_logic_vector) "
         f"return std_logic_vector is",
         f"        variable crc: unsigned({w - 1} downto 0) := unsigned(state);",
     ]
@@ -316,17 +323,17 @@ def generate_vhdl_from_entry(
     # ---- <fname> one-shot wrapper ----
     lines += [
         f"",
-        f"    function {fname}(data: std_logic_vector) "
+        f"    function {names['oneshot']}(data: std_logic_vector) "
         f"return std_logic_vector is",
         f"    begin",
-        f"        return {fname}_finalize("
-        f"{fname}_update({fname}_init, data));",
+        f"        return {names['finalize']}("
+        f"{names['update']}({names['init']}, data));",
         f"    end function;",
     ]
 
     # ---- self-test ----
     lines.append("")
-    lines.append(_self_test_vhdl(fname, check, w))
+    lines.append(_self_test_vhdl(names, check, w))
 
     lines.append(f"end package body;")
 

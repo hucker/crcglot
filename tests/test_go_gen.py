@@ -31,6 +31,7 @@ from crcglot import (
     generate_go,
     generate_go_from_entry,
 )
+from crcglot._helpers import crc_function_names
 
 
 HAS_GO = shutil.which("go") is not None
@@ -72,10 +73,11 @@ class TestGenerateGo:
         # Assert
         assert code is not None, "generator returned code"
         assert "package crc" in code, "package declaration present"
-        assert "func crc16_modbus(" in code, "one-shot function name"
+        names = crc_function_names(_func_name("crc16-modbus"), "pascal")
+        assert f"func {names['oneshot']}(" in code, "one-shot function name"
         assert "uint16" in code, "correct state type"
         assert "0x4B37" in code, "check value embedded"
-        assert "func crc16_modbus_self_test() bool" in code, "self-test emitted"
+        assert f"func {names['self_test']}() bool" in code, "self-test emitted"
 
     def test_unknown_algorithm(self):
         # Assert
@@ -156,9 +158,11 @@ class TestGenerateGo:
 
         # Assert - structural only; execution tests verify behaviour
         assert code is not None, f"generate_go({name!r}) returned code"
-        fname = _func_name(name)
-        assert f"func {fname}(" in code, f"{name}: one-shot function present"
-        assert f"func {fname}_self_test() bool" in code, (
+        names = crc_function_names(_func_name(name), "pascal")
+        assert f"func {names['oneshot']}(" in code, (
+            f"{name}: one-shot function present"
+        )
+        assert f"func {names['self_test']}() bool" in code, (
             f"{name}: self_test present"
         )
 
@@ -227,7 +231,9 @@ class TestGeneratedGoExecutes:
         gtype = _go_state_type(algo.width)
         code = generate_go(name, variant=variant)
         assert code is not None, f"generate_go({name!r}) returned code"
-        fname = _func_name(name)
+        # No symbol= override here, so the generated functions use the Go
+        # default PascalCase naming -- the harness call sites must match.
+        names = crc_function_names(_func_name(name), "pascal")
         code = code.replace(
             "package crc",
             'package main\n\nimport "os"',
@@ -236,28 +242,28 @@ class TestGeneratedGoExecutes:
         runner = textwrap.dedent(f"""
             func main() {{
                 expected := {gtype}({hex(expected)})
-                if !{fname}_self_test() {{
+                if !{names['self_test']}() {{
                     os.Exit(1)
                 }}
                 // split-at-4
-                s := {fname}_init()
-                s = {fname}_update(s, []byte("1234"))
-                s = {fname}_update(s, []byte("56789"))
-                if {fname}_finalize(s) != expected {{
+                s := {names['init']}()
+                s = {names['update']}(s, []byte("1234"))
+                s = {names['update']}(s, []byte("56789"))
+                if {names['finalize']}(s) != expected {{
                     os.Exit(2)
                 }}
                 // empty-chunk-first
-                s = {fname}_init()
-                s = {fname}_update(s, []byte(""))
-                s = {fname}_update(s, []byte("123456789"))
-                if {fname}_finalize(s) != expected {{
+                s = {names['init']}()
+                s = {names['update']}(s, []byte(""))
+                s = {names['update']}(s, []byte("123456789"))
+                if {names['finalize']}(s) != expected {{
                     os.Exit(3)
                 }}
                 // empty-chunk-last
-                s = {fname}_init()
-                s = {fname}_update(s, []byte("123456789"))
-                s = {fname}_update(s, []byte(""))
-                if {fname}_finalize(s) != expected {{
+                s = {names['init']}()
+                s = {names['update']}(s, []byte("123456789"))
+                s = {names['update']}(s, []byte(""))
+                if {names['finalize']}(s) != expected {{
                     os.Exit(4)
                 }}
                 os.Exit(0)
@@ -494,7 +500,10 @@ def test_go_combined_multi_algorithm_compiles_and_runs(tmp_path):
     assert combined.count("package crc") == 1, "exactly one package clause"
     src = combined.replace("package crc", 'package main\n\nimport "os"', 1)
     src += "\n\nfunc main() {\n" + "\n".join(
-        f"\tif !{_func_name(n)}_self_test() {{ os.Exit({i + 1}) }}"
+        # generate_go(n) has no symbol= override, so the self_test uses the
+        # Go default PascalCase name; the call site must match.
+        f"\tif !{crc_function_names(_func_name(n), 'pascal')['self_test']}() "
+        f"{{ os.Exit({i + 1}) }}"
         for i, n in enumerate(_MULTI_ALGOS)
     ) + "\n\tos.Exit(0)\n}\n"
     (tmp_path / "main.go").write_text(src, encoding="utf-8")

@@ -63,6 +63,11 @@ LANG_ENUM = Literal[
 ]
 
 VARIANT_ENUM = Literal["bitwise", "table", "slice8"]
+# Naming convention for the generated public function / method names.
+# Which conventions a language offers (and its default) lives on
+# ``LanguageInfo.naming`` / ``.default_naming``; the schema accepts all three
+# and the tool rejects a pair the language doesn't offer.
+NAMING_ENUM = Literal["snake", "camel", "pascal"]
 # Comment / documentation style.  ``plain`` is the only one implemented
 # today; the doc-tool styles are accepted by the schema but raise an
 # informative ValueError until shipped (see crcglot.comments).
@@ -364,10 +369,21 @@ def build_server() -> FastMCP:
         symbol: str | None = None,
         custom_params: dict[str, Any] | None = None,
         comment_style: COMMENT_STYLE_ENUM = "plain",
+        naming: NAMING_ENUM | None = None,
     ) -> dict[str, Any]:
         info = LANGUAGES[language]
         if (algorithm is None) == (custom_params is None):
             raise ValueError("supply exactly one of algorithm or custom_params")
+
+        # Resolve naming: None -> the language's idiomatic default; reject a
+        # convention the language doesn't offer (e.g. pascal for Rust).
+        naming_resolved = naming or info.default_naming
+        if naming_resolved not in info.naming:
+            raise ValueError(
+                f"naming={naming_resolved!r} is not valid for "
+                f"language={language!r}; this language offers "
+                f"{sorted(info.naming)} (default {info.default_naming!r})"
+            )
 
         if algorithm is not None:
             # Accept one name, a space-separated string, or a list -- no
@@ -405,6 +421,7 @@ def build_server() -> FastMCP:
                     symbol=(symbol if len(names) == 1 else None),
                     variant=variant,
                     comment_style=comment_style,
+                    naming=naming_resolved,
                 )
                 for n in names
             ]
@@ -457,6 +474,7 @@ def build_server() -> FastMCP:
                 symbol=symbol,
                 variant=variant,
                 comment_style=comment_style,
+                naming=naming_resolved,
             )
             generated = [cust_name]
 
@@ -473,6 +491,7 @@ def build_server() -> FastMCP:
             "language": language,
             "variant": variant,
             "comment_style": comment_style,
+            "naming": naming_resolved,
             "algorithms": generated,
             "files": files,
         }

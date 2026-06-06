@@ -607,6 +607,38 @@ class TestCodegenSymbolOverride:
         assert "def renamed(" in body
 
 
+class TestCodegenNaming:
+    def test_go_defaults_to_pascal(self, capsys):
+        """Go emits PascalCase methods out of the box (no --naming)."""
+        # Act
+        rc = main(["go", "crc16-modbus"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        assert rc == 0, "go generation succeeds"
+        assert "func Crc16ModbusUpdate(" in out, "default Go naming is PascalCase"
+        assert "func crc16_modbus_update(" not in out, "no snake methods"
+
+    def test_naming_flag_overrides_default(self, capsys):
+        """``--naming camel`` re-cases the public functions."""
+        # Act -- C defaults to snake but offers camel.
+        rc = main(["c", "crc16-modbus", "--naming", "camel"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        assert rc == 0, "c generation with --naming succeeds"
+        assert "crc16ModbusUpdate(" in out, "--naming camel cases the functions"
+
+    def test_unsupported_naming_rejected_by_argparse(self, capsys):
+        """A convention a language doesn't offer is rejected (exit 2)."""
+        # Act / Assert -- Rust is snake-only; argparse rejects the choice.
+        with pytest.raises(SystemExit) as exc:
+            main(["rust", "crc32", "--naming", "pascal"])
+        assert exc.value.code == 2, "argparse rejects an invalid choice with code 2"
+        _out, err = capsys.readouterr()
+        assert "--naming" in err, "the error names the offending argument"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Codegen -- catalogue lookup errors.
 # ─────────────────────────────────────────────────────────────────────

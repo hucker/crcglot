@@ -32,6 +32,7 @@ from crcglot import (
     generate_csharp,
     generate_csharp_from_entry,
 )
+from crcglot._helpers import crc_function_names
 
 
 def _has_dotnet_sdk() -> bool:
@@ -93,11 +94,11 @@ class TestGenerateCSharp:
         assert code is not None, "generator returned code"
         assert "using System;" in code, "using directive present"
         assert "public static class Crc16Modbus" in code, "PascalCase class"
-        assert "public static ushort crc16_modbus(" in code, (
+        assert "public static ushort Crc16Modbus(" in code, (
             "one-shot method present"
         )
         assert "0x4B37" in code, "check value embedded"
-        assert "public static bool crc16_modbus_self_test()" in code, (
+        assert "public static bool Crc16ModbusSelfTest()" in code, (
             "self-test method present"
         )
 
@@ -113,7 +114,7 @@ class TestGenerateCSharp:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "public static byte crc8(" in code, "CRC-8 uses byte"
+        assert "public static byte Crc8(" in code, "CRC-8 uses byte"
 
     def test_crc32_uses_uint_with_suffix(self):
         # Act
@@ -121,7 +122,7 @@ class TestGenerateCSharp:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "public static uint crc32(" in code, "CRC-32 uses uint"
+        assert "public static uint Crc32(" in code, "CRC-32 uses uint"
         assert "0xFFFFFFFFu" in code, (
             "width-32 hex literals carry the u suffix"
         )
@@ -132,7 +133,7 @@ class TestGenerateCSharp:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "public static ulong crc64_xz(" in code, "CRC-64 uses ulong"
+        assert "public static ulong Crc64Xz(" in code, "CRC-64 uses ulong"
         # CRC-64/XZ has init=0xFFFFFFFFFFFFFFFF and xorout=0xFFFFFFFFFFFFFFFF
         assert "0xFFFFFFFFFFFFFFFFUL" in code, (
             "width-64 hex literals carry the UL suffix"
@@ -186,10 +187,11 @@ class TestGenerateCSharp:
         assert code is not None, f"generate_csharp({name!r}) returned code"
         fname = _func_name(name)
         cls = _pascal(fname)
+        names = crc_function_names(fname, "pascal")
         assert f"public static class {cls}" in code, (
             f"{name}: class declaration"
         )
-        assert f"public static bool {fname}_self_test()" in code, (
+        assert f"public static bool {names['self_test']}()" in code, (
             f"{name}: self_test present"
         )
 
@@ -260,6 +262,7 @@ class TestGeneratedCSharpExecutes:
         assert code is not None, f"generate_csharp({name!r}) returned code"
         fname = _func_name(name)
         cls = _pascal(fname)
+        names = crc_function_names(fname, "pascal")
         proj = tmp_path / "Probe.csproj"
         proj.write_text(textwrap.dedent("""
             <Project Sdk="Microsoft.NET.Sdk">
@@ -286,23 +289,23 @@ class TestGeneratedCSharpExecutes:
                 public static int Main(string[] args)
                 {{
                     {cstype} expected = {hex(expected)}{suffix};
-                    if (!{cls}.{fname}_self_test()) return 1;
+                    if (!{cls}.{names['self_test']}()) return 1;
                     {cstype} s;
                     // split-at-4
-                    s = {cls}.{fname}_init();
-                    s = {cls}.{fname}_update(s, {ascii_one_to_four});
-                    s = {cls}.{fname}_update(s, {ascii_five_to_nine});
-                    if ({cls}.{fname}_finalize(s) != expected) return 2;
+                    s = {cls}.{names['init']}();
+                    s = {cls}.{names['update']}(s, {ascii_one_to_four});
+                    s = {cls}.{names['update']}(s, {ascii_five_to_nine});
+                    if ({cls}.{names['finalize']}(s) != expected) return 2;
                     // empty-chunk-first
-                    s = {cls}.{fname}_init();
-                    s = {cls}.{fname}_update(s, {ascii_empty});
-                    s = {cls}.{fname}_update(s, {ascii_one_to_nine});
-                    if ({cls}.{fname}_finalize(s) != expected) return 3;
+                    s = {cls}.{names['init']}();
+                    s = {cls}.{names['update']}(s, {ascii_empty});
+                    s = {cls}.{names['update']}(s, {ascii_one_to_nine});
+                    if ({cls}.{names['finalize']}(s) != expected) return 3;
                     // empty-chunk-last
-                    s = {cls}.{fname}_init();
-                    s = {cls}.{fname}_update(s, {ascii_one_to_nine});
-                    s = {cls}.{fname}_update(s, {ascii_empty});
-                    if ({cls}.{fname}_finalize(s) != expected) return 4;
+                    s = {cls}.{names['init']}();
+                    s = {cls}.{names['update']}(s, {ascii_one_to_nine});
+                    s = {cls}.{names['update']}(s, {ascii_empty});
+                    if ({cls}.{names['finalize']}(s) != expected) return 4;
                     return 0;
                 }}
             }}
