@@ -49,6 +49,7 @@ from crcglot._helpers import (
     _build_table,
     _func_name,
     _variant_to_flags,
+    crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
@@ -370,12 +371,12 @@ def _update_loop_csharp(
     ]
 
 
-def _self_test_csharp(fname, check, width, style, docs) -> list[str]:
+def _self_test_csharp(names, check, width, style, docs) -> list[str]:
     """Emit a static method returning true on success."""
     return [
         *style.doc_block(docs["self_test"], indent=4),
-        f"    public static bool {fname}_self_test() {{",
-        f"        return {fname}({_check_input_bytes_cs()}) == "
+        f"    public static bool {names['self_test']}() {{",
+        f"        return {names['oneshot']}({_check_input_bytes_cs()}) == "
         f"{_cs_hex(check, width)};",
         f"    }}",
     ]
@@ -416,6 +417,7 @@ def generate_csharp(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "pascal",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate C# source for it.
 
@@ -427,7 +429,8 @@ def generate_csharp(
     if algo is None:
         return None
     return generate_csharp_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -437,6 +440,7 @@ def generate_csharp_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "pascal",
 ) -> str:
     """Generate a C# source file from an :class:`AlgorithmInfo`.
 
@@ -464,9 +468,13 @@ def generate_csharp_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("csharp", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
     cstype = _cs_type(w)
-    cls = _cs_pascal_class(fname)
+    cls = _cs_pascal_class(base)
     mask = _cs_hex((1 << w) - 1, w)
 
     if slice8 and w not in (32, 64):
@@ -486,16 +494,16 @@ def generate_csharp_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"{cstype} s = {cls}.{fname}_init();",
-            f"s = {cls}.{fname}_update(s, chunk);  // over each chunk",
-            f"{cstype} crc = {cls}.{fname}_finalize(s);",
+            f"{cstype} s = {cls}.{names['init']}();",
+            f"s = {cls}.{names['update']}(s, chunk);  // over each chunk",
+            f"{cstype} crc = {cls}.{names['finalize']}(s);",
         ),
-        oneshot=f"{cls}.{fname}(data)",
-        selftest=f"{cls}.{fname}_self_test()",
+        oneshot=f"{cls}.{names['oneshot']}(data)",
+        selftest=f"{cls}.{names['self_test']}()",
         selftest_returns="returns true on success",
     )
     docs = standard_doc_blocks(
-        fname, state_type=cstype,
+        names, state_type=cstype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
@@ -518,17 +526,17 @@ def generate_csharp_from_entry(
         lines.append(_format_table_csharp(tbl, w, cstype))
         lines.append("")
 
-    # ----- <fname>_init() -----
+    # ----- <init>() -----
     lines += style.doc_block(docs["init"], indent=4)
-    lines.append(f"    public static {cstype} {fname}_init() {{")
+    lines.append(f"    public static {cstype} {names['init']}() {{")
     lines.append(f"        return {_cs_hex(init_state, w)};")
     lines.append(f"    }}")
     lines.append("")
 
-    # ----- <fname>_update(state, data) -----
+    # ----- <update>(state, data) -----
     lines += style.doc_block(docs["update"], indent=4)
     lines.append(
-        f"    public static {cstype} {fname}_update({cstype} state, byte[] data) {{"
+        f"    public static {cstype} {names['update']}({cstype} state, byte[] data) {{"
     )
     lines.append(f"        {cstype} crc = state;")
     if slice8:
@@ -539,9 +547,9 @@ def generate_csharp_from_entry(
     lines.append(f"    }}")
     lines.append("")
 
-    # ----- <fname>_finalize(state) -----
+    # ----- <finalize>(state) -----
     lines += style.doc_block(docs["finalize"], indent=4)
-    lines.append(f"    public static {cstype} {fname}_finalize({cstype} state) {{")
+    lines.append(f"    public static {cstype} {names['finalize']}({cstype} state) {{")
     if refout != refin:
         lines.append(f"        // reflect output (refout != refin)")
         lines.append(f"        {cstype} reflected = 0;")
@@ -560,15 +568,16 @@ def generate_csharp_from_entry(
 
     # ----- one-shot wrapper -----
     lines += style.doc_block(docs["oneshot"], indent=4)
-    lines.append(f"    public static {cstype} {fname}(byte[] data) {{")
+    lines.append(f"    public static {cstype} {names['oneshot']}(byte[] data) {{")
     lines.append(
-        f"        return {fname}_finalize({fname}_update({fname}_init(), data));"
+        f"        return {names['finalize']}("
+        f"{names['update']}({names['init']}(), data));"
     )
     lines.append(f"    }}")
     lines.append("")
 
     # ----- self-test -----
-    lines.extend(_self_test_csharp(fname, check, w, style, docs))
+    lines.extend(_self_test_csharp(names, check, w, style, docs))
 
     lines.append(f"}}")
     _ = mask  # currently unused at top-level scope; consumed via inline helpers

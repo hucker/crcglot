@@ -47,6 +47,7 @@ from crcglot._helpers import (
     _func_name,
     _hex,
     _variant_to_flags,
+    crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
@@ -349,14 +350,14 @@ def _mask_int(width: int) -> int:
     return (1 << width) - 1
 
 
-def _self_test_ts(fname, check, width, style, docs) -> list[str]:
+def _self_test_ts(names, check, width, style, docs) -> list[str]:
     """Emit a TS self-test returning true iff one-shot matches reveng."""
     return [
         f"",
         *style.doc_block(docs["self_test"]),
-        f"export function {fname}_self_test(): boolean {{",
+        f"export function {names['self_test']}(): boolean {{",
         f'    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);',
-        f"    return {fname}(input) === {_ts_lit(check, width)};",
+        f"    return {names['oneshot']}(input) === {_ts_lit(check, width)};",
         f"}}",
     ]
 
@@ -366,6 +367,7 @@ def generate_typescript(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "camel",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate TypeScript source.
 
@@ -376,7 +378,8 @@ def generate_typescript(
     if algo is None:
         return None
     return generate_typescript_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -386,6 +389,7 @@ def generate_typescript_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "camel",
 ) -> str:
     """Generate TypeScript source from an :class:`AlgorithmInfo`.
 
@@ -411,7 +415,11 @@ def generate_typescript_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("typescript", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
     ttype = _ts_type(w)
 
     if slice8 and w not in (32, 64):
@@ -430,12 +438,12 @@ def generate_typescript_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"let s = {fname}_init();",
-            f"s = {fname}_update(s, chunk);  // over each chunk of the message",
-            f"const crc = {fname}_finalize(s);",
+            f"let s = {names['init']}();",
+            f"s = {names['update']}(s, chunk);  // over each chunk of the message",
+            f"const crc = {names['finalize']}(s);",
         ),
-        oneshot=f"{fname}(data)",
-        selftest=f"{fname}_self_test()",
+        oneshot=f"{names['oneshot']}(data)",
+        selftest=f"{names['self_test']}()",
         selftest_returns="returns true on success",
         caveats=(
             ("Variant: slice-by-8 (8 tables, ~10x throughput vs a plain "
@@ -444,7 +452,7 @@ def generate_typescript_from_entry(
         ),
     )
     docs = standard_doc_blocks(
-        fname, state_type=ttype,
+        names, state_type=ttype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
@@ -468,7 +476,7 @@ def generate_typescript_from_entry(
 
     # ----- <fname>_init() -----
     lines += style.doc_block(docs["init"])
-    lines.append(f"export function {fname}_init(): {ttype} {{")
+    lines.append(f"export function {names['init']}(): {ttype} {{")
     lines.append(f"    return {_ts_lit(init_state, w)};")
     lines.append(f"}}")
     lines.append("")
@@ -476,7 +484,7 @@ def generate_typescript_from_entry(
     # ----- <fname>_update(state, data) -----
     lines += style.doc_block(docs["update"])
     lines.append(
-        f"export function {fname}_update(state: {ttype}, data: Uint8Array): {ttype} {{"
+        f"export function {names['update']}(state: {ttype}, data: Uint8Array): {ttype} {{"
     )
     lines.append(f"    let crc: {ttype} = state;")
     if slice8:
@@ -490,7 +498,7 @@ def generate_typescript_from_entry(
     # ----- <fname>_finalize(state) -----
     lines += style.doc_block(docs["finalize"])
     lines.append(
-        f"export function {fname}_finalize(state: {ttype}): {ttype} {{"
+        f"export function {names['finalize']}(state: {ttype}): {ttype} {{"
     )
     if refout != refin:
         # Emit a bit-reflection loop matching the language idiom.
@@ -539,15 +547,15 @@ def generate_typescript_from_entry(
     # ----- one-shot wrapper -----
     lines += style.doc_block(docs["oneshot"])
     lines.append(
-        f"export function {fname}(data: Uint8Array): {ttype} {{"
+        f"export function {names['oneshot']}(data: Uint8Array): {ttype} {{"
     )
     lines.append(
-        f"    return {fname}_finalize({fname}_update({fname}_init(), data));"
+        f"    return {names['finalize']}({names['update']}({names['init']}(), data));"
     )
     lines.append(f"}}")
 
     # ----- self-test -----
-    lines.extend(_self_test_ts(fname, check, w, style, docs))
+    lines.extend(_self_test_ts(names, check, w, style, docs))
 
     module = "\n".join(lines)
     # Namespace the lookup-table identifiers per symbol so multiple
@@ -559,6 +567,6 @@ def generate_typescript_from_entry(
     # single assembly point -- so the loop bodies reference the unique
     # name directly with no aliasing.  Slice first (its name is a strict
     # superset spelling, though not a substring of the table token).
-    module = module.replace("CRC_SLICE_TABLES", f"crcglot_slice_{fname}")
-    module = module.replace("CRC_TABLE", f"crcglot_table_{fname}")
+    module = module.replace("CRC_SLICE_TABLES", f"crcglot_slice_{base}")
+    module = module.replace("CRC_TABLE", f"crcglot_table_{base}")
     return module

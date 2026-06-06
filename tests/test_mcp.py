@@ -808,6 +808,48 @@ class TestResources:
         assert google["label"] == "Google", f"google label: {google}"
         assert google["description"], "google must carry a description"
 
+    def test_languages_resource_exposes_naming(self):
+        """The languages resource carries each language's naming conventions.
+
+        Mirrors ``comment_styles``: ``{name, label, description}`` records plus
+        a ``default_naming`` so a UI can preselect the idiomatic convention.
+        """
+        # Act
+        data = _read_resource("crcglot://languages.json")
+        langs = data["languages"]
+
+        def names(lang):
+            return [n["name"] for n in langs[lang]["naming"]]
+
+        # Assert -- per-language offered sets + idiomatic defaults.
+        assert names("go") == ["camel", "pascal"], f"go naming: {names('go')}"
+        assert names("python") == ["snake"], f"python naming: {names('python')}"
+        assert langs["go"]["default_naming"] == "pascal", "go defaults to pascal"
+        assert langs["java"]["default_naming"] == "camel", "java defaults to camel"
+        # Records carry label + description for the UI dropdown.
+        pascal = next(n for n in langs["go"]["naming"] if n["name"] == "pascal")
+        assert pascal["label"] == "PascalCase", f"pascal label: {pascal}"
+        assert pascal["description"], "pascal must carry a description"
+
+    def test_generate_honors_naming(self):
+        """crc_generate re-cases function names and rejects an unsupported pair."""
+        # Act -- Go default is pascal; camel is offered; snake is not.
+        default = _call("crc_generate", {"language": "go", "algorithm": "crc16-modbus"})
+        camel = _call(
+            "crc_generate",
+            {"language": "go", "algorithm": "crc16-modbus", "naming": "camel"},
+        )
+
+        # Assert
+        assert default["naming"] == "pascal", "go default naming is pascal"
+        assert "func Crc16ModbusUpdate(" in default["files"][0]["content"], "pascal funcs"
+        assert "func crc16ModbusUpdate(" in camel["files"][0]["content"], "camel funcs"
+        with pytest.raises(Exception, match="not valid for language"):
+            _call(
+                "crc_generate",
+                {"language": "rust", "algorithm": "crc32", "naming": "pascal"},
+            )
+
     def test_comment_style_enum_matches_registry(self):
         """The MCP param enum must stay in sync with the style registry.
 

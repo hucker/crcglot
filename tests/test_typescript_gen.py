@@ -29,6 +29,7 @@ from crcglot import (
     generate_typescript,
     generate_typescript_from_entry,
 )
+from crcglot._helpers import crc_function_names
 
 
 _TSX_PATH = (
@@ -67,15 +68,18 @@ class TestGenerateTypeScript:
     """``generate_typescript`` returns a single ``.ts`` source string."""
 
     def test_generates_code(self):
+        # Arrange -- default naming is camelCase for TypeScript.
+        names = crc_function_names(_func_name("crc16-modbus"), "camel")
+
         # Act
         code = generate_typescript("crc16-modbus")
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "export function crc16_modbus" in code, "exported function"
+        assert f"export function {names['oneshot']}" in code, "exported function"
         assert ": number" in code, "number state type for width 16"
         assert "0x4B37" in code, "check value embedded"
-        assert "crc16_modbus_self_test(): boolean" in code, "self_test signature"
+        assert f"{names['self_test']}(): boolean" in code, "self_test signature"
 
     def test_unknown_algorithm(self):
         # Assert
@@ -199,13 +203,17 @@ class TestGenerateTypeScriptFromEntry:
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _build_runner(fname: str, ts_source: str) -> str:
-    """Append a top-level self-test invocation that throws on failure."""
+def _build_runner(self_test: str, ts_source: str) -> str:
+    """Append a top-level self-test invocation that throws on failure.
+
+    ``self_test`` is the fully-resolved (camelCase, for default naming)
+    self-test identifier emitted by the generator.
+    """
     return (
         ts_source
         + "\n\n"
-        + f"if (!{fname}_self_test()) {{\n"
-        + f'    throw new Error("{fname}_self_test() returned false");\n'
+        + f"if (!{self_test}()) {{\n"
+        + f'    throw new Error("{self_test}() returned false");\n'
         + "}\n"
     )
 
@@ -226,8 +234,9 @@ class TestGeneratedTypeScriptExecutes:
         code = generate_typescript(name)
         assert code is not None, f"generate_typescript({name!r}) returned None"
         fname = _func_name(name)
+        names = crc_function_names(fname, "camel")
 
-        runner = _build_runner(fname, code)
+        runner = _build_runner(names["self_test"], code)
         src = tmp_path / f"{fname}.ts"
         src.write_text(runner)
 
@@ -253,8 +262,9 @@ class TestGeneratedTypeScriptExecutes:
             f"generate_typescript({name!r}, variant='table') returned None"
         )
         fname = _func_name(name)
+        names = crc_function_names(fname, "camel")
 
-        runner = _build_runner(fname, code)
+        runner = _build_runner(names["self_test"], code)
         src = tmp_path / f"{fname}.ts"
         src.write_text(runner)
 
@@ -364,6 +374,10 @@ class TestGeneratedTypeScriptStreaming:
             f"generate_typescript({name!r}, variant={variant!r}) returned None"
         )
         fname = _func_name(name)
+        names = crc_function_names(fname, "camel")
+        init, update, finalize = (
+            names["init"], names["update"], names["finalize"]
+        )
         lit = _ts_check_literal(algo)
         full = "0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39"
 
@@ -373,18 +387,18 @@ class TestGeneratedTypeScriptStreaming:
             code
             + "\n\n"
             + "function _stream_test(): boolean {\n"
-            + f"    let s1 = {fname}_init();\n"
-            + f"    s1 = {fname}_update(s1, new Uint8Array([0x31,0x32,0x33,0x34]));\n"
-            + f"    s1 = {fname}_update(s1, new Uint8Array([0x35,0x36,0x37,0x38,0x39]));\n"
-            + f"    if ({fname}_finalize(s1) !== {lit}) return false;\n"
-            + f"    let s2 = {fname}_init();\n"
-            + f"    s2 = {fname}_update(s2, new Uint8Array([]));\n"
-            + f"    s2 = {fname}_update(s2, new Uint8Array([{full}]));\n"
-            + f"    if ({fname}_finalize(s2) !== {lit}) return false;\n"
-            + f"    let s3 = {fname}_init();\n"
-            + f"    s3 = {fname}_update(s3, new Uint8Array([{full}]));\n"
-            + f"    s3 = {fname}_update(s3, new Uint8Array([]));\n"
-            + f"    if ({fname}_finalize(s3) !== {lit}) return false;\n"
+            + f"    let s1 = {init}();\n"
+            + f"    s1 = {update}(s1, new Uint8Array([0x31,0x32,0x33,0x34]));\n"
+            + f"    s1 = {update}(s1, new Uint8Array([0x35,0x36,0x37,0x38,0x39]));\n"
+            + f"    if ({finalize}(s1) !== {lit}) return false;\n"
+            + f"    let s2 = {init}();\n"
+            + f"    s2 = {update}(s2, new Uint8Array([]));\n"
+            + f"    s2 = {update}(s2, new Uint8Array([{full}]));\n"
+            + f"    if ({finalize}(s2) !== {lit}) return false;\n"
+            + f"    let s3 = {init}();\n"
+            + f"    s3 = {update}(s3, new Uint8Array([{full}]));\n"
+            + f"    s3 = {update}(s3, new Uint8Array([]));\n"
+            + f"    if ({finalize}(s3) !== {lit}) return false;\n"
             + "    return true;\n"
             + "}\n"
             + "if (!_stream_test()) {\n"

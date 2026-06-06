@@ -108,7 +108,7 @@ def _finalize_summary(refin: bool, refout: bool, xorout: int) -> str:
 
 
 def standard_doc_blocks(
-    fname: str,
+    names: dict[str, str],
     *,
     state_type: str,
     data_params: tuple[DocParam, ...],
@@ -122,7 +122,10 @@ def standard_doc_blocks(
     """Build the five standard :class:`DocBlock`s for a generated algorithm.
 
     Args:
-        fname: The emitted function-name stem (e.g. ``crc32``).
+        names: The emitted identifier for each role, keyed
+            ``oneshot|init|update|finalize|self_test`` (already cased per the
+            target's naming convention -- see
+            :func:`crcglot._helpers.crc_function_names`).
         state_type: How to name the running-CRC type in prose (e.g.
             ``"uint32_t"``, ``"int"``).
         data_params: The non-``state`` parameters of ``update``, in order
@@ -153,14 +156,14 @@ def standard_doc_blocks(
             summary="Return the initial CRC state to begin a computation.",
             returns=f"the starting {state_type} state.",
             notes=notes.get("init", ()),
-            symbol=f"{fname}_init",
+            symbol=names["init"],
         ),
         "update": DocBlock(
             summary="Fold input into the running CRC state and return the new state.",
             params=(state_param,) + data_params,
             returns=f"the updated {state_type} state (not yet finalized).",
             notes=(_CALL_ORDER,) + notes.get("update", ()),
-            symbol=f"{fname}_update",
+            symbol=names["update"],
         ),
         "finalize": DocBlock(
             summary=_finalize_summary(refin, refout, xorout),
@@ -168,14 +171,14 @@ def standard_doc_blocks(
             returns="the finished CRC value.",
             notes=("Do not feed the finalized value back into update.",)
             + notes.get("finalize", ()),
-            symbol=f"{fname}_finalize",
+            symbol=names["finalize"],
         ),
         "oneshot": DocBlock(
             summary="One-shot convenience: init + a single update + finalize.",
             params=oneshot_params,
             returns="the finished CRC value.",
             notes=notes.get("oneshot", ()),
-            symbol=fname,
+            symbol=names["oneshot"],
         ),
         "self_test": DocBlock(
             summary="Self-test the implementation against the reveng catalogue.",
@@ -187,6 +190,6 @@ def standard_doc_blocks(
                 "trusting the output.",
             )
             + notes.get("self_test", ()),
-            symbol=f"{fname}_self_test",
+            symbol=names["self_test"],
         ),
     }

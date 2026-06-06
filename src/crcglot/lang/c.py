@@ -41,6 +41,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
@@ -286,7 +287,7 @@ def _update_loop_c(
     ]
 
 
-def _self_test_c(fname: str, check: int, width: int) -> str:
+def _self_test_c(names, check: int, width: int) -> str:
     """Emit a C self-test function returning 0 on success, 1 on failure.
 
     Designed to be called from a downstream test framework, firmware
@@ -295,23 +296,25 @@ def _self_test_c(fname: str, check: int, width: int) -> str:
     a symbol collision.
     """
     lines = [
-        f"int {fname}_self_test(void) {{",
+        f"int {names['self_test']}(void) {{",
         f'    static const uint8_t kCheckInput[] = "123456789";',
-        f"    return {fname}(kCheckInput, 9) == {_hex(check, width)} ? 0 : 1;",
+        f"    return {names['oneshot']}(kCheckInput, 9) == {_hex(check, width)} ? 0 : 1;",
         f"}}",
     ]
     return "\n".join(lines)
 
 
-def _header_c(fname, ctype, style, meta, usage, docs) -> str:
+def _header_c(base, names, ctype, style, meta, usage, docs) -> str:
     """Emit the ``.h`` header: file overview + per-prototype doc comments.
 
     Pulls in ``<stdint.h>`` and ``<stddef.h>`` so the implementation ``.c``
-    only needs ``#include "<fname>.h"``.  The full API documentation lives
+    only needs ``#include "<base>.h"``.  The full API documentation lives
     here (above the prototypes, where a C consumer reads it); the ``.c``
-    carries only the file overview.
+    carries only the file overview.  The include guard derives from
+    ``base`` (the snake stem) so it stays stable regardless of the
+    function-naming convention.
     """
-    guard = f"{fname.upper()}_H"
+    guard = f"{base.upper()}_H"
     lines: list[str] = []
     lines += style.file_header(meta, usage)
     lines += [
@@ -327,19 +330,19 @@ def _header_c(fname, ctype, style, meta, usage, docs) -> str:
         f"",
     ]
     lines += style.doc_block(docs["init"])
-    lines.append(f"{ctype} {fname}_init(void);")
+    lines.append(f"{ctype} {names['init']}(void);")
     lines.append("")
     lines += style.doc_block(docs["update"])
-    lines.append(f"{ctype} {fname}_update({ctype} state, const uint8_t *data, size_t len);")
+    lines.append(f"{ctype} {names['update']}({ctype} state, const uint8_t *data, size_t len);")
     lines.append("")
     lines += style.doc_block(docs["finalize"])
-    lines.append(f"{ctype} {fname}_finalize({ctype} state);")
+    lines.append(f"{ctype} {names['finalize']}({ctype} state);")
     lines.append("")
     lines += style.doc_block(docs["oneshot"])
-    lines.append(f"{ctype} {fname}(const uint8_t *data, size_t len);")
+    lines.append(f"{ctype} {names['oneshot']}(const uint8_t *data, size_t len);")
     lines.append("")
     lines += style.doc_block(docs["self_test"])
-    lines.append(f"int {fname}_self_test(void);")
+    lines.append(f"int {names['self_test']}(void);")
     lines += [
         f"",
         f"#ifdef __cplusplus",
@@ -405,6 +408,7 @@ def generate_c(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> tuple[str, str] | None:
     """Look up a CRC algorithm by name and generate a C .h + .c pair.
 
@@ -415,7 +419,8 @@ def generate_c(
     if algo is None:
         return None
     return generate_c_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -425,6 +430,7 @@ def generate_c_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> tuple[str, str]:
     """Generate a C ``.h`` + ``.c`` pair from an :class:`AlgorithmInfo`.
 
@@ -460,7 +466,11 @@ def generate_c_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("c", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
     mask = _mask(w)
 
     if w <= 8:
@@ -492,16 +502,16 @@ def generate_c_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"{ctype} s = {fname}_init();",
-            f"s = {fname}_update(s, chunk, chunk_len);",
-            f"{ctype} crc = {fname}_finalize(s);",
+            f"{ctype} s = {names['init']}();",
+            f"s = {names['update']}(s, chunk, chunk_len);",
+            f"{ctype} crc = {names['finalize']}(s);",
         ),
-        oneshot=f"{fname}(data, len)",
-        selftest=f"{fname}_self_test()",
+        oneshot=f"{names['oneshot']}(data, len)",
+        selftest=f"{names['self_test']}()",
         selftest_returns="returns 0 on success",
     )
     docs = standard_doc_blocks(
-        fname, state_type=ctype,
+        names, state_type=ctype,
         data_params=(
             DocParam("data", "pointer to the message bytes."),
             DocParam("len", "number of bytes available at data."),
@@ -512,7 +522,7 @@ def generate_c_from_entry(
 
     lines: list[str] = []
     lines += style.file_header(meta, usage)
-    lines.append(f'#include "{fname}.h"')
+    lines.append(f'#include "{base}.h"')
     lines.append(f'')
     if slice8:
         slice_tables = _build_slice8_tables(w, poly, refin)
@@ -523,15 +533,15 @@ def generate_c_from_entry(
         lines.append(_format_table_c(tbl, w, ctype))
         lines.append("")
 
-    # ----- <fname>_init() -----
-    lines.append(f"{ctype} {fname}_init(void) {{")
+    # ----- <init>() -----
+    lines.append(f"{ctype} {names['init']}(void) {{")
     lines.append(f"    return {_hex(init_state, w)};")
     lines.append(f"}}")
     lines.append("")
 
-    # ----- <fname>_update(state, data, len) -----
+    # ----- <update>(state, data, len) -----
     lines.append(
-        f"{ctype} {fname}_update({ctype} state, const uint8_t *data, size_t len) {{"
+        f"{ctype} {names['update']}({ctype} state, const uint8_t *data, size_t len) {{"
     )
     lines.append(f"    {ctype} crc = state;")
     if slice8:
@@ -542,8 +552,8 @@ def generate_c_from_entry(
     lines.append(f"}}")
     lines.append("")
 
-    # ----- <fname>_finalize(state) -----
-    lines.append(f"{ctype} {fname}_finalize({ctype} state) {{")
+    # ----- <finalize>(state) -----
+    lines.append(f"{ctype} {names['finalize']}({ctype} state) {{")
     if refout != refin:
         lines.append(f"    /* reflect output (refout != refin) */")
         lines.append(f"    {ctype} reflected = 0;")
@@ -558,17 +568,17 @@ def generate_c_from_entry(
     lines.append("")
 
     # ----- one-shot wrapper -----
-    lines.append(f"{ctype} {fname}(const uint8_t *data, size_t len) {{")
+    lines.append(f"{ctype} {names['oneshot']}(const uint8_t *data, size_t len) {{")
     lines.append(
-        f"    return {fname}_finalize({fname}_update({fname}_init(), data, len));"
+        f"    return {names['finalize']}({names['update']}({names['init']}(), data, len));"
     )
     lines.append(f"}}")
     lines.append("")
 
     # ----- self-test -----
-    lines.append(_self_test_c(fname, check, w))
+    lines.append(_self_test_c(names, check, w))
 
-    header = _header_c(fname, ctype, style, meta, usage, docs)
+    header = _header_c(base, names, ctype, style, meta, usage, docs)
     source = "\n".join(lines)
     # Namespace the lookup tables per symbol so multiple generated units
     # (different algorithms, or one algorithm in several variants) link
@@ -579,6 +589,6 @@ def generate_c_from_entry(
     # already don't clash at link time -- but a unique name keeps the
     # symbols unambiguous in a debugger / single-TU build too.)  Slice
     # first; ``crc_table`` is not a substring of ``crc_slice_tables``.
-    source = source.replace("crc_slice_tables", f"crcglot_slice_{fname}")
-    source = source.replace("crc_table", f"crcglot_table_{fname}")
+    source = source.replace("crc_slice_tables", f"crcglot_slice_{base}")
+    source = source.replace("crc_table", f"crcglot_table_{base}")
     return header, source

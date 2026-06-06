@@ -32,6 +32,7 @@ from crcglot import (
     generate_java,
     generate_java_from_entry,
 )
+from crcglot._helpers import crc_function_names
 
 _JAVAC = shutil.which("javac")
 _JAVA = shutil.which("java")
@@ -80,21 +81,23 @@ class TestGenerateJava:
     def test_flat_container_and_methods(self):
         # Act
         code = generate_java("crc16-modbus")
+        names = crc_function_names(_func_name("crc16-modbus"), "camel")
 
         # Assert -- one container, algorithm-named flat static methods.
         assert code is not None, "generator returned code"
         assert "public final class CrcGlot {" in code, "flat container class"
-        assert "public static int crc16_modbus_init()" in code, "init method"
-        assert "public static int crc16_modbus(byte[] data)" in code, "one-shot"
-        assert "public static boolean crc16_modbus_self_test()" in code, "self_test"
+        assert f"public static int {names['init']}()" in code, "init method"
+        assert f"public static int {names['oneshot']}(byte[] data)" in code, "one-shot"
+        assert f"public static boolean {names['self_test']}()" in code, "self_test"
         assert "0x4B37" in code, "embedded reveng check value"
 
     def test_width8_uses_int_not_byte(self):
         # Assert -- Java byte is signed; the generator uses int for w<=32.
         code = generate_java("crc8")
+        names = crc_function_names(_func_name("crc8"), "camel")
         assert code is not None, "generator returned code"
-        assert "public static int crc8_init()" in code, "w8 state type is int"
-        assert "byte crc8_init" not in code, "must not use signed byte state"
+        assert f"public static int {names['init']}()" in code, "w8 state type is int"
+        assert f"byte {names['init']}" not in code, "must not use signed byte state"
 
     def test_width32_check_literal_has_no_suffix(self):
         # Assert -- unlike C# (u/UL), Java width-32 is a plain int literal.
@@ -108,8 +111,9 @@ class TestGenerateJava:
     def test_width64_uses_long_with_L_suffix(self):
         # Assert
         code = generate_java("crc64-xz", variant="table")
+        names = crc_function_names(_func_name("crc64-xz"), "camel")
         assert code is not None, "generator returned code"
-        assert "public static long crc64_xz_init()" in code, "w64 state is long"
+        assert f"public static long {names['init']}()" in code, "w64 state is long"
         assert "L," in code, "w64 table entries carry the L suffix"
 
     def test_table_is_per_symbol_named(self):
@@ -185,11 +189,14 @@ class TestCombineJava:
 
         # Assert
         actual_classes = bundle.count("public final class")
+        crc32_name = crc_function_names(_func_name("crc32"), "camel")["oneshot"]
+        modbus_name = crc_function_names(_func_name("crc16-modbus"), "camel")["oneshot"]
         assert actual_classes == 1, "exactly one container class"
         assert "public final class Bundle {" in bundle, "named from the stem"
-        assert "crc32(byte[] data)" in bundle and "crc16_modbus(byte[] data)" in bundle, (
-            "both algorithms present"
-        )
+        assert (
+            f"{crc32_name}(byte[] data)" in bundle
+            and f"{modbus_name}(byte[] data)" in bundle
+        ), "both algorithms present"
         assert "CrcGlot" not in bundle, "default name fully renamed"
 
 
@@ -348,7 +355,8 @@ def test_java_combined_multi_algorithm_compiles_and_runs(tmp_path):
         outputs.append(out)
     container = LANGUAGES["java"].combiner(outputs, "Bundle")
     checks = "\n".join(
-        f"        if (!{_func_name(n)}_self_test()) System.exit({i + 1});"
+        f"        if (!{crc_function_names(_func_name(n), 'camel')['self_test']}())"
+        f" System.exit({i + 1});"
         for i, n in enumerate(_MULTI_ALGOS)
     )
     src = _insert_java_main(container, checks + "\n        System.exit(0);")

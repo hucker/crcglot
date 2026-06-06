@@ -73,9 +73,12 @@ from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
 from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
 from crcglot.targets import (
     LANGUAGES,
+    NAMING_ORDER,
     VARIANT_ORDER,
     LanguageInfo,
+    NamingInfo,
     VariantInfo,
+    naming_info,
     variant_info,
 )
 
@@ -96,11 +99,14 @@ __all__ = [
     "HexFormat",
     "LANGUAGES",
     "LanguageInfo",
+    "NAMING_ORDER",
+    "NamingInfo",
     "TextFormat",
     "VARIANT_ORDER",
     "VariantInfo",
     "__version__",
     "_reflect",
+    "naming_info",
     "variant_info",
     "detect",
     "detect_iter",

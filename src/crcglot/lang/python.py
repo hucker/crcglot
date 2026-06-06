@@ -36,6 +36,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
@@ -60,19 +61,19 @@ def _format_table_python(table: list[int], width: int) -> str:
     return "\n".join(lines)
 
 
-def _self_test_python(fname, check, width, style, docs) -> list[str]:
+def _self_test_python(names, check, width, style, docs) -> list[str]:
     """Emit a Python self-test function returning True on success.
 
     Designed to be called from a downstream test framework
-    (``assert {fname}_self_test()`` plays nicely with pytest /
+    (``assert <self_test>()`` plays nicely with pytest /
     unittest), a script's startup check, or anywhere the caller
     wants to confirm the generated CRC matches the reveng catalogue
     before trusting its output.
     """
     return [
-        f"def {fname}_self_test() -> bool:",
+        f"def {names['self_test']}() -> bool:",
         *style.doc_block(docs["self_test"], indent=4),
-        f"    return {fname}(b'123456789') == {_hex(check, width)}",
+        f"    return {names['oneshot']}(b'123456789') == {_hex(check, width)}",
     ]
 
 
@@ -81,6 +82,7 @@ def generate_python(
     symbol: str | None = None,
     variant: Literal["bitwise", "table"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Python source for it.
 
@@ -105,7 +107,8 @@ def generate_python(
     if algo is None:
         return None
     return generate_python_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -115,6 +118,7 @@ def generate_python_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise", "table"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str:
     """Generate Python source from an :class:`AlgorithmInfo`.
 
@@ -139,7 +143,11 @@ def generate_python_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("python", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
     mask = _mask(w)
 
     # Pre-loaded init state: matches the value the main loop expects on
@@ -155,16 +163,16 @@ def generate_python_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"s = {fname}_init()",
-            f"s = {fname}_update(s, chunk)  # over each chunk of the message",
-            f"crc = {fname}_finalize(s)",
+            f"s = {names['init']}()",
+            f"s = {names['update']}(s, chunk)  # over each chunk of the message",
+            f"crc = {names['finalize']}(s)",
         ),
-        oneshot=f"{fname}(data)",
-        selftest=f"{fname}_self_test()",
+        oneshot=f"{names['oneshot']}(data)",
+        selftest=f"{names['self_test']}()",
         selftest_returns="returns True on success",
     )
     docs = standard_doc_blocks(
-        fname, state_type="int",
+        names, state_type="int",
         data_params=(DocParam("data", "the message bytes (a bytes-like object)."),),
         selftest_returns="True",
         refin=refin, refout=refout, xorout=xorout,
@@ -181,15 +189,15 @@ def generate_python_from_entry(
         lines.append("")
         lines.append("")
 
-    # ----- <fname>_init() -----
-    lines.append(f"def {fname}_init() -> int:")
+    # ----- <init>() -----
+    lines.append(f"def {names['init']}() -> int:")
     lines += style.doc_block(docs["init"], indent=4)
     lines.append(f"    return {_hex(init_state, w)}")
     lines.append("")
     lines.append("")
 
-    # ----- <fname>_update(state, data) -----
-    lines.append(f"def {fname}_update(state: int, data: bytes) -> int:")
+    # ----- <update>(state, data) -----
+    lines.append(f"def {names['update']}(state: int, data: bytes) -> int:")
     lines += style.doc_block(docs["update"], indent=4)
     lines.append(f"    crc = state")
     lines.append(f"    for byte in data:")
@@ -220,8 +228,8 @@ def generate_python_from_entry(
     lines.append("")
     lines.append("")
 
-    # ----- <fname>_finalize(state) -----
-    lines.append(f"def {fname}_finalize(state: int) -> int:")
+    # ----- <finalize>(state) -----
+    lines.append(f"def {names['finalize']}(state: int) -> int:")
     lines += style.doc_block(docs["finalize"], indent=4)
     if refout != refin:
         lines.append(f"    # reflect output (refout != refin)")
@@ -235,22 +243,22 @@ def generate_python_from_entry(
     lines.append("")
     lines.append("")
 
-    # ----- <fname>(data) one-shot wrapper -----
-    lines.append(f"def {fname}(data: bytes) -> int:")
+    # ----- <oneshot>(data) one-shot wrapper -----
+    lines.append(f"def {names['oneshot']}(data: bytes) -> int:")
     lines += style.doc_block(docs["oneshot"], indent=4)
     lines.append(
-        f"    return {fname}_finalize({fname}_update({fname}_init(), data))"
+        f"    return {names['finalize']}({names['update']}({names['init']}(), data))"
     )
     lines.append("")
     lines.append("")
 
-    # ----- <fname>_self_test() -----
-    lines.extend(_self_test_python(fname, check, w, style, docs))
+    # ----- <self_test>() -----
+    lines.extend(_self_test_python(names, check, w, style, docs))
 
     module = "\n".join(lines)
     # Namespace the lookup table per symbol so several generated modules
     # pasted into one file/namespace don't shadow each other's table.  The
     # emitter uses the fixed placeholder ``_TABLE``; rewrite it to
     # ``_crcglot_table_<symbol>`` at this single assembly point.
-    module = module.replace("_TABLE", f"_crcglot_table_{fname}")
+    module = module.replace("_TABLE", f"_crcglot_table_{base}")
     return module

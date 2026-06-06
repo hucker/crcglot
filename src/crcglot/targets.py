@@ -121,6 +121,97 @@ def variant_info(variant: str) -> VariantInfo:
     return _VARIANT_INFO[variant]
 
 
+NAMING_ORDER: tuple[str, ...] = ("snake", "camel", "pascal")
+"""Canonical scan / display order for naming conventions.
+
+``"snake"`` first (the universal lowest-common-denominator and the default for
+C / Rust / Python / Verilog / VHDL), then ``"camel"``, then ``"pascal"``.  UIs
+list conventions in this order so the simplest reads first.
+"""
+
+
+@dataclass(frozen=True)
+class NamingInfo:
+    """Display metadata for one naming convention, for building UIs.
+
+    The naming analogue of :class:`VariantInfo` / :class:`crcglot.comments.StyleInfo`:
+    ``name`` is the machine-readable code passed to the generator / CLI (the
+    dropdown's value); ``label`` and ``description`` are human-readable.  Which
+    conventions a given language offers lives on :attr:`LanguageInfo.naming`,
+    not here, because the same convention applies across many languages.
+
+    Examples:
+        >>> from crcglot import naming_info
+        >>> naming_info("pascal").label
+        'PascalCase'
+    """
+
+    name: str
+    label: str
+    description: str
+
+
+_NAMING_INFO: dict[str, NamingInfo] = {
+    "snake": NamingInfo(
+        "snake", "snake_case",
+        "lower_snake_case identifiers (crc16_modbus_update).",
+    ),
+    "camel": NamingInfo(
+        "camel", "camelCase",
+        "camelCase identifiers (crc16ModbusUpdate).",
+    ),
+    "pascal": NamingInfo(
+        "pascal", "PascalCase",
+        "PascalCase identifiers (Crc16ModbusUpdate).",
+    ),
+}
+
+
+def naming_info(naming: str) -> NamingInfo:
+    """Display metadata (name / label / description) for one naming convention.
+
+    The naming analogue of :func:`variant_info` / :func:`crcglot.comments.style_info`,
+    so UIs read one canonical label/description instead of hardcoding their own.
+
+    Raises:
+        KeyError: Unknown naming convention.
+
+    Examples:
+        >>> naming_info("camel").name
+        'camel'
+    """
+    return _NAMING_INFO[naming]
+
+
+def naming_convention_for(language: str, naming: str) -> str:
+    """Validate that ``language`` offers naming convention ``naming``; return it.
+
+    The naming analogue of :func:`crcglot.comments.comment_style_for`'s
+    validation -- generators call this so a bad (language, convention) pair is
+    rejected before any code is emitted (e.g. PascalCase for Rust).
+
+    Raises:
+        ValueError: Unknown convention, or one the language does not offer.
+
+    Examples:
+        >>> naming_convention_for("go", "pascal")
+        'pascal'
+    """
+    if naming not in _NAMING_INFO:
+        raise ValueError(
+            f"unknown naming convention {naming!r}; valid: {list(NAMING_ORDER)}"
+        )
+    info = LANGUAGES[language]
+    if naming not in info.naming:
+        offered = [n for n in NAMING_ORDER if n in info.naming]
+        raise ValueError(
+            f"naming convention {naming!r} is not valid for language "
+            f"{language!r}; it offers {offered} (default "
+            f"{info.default_naming!r})"
+        )
+    return naming
+
+
 @dataclass(frozen=True)
 class LanguageInfo:
     """Typed metadata for one target language.
@@ -139,6 +230,12 @@ class LanguageInfo:
             language.
         variants: Subset of ``{"bitwise", "table", "slice8"}``.  Every
             language supports ``"bitwise"``.
+        naming: Subset of ``{"snake", "camel", "pascal"}`` the language
+            offers for its public function/method names.  Each language is
+            "a mess" (C: all three) or "clean" (Rust / Python: snake only).
+        default_naming: The idiomatic convention emitted when ``--naming``
+            is not given -- snake for C / Rust / Python / Verilog / VHDL,
+            pascal for Go / C#, camel for Java / TypeScript.
         generator: Name-lookup generator -- ``generator(name, ...)``.
         generator_from_entry: Entry-dispatch generator --
             ``generator_from_entry(name, AlgorithmInfo, ...)``.
@@ -160,6 +257,8 @@ class LanguageInfo:
     code: str
     extensions: tuple[str, ...]
     variants: frozenset[str]
+    naming: frozenset[str]
+    default_naming: str
     generator: Callable
     generator_from_entry: Callable
     combiner: Callable
@@ -233,10 +332,36 @@ class LanguageInfo:
 
         return comment_styles_for_language(self.code)
 
+    @property
+    def naming_infos(self) -> tuple[NamingInfo, ...]:
+        """The naming conventions valid for this language, as rich records.
+
+        The naming companion to :attr:`styles` / :meth:`variant_infos_for_width`:
+        ``LANGUAGES[code].naming_infos`` gives a UI each convention's
+        ``label`` / ``description``, ordered by :data:`NAMING_ORDER`, with the
+        idiomatic :attr:`default_naming` first in spirit (a UI can preselect it).
+
+        Examples:
+            >>> [n.name for n in LANGUAGES["go"].naming_infos]
+            ['camel', 'pascal']
+            >>> [n.name for n in LANGUAGES["python"].naming_infos]
+            ['snake']
+        """
+        return tuple(
+            naming_info(n) for n in NAMING_ORDER if n in self.naming
+        )
+
 
 _BITWISE_TABLE = frozenset({"bitwise", "table"})
 _BITWISE_TABLE_SLICE8 = frozenset({"bitwise", "table", "slice8"})
 _BITWISE_ONLY = frozenset({"bitwise"})
+
+# Naming-convention sets.  "Clean" languages enforce one convention; the
+# "mess" of C/C++ admits all three.  Defaults are the idiomatic choice.
+_SNAKE_ONLY = frozenset({"snake"})
+_ALL_CASES = frozenset({"snake", "camel", "pascal"})
+_PASCAL_CAMEL = frozenset({"pascal", "camel"})
+_CAMEL_PASCAL = frozenset({"camel", "pascal"})
 
 
 LANGUAGES: dict[str, LanguageInfo] = {
@@ -244,6 +369,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="c",
         extensions=(".h", ".c"),
         variants=_BITWISE_TABLE_SLICE8,
+        naming=_ALL_CASES,
+        default_naming="snake",
         generator=generate_c,
         generator_from_entry=generate_c_from_entry,
         combiner=combine_c,
@@ -254,6 +381,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="csharp",
         extensions=(".cs",),
         variants=_BITWISE_TABLE_SLICE8,
+        naming=_PASCAL_CAMEL,
+        default_naming="pascal",
         generator=generate_csharp,
         generator_from_entry=generate_csharp_from_entry,
         combiner=combine_csharp,
@@ -264,6 +393,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="go",
         extensions=(".go",),
         variants=_BITWISE_TABLE_SLICE8,
+        naming=_PASCAL_CAMEL,
+        default_naming="pascal",
         generator=generate_go,
         generator_from_entry=generate_go_from_entry,
         combiner=combine_go,
@@ -274,6 +405,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="java",
         extensions=(".java",),
         variants=_BITWISE_TABLE_SLICE8,
+        naming=_CAMEL_PASCAL,
+        default_naming="camel",
         generator=generate_java,
         generator_from_entry=generate_java_from_entry,
         combiner=combine_java,
@@ -284,6 +417,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="python",
         extensions=(".py",),
         variants=_BITWISE_TABLE,
+        naming=_SNAKE_ONLY,
+        default_naming="snake",
         generator=generate_python,
         generator_from_entry=generate_python_from_entry,
         combiner=combine_concat,
@@ -294,6 +429,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="rust",
         extensions=(".rs",),
         variants=_BITWISE_TABLE_SLICE8,
+        naming=_SNAKE_ONLY,
+        default_naming="snake",
         generator=generate_rust,
         generator_from_entry=generate_rust_from_entry,
         combiner=combine_concat,
@@ -304,6 +441,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="typescript",
         extensions=(".ts",),
         variants=_BITWISE_TABLE_SLICE8,
+        naming=_ALL_CASES,
+        default_naming="camel",
         generator=generate_typescript,
         generator_from_entry=generate_typescript_from_entry,
         combiner=combine_concat,
@@ -314,6 +453,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="verilog",
         extensions=(".sv",),
         variants=_BITWISE_ONLY,
+        naming=_SNAKE_ONLY,
+        default_naming="snake",
         generator=generate_verilog,
         generator_from_entry=generate_verilog_from_entry,
         combiner=combine_concat,
@@ -324,6 +465,8 @@ LANGUAGES: dict[str, LanguageInfo] = {
         code="vhdl",
         extensions=(".vhd",),
         variants=_BITWISE_ONLY,
+        naming=_SNAKE_ONLY,
+        default_naming="snake",
         generator=generate_vhdl,
         generator_from_entry=generate_vhdl_from_entry,
         combiner=combine_concat,

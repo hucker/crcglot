@@ -17,6 +17,7 @@ import ast
 import pytest
 
 from crcglot import ALGORITHMS, LANGUAGES
+from crcglot._helpers import _func_name, crc_function_names
 from crcglot.comments import (
     COMMENT_STYLES,
     comment_style_for,
@@ -29,6 +30,15 @@ from crcglot.comments import (
 # Languages whose ``plain`` comment is a ``/* ... */`` block (the only ones
 # where a stray ``*/`` in a description or example would break compilation).
 _BLOCK_COMMENT_LANGS = ("c",)
+
+
+def _names(lang: str, name: str = "crc32") -> dict[str, str]:
+    """The five emitted function names under ``lang``'s default convention.
+
+    Lets the header/identifier assertions stay correct as each language's
+    idiomatic naming default differs (snake / camel / pascal).
+    """
+    return crc_function_names(_func_name(name), LANGUAGES[lang].default_naming)
 
 
 def _source(lang: str, name: str = "crc32", variant: str = "bitwise") -> str:
@@ -356,11 +366,12 @@ def test_godoc_doc_opens_with_identifier() -> None:
         "crc32", variant="table", comment_style="godoc"
     )
 
-    # Assert -- the update doc comment begins "// crc32_update ...".
-    assert "// crc32_update fold input into" in src, (
+    # Assert -- the doc comment opens with the (Pascal, by Go default) name.
+    go = _names("go")
+    assert f"// {go['update']} fold input into" in src, (
         "godoc doc must open with the function identifier"
     )
-    assert "// crc32_init return the initial" in src, (
+    assert f"// {go['init']} return the initial" in src, (
         "godoc doc must open with the function identifier"
     )
 
@@ -499,9 +510,10 @@ def test_header_shows_streaming_triple(lang: str) -> None:
     # Act
     src = _source(lang)
 
-    # Assert
-    for suffix in ("crc32_init", "crc32_update", "crc32_finalize"):
-        assert suffix in src, f"{lang}: streaming example missing {suffix}"
+    # Assert -- names use the language's idiomatic naming default.
+    names = _names(lang)
+    for role in ("init", "update", "finalize"):
+        assert names[role] in src, f"{lang}: streaming example missing {names[role]}"
 
 
 @pytest.mark.parametrize("lang", sorted(LANGUAGES))
@@ -513,7 +525,9 @@ def test_header_mentions_oneshot_and_selftest(lang: str) -> None:
     # Assert
     assert "One-shot:" in src, f"{lang}: header missing One-shot: line"
     assert "Verify:" in src, f"{lang}: header missing Verify: line"
-    assert "crc32_self_test" in src, f"{lang}: header missing self-test reference"
+    assert _names(lang)["self_test"] in src, (
+        f"{lang}: header missing self-test reference"
+    )
 
 
 @pytest.mark.parametrize("lang", sorted(LANGUAGES))

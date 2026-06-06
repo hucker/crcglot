@@ -27,6 +27,7 @@ from crcglot import (
     ALGORITHMS,
     ATTRIBUTION,
     LANGUAGES,
+    NAMING_ORDER,
     AlgorithmInfo,
     detect,
     encode,
@@ -594,7 +595,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         try:
             result = LANGUAGES[lang].generator_from_entry(
                 custom_name, algo, symbol=symbol, variant=variant,
-                comment_style=args.comment,
+                comment_style=args.comment, naming=args.naming,
             )
             if lang == "java":
                 result = LANGUAGES[lang].combiner(
@@ -660,7 +661,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 outputs.append(
                     LANGUAGES[lang].generator(
                         nm, symbol=sym, variant=variant,
-                        comment_style=args.comment,
+                        comment_style=args.comment, naming=args.naming,
                     )
                 )
         except ValueError as e:
@@ -884,6 +885,24 @@ def build_parser() -> argparse.ArgumentParser:
                 "'jsdoc' emits TSDoc /** @param x - ... @returns */ for "
                 "TypeScript; 'docfx' emits /// <summary> <param> <returns> "
                 "XML doc comments for C#."
+            ),
+        )
+        # Only the naming conventions THIS language offers, ordered simplest
+        # first.  argparse rejects e.g. `rust --naming=pascal` up front; the
+        # default is each language's idiomatic convention (snake for
+        # C / Rust / Python / Verilog / VHDL, pascal for Go / C#, camel for
+        # Java / TypeScript).
+        p.add_argument(
+            "--naming",
+            choices=[n for n in NAMING_ORDER if n in LANGUAGES[lang].naming],
+            default=LANGUAGES[lang].default_naming,
+            metavar="CONVENTION",
+            help=(
+                "Naming convention for the generated public function / method "
+                "names: 'snake' (crc16_modbus_update), 'camel' "
+                "(crc16ModbusUpdate), or 'pascal' (Crc16ModbusUpdate). "
+                "Defaults to the language's idiomatic convention; only the "
+                "conventions that language uses are offered."
             ),
         )
         p.add_argument(

@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-3311%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-3367%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -67,16 +67,16 @@ Every generated file also ships its own `_self_test()` carrying that same canoni
 
 The generated code isn't just correct — it's **documented**.  Every file gets a header (algorithm parameters, a copy-paste streaming example, the self-test contract) and a doc comment above each of the five functions, so a reader learns the `init → update* → finalize` streaming contract from the source, not from the tests.  Pick the convention with `--comment=<style>`; `plain` (clean human-readable comments in each language's native syntax) is the default, and every language also has its idiomatic doc-tool style:
 
-| Language       | `--comment` styles                                    |
-| -------------- | ----------------------------------------------------- |
-| C / C++ ⚙️     | `plain`, `doxygen`                                    |
-| C# 💠          | `plain`, `doxygen`, `docfx` (XML `/// <summary>`)     |
-| Java ☕         | `plain`, `doxygen`, `javadoc`                         |
-| Python 🐍      | `plain`, `google`, `numpy`, `rest` (Sphinx `:param:`) |
-| Rust 🦀        | `plain`, `rustdoc` (`///` + `# Arguments`)            |
-| Go 🚦          | `plain`, `godoc`                                      |
-| TypeScript 🔷  | `plain`, `jsdoc` (TSDoc)                              |
-| Verilog 🔧 / VHDL 🔌 | `plain`                                         |
+| Language           | `--comment` styles                                    |
+| ------------------ | ----------------------------------------------------- |
+| C / C++ ⚙️          | `plain`, `doxygen`                                    |
+| C# 💠               | `plain`, `doxygen`, `docfx` (XML `/// <summary>`)     |
+| Java ☕             | `plain`, `doxygen`, `javadoc`                         |
+| Python 🐍           | `plain`, `google`, `numpy`, `rest` (Sphinx `:param:`) |
+| Rust 🦀             | `plain`, `rustdoc` (`///` + `# Arguments`)            |
+| Go 🚦               | `plain`, `godoc`                                      |
+| TypeScript 🔷       | `plain`, `jsdoc` (TSDoc)                              |
+| Verilog 🔧 / VHDL 🔌 | `plain`                                               |
 
 ```bash
 crcglot c crc32 --comment=doxygen        # /** @brief @param @return */
@@ -109,6 +109,28 @@ You still can — point an LLM at the output and let it write whatever prose you
 - **Free, offline, auditable.**  No API call, no token cost, no network — it runs in CI and on an air-gapped build.  A reviewer (the class-III-medical-device kind) audits the comment generator *once* and can then trust every file it emits.
 
 Layer an LLM on top when you want richer prose.  The point is that the *baseline* everyone ships by default is deterministic, uniform, and reviewable.
+
+## Naming conventions
+
+The generated public functions read like hand-written code in each target: Go and C# get `PascalCase` (`Crc16ModbusUpdate`), Java and TypeScript get `camelCase` (`crc16ModbusUpdate`), and C, Rust, Python, Verilog, and VHDL get `snake_case` (`crc16_modbus_update`).  Those are the **defaults** — a linter (`govet`, StyleCop, ESLint, …) won't flag the output.  Override with `--naming=<convention>`; each language offers only the conventions its ecosystem actually uses (C is a free-for-all, Python and Rust are snake-only):
+
+| Language       | default      | `--naming` choices         |
+| -------------- | ------------ | -------------------------- |
+| C / C++ ⚙️     | `snake`      | `snake`, `camel`, `pascal` |
+| C# 💠          | `pascal`     | `pascal`, `camel`          |
+| Go 🚦          | `pascal`     | `pascal`, `camel`          |
+| Java ☕         | `camel`      | `camel`, `pascal`          |
+| TypeScript 🔷  | `camel`      | `camel`, `snake`, `pascal` |
+| Rust 🦀        | `snake`      | `snake`                    |
+| Python 🐍      | `snake`      | `snake`                    |
+| Verilog 🔧 / VHDL 🔌 | `snake` | `snake`                   |
+
+```bash
+crcglot go crc32 --naming camel          # crc32Update instead of Crc32Update
+crcglot c crc32 --naming pascal          # Crc32Update; the CRC32_H guard stays SCREAMING_SNAKE
+```
+
+Only the public function/method names are re-cased — header guards, table symbols, package names, and class names keep their own fixed idiom.  An explicit `symbol=NAME` is emitted verbatim, bypassing `--naming`.  As with `--comment`, `crcglot rust crc32 --naming=pascal` is rejected (Rust is snake-only); the matrix is derived from `LANGUAGES[code].naming`, nothing hardcodes it.  The same `{name, label, description}` records are served over MCP in `crcglot://languages.json` (each language's `naming` + `default_naming`).
 
 ## CLI reference
 
@@ -179,14 +201,15 @@ Print acknowledgments for the upstream work crcglot stands on (also exported as 
 
 Generate source code for the chosen target language.  Pick your intent — crcglot picks the implementation:
 
-| Option / token | Effect                                                                                               |
-| -------------- | ---------------------------------------------------------------------------------------------------- |
-| `--small`      | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                  |
-| `--fast`       | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise. |
-| `--custom`     | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                          |
+| Option / token    | Effect                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--small`         | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                                       |
+| `--fast`          | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise.                      |
+| `--custom`        | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                                               |
 | `--comment=STYLE` | Documentation style for the generated comments (default `plain`).  See [Documentation comments](#documentation-comments). |
-| `file=STEM`    | Write to disk (extension picked per language; see below).  Omit for stdout.                          |
-| `symbol=NAME`  | Override the emitted function name.  Default: derived from algorithm, or from `file=STEM` if given.  |
+| `--naming=CONVENTION` | Casing of the public function/method names (`snake` / `camel` / `pascal`).  Defaults to each language's idiomatic convention.  See [Naming conventions](#naming-conventions). |
+| `file=STEM`       | Write to disk (extension picked per language; see below).  Omit for stdout.                                               |
+| `symbol=NAME`     | Override the emitted function name (emitted verbatim, bypassing `--naming`).  Default: derived from algorithm, or from `file=STEM` if given. |
 
 File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; Java `.java`; TypeScript `.ts`.  (For Java, every algorithm shares one container class named after `STEM`, so the stem must be a valid Java identifier.)
 

@@ -172,6 +172,11 @@ def language_to_dict(code: str, info: LanguageInfo) -> dict[str, Any]:
             {"name": s.name, "label": s.label, "description": s.description}
             for s in comment_styles_for_language(code)
         ],
+        "naming": [
+            {"name": n.name, "label": n.label, "description": n.description}
+            for n in info.naming_infos
+        ],
+        "default_naming": info.default_naming,
         "emoji": info.emoji,
     }
 

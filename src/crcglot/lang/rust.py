@@ -39,6 +39,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
@@ -297,7 +298,7 @@ def _update_loop_rust(
     ]
 
 
-def _self_test_rust(fname, check, width, rtype, style, docs) -> str:
+def _self_test_rust(names, check, width, rtype, style, docs) -> str:
     """Emit a Rust ``pub fn <fname>_self_test() -> bool``.
 
     Returns true iff the one-shot CRC of ``b"123456789"`` matches the
@@ -310,8 +311,8 @@ def _self_test_rust(fname, check, width, rtype, style, docs) -> str:
     lines = [
         f"",
         *style.doc_block(docs["self_test"]),
-        f"pub fn {fname}_self_test() -> bool {{",
-        f'    {fname}(b"123456789") == {_hex(check, width)}_{rtype}',
+        f"pub fn {names['self_test']}() -> bool {{",
+        f'    {names["oneshot"]}(b"123456789") == {_hex(check, width)}_{rtype}',
         f"}}",
     ]
     return "\n".join(lines)
@@ -322,6 +323,7 @@ def generate_rust(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str | None:
     """Look up a CRC algorithm by name and generate Rust source for it.
 
@@ -333,7 +335,8 @@ def generate_rust(
     if algo is None:
         return None
     return generate_rust_from_entry(
-        name, algo, symbol=symbol, variant=variant, comment_style=comment_style,
+        name, algo, symbol=symbol, variant=variant,
+        comment_style=comment_style, naming=naming,
     )
 
 
@@ -343,6 +346,7 @@ def generate_rust_from_entry(
     symbol: str | None = None,
     variant: Literal["bitwise", "table", "slice8"] = "bitwise",
     comment_style: str = "plain",
+    naming: str = "snake",
 ) -> str:
     """Generate Rust source from an :class:`AlgorithmInfo`.
 
@@ -368,7 +372,11 @@ def generate_rust_from_entry(
     xorout = algo.xorout
     check = algo.check
     desc = algo.desc
-    fname = symbol if symbol else _func_name(name)
+    from crcglot.targets import naming_convention_for
+
+    naming = naming_convention_for("rust", naming)
+    base = symbol if symbol else _func_name(name)
+    names = crc_function_names(base, naming, is_override=symbol is not None)
     mask = _mask(w)
 
     if w <= 8:
@@ -398,12 +406,12 @@ def generate_rust_from_entry(
     )
     usage = UsageExample(
         streaming=(
-            f"let s = {fname}_init();",
-            f"let s = {fname}_update(s, chunk);  // over each chunk",
-            f"let crc = {fname}_finalize(s);",
+            f"let s = {names['init']}();",
+            f"let s = {names['update']}(s, chunk);  // over each chunk",
+            f"let crc = {names['finalize']}(s);",
         ),
-        oneshot=f"{fname}(data)",
-        selftest=f"{fname}_self_test()",
+        oneshot=f"{names['oneshot']}(data)",
+        selftest=f"{names['self_test']}()",
         selftest_returns="returns true on success",
         caveats=(
             ("Variant: slice-by-8 (8 tables, ~10x throughput vs a plain "
@@ -412,7 +420,7 @@ def generate_rust_from_entry(
         ),
     )
     docs = standard_doc_blocks(
-        fname, state_type=rtype,
+        names, state_type=rtype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
@@ -438,7 +446,7 @@ def generate_rust_from_entry(
 
     # ----- <fname>_init() -----
     lines += style.doc_block(docs["init"])
-    lines.append(f"pub fn {fname}_init() -> {rtype} {{")
+    lines.append(f"pub fn {names['init']}() -> {rtype} {{")
     lines.append(f"    {_hex(init_state, w)}")
     lines.append(f"}}")
     lines.append("")
@@ -446,7 +454,7 @@ def generate_rust_from_entry(
     # ----- <fname>_update(state, data) -----
     lines += style.doc_block(docs["update"])
     lines.append(
-        f"pub fn {fname}_update(state: {rtype}, data: &[u8]) -> {rtype} {{"
+        f"pub fn {names['update']}(state: {rtype}, data: &[u8]) -> {rtype} {{"
     )
     lines.append(f"    let mut crc: {rtype} = state;")
     if slice8:
@@ -459,7 +467,7 @@ def generate_rust_from_entry(
 
     # ----- <fname>_finalize(state) -----
     lines += style.doc_block(docs["finalize"])
-    lines.append(f"pub fn {fname}_finalize(state: {rtype}) -> {rtype} {{")
+    lines.append(f"pub fn {names['finalize']}(state: {rtype}) -> {rtype} {{")
     if refout != refin:
         lines.append(f"    // reflect output (refout != refin)")
         lines.append(f"    let mut reflected: {rtype} = 0;")
@@ -476,12 +484,12 @@ def generate_rust_from_entry(
 
     # ----- one-shot wrapper -----
     lines += style.doc_block(docs["oneshot"])
-    lines.append(f"pub fn {fname}(data: &[u8]) -> {rtype} {{")
+    lines.append(f"pub fn {names['oneshot']}(data: &[u8]) -> {rtype} {{")
     lines.append(
-        f"    {fname}_finalize({fname}_update({fname}_init(), data))"
+        f"    {names['finalize']}({names['update']}({names['init']}(), data))"
     )
     lines.append(f"}}")
-    lines.append(_self_test_rust(fname, check, w, rtype, style, docs))
+    lines.append(_self_test_rust(names, check, w, rtype, style, docs))
 
     module = "\n".join(lines)
     # Namespace the lookup-table consts per symbol so several generated
@@ -491,7 +499,7 @@ def generate_rust_from_entry(
     # to the SCREAMING_SNAKE ``CRCGLOT_TABLE_<SYMBOL>`` /
     # ``CRCGLOT_SLICE_<SYMBOL>`` here.  Slice first; ``CRC_TABLE`` is not a
     # substring of ``CRC_SLICE_TABLES``.
-    sym = fname.upper()
+    sym = base.upper()
     module = module.replace("CRC_SLICE_TABLES", f"CRCGLOT_SLICE_{sym}")
     module = module.replace("CRC_TABLE", f"CRCGLOT_TABLE_{sym}")
     return module
