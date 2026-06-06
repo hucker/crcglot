@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.15.0 — 2026-06-06
+
+Two headline features — idiomatic per-language **naming** for generated code
+and a **streaming** runtime engine — plus a comment-accuracy fix.  The naming
+change is the one upgrade note: generated **Go / C# / Java / TypeScript**
+function names change shape (see BREAKING).  Everything else is additive.
+
+### BREAKING: idiomatic default naming for Go / C# / Java / TypeScript
+
+Generated public function/method names now follow each language's convention
+instead of `snake_case` everywhere: **Go** and **C#** default to `PascalCase`
+(`Crc16ModbusUpdate`), **Java** and **TypeScript** to `camelCase`
+(`crc16ModbusUpdate`).  C, Rust, Python, Verilog, and VHDL are unchanged.
+Consumers who committed generated Go/C#/Java/TS code and call the old
+`snake_case` names must regenerate (or pin the new names).  Pass
+`--naming=snake` where a language still offers it, or an explicit `symbol=`
+(emitted verbatim) to keep a specific name.
+
+### NEW: `--naming` axis (`snake` / `camel` / `pascal`)
+
+A new generator option chooses the casing of the public names, validated per
+language exactly like `--comment` (`crcglot rust --naming=pascal` is rejected —
+Rust is snake-only).  Ships the metadata twin of the comment/variant axes:
+`NamingInfo` / `naming_info(name)` / `NAMING_ORDER`, plus `LanguageInfo.naming`,
+`.default_naming`, and `.naming_infos`.  Surfaced on the CLI (`--naming`) and
+over MCP (`crc_generate` `naming` param; `crcglot://languages.json` advertises
+each language's `naming` + `default_naming`).  Only the public function names
+re-case — header guards, table symbols, package names, and class names keep
+their fixed idiom.
+
+### NEW: streaming runtime engine — `crc_stream` / `CrcStream`
+
+The runtime counterpart to the generated `init → update* → finalize` triple.
+Bind a catalogue algorithm once and feed it in chunks:
+
+```python
+from crcglot import crc_stream
+s = crc_stream("crc32")
+for chunk in chunks:
+    s.update(chunk)
+s.digest()      # 0xCBF43926 — non-destructive int
+s.hexdigest()   # 'cbf43926'
+```
+
+hashlib-style (`update` / `digest` / `reset` / `copy` / `hexdigest`), with
+`CrcStream.from_name` / `.from_info` / a raw keyword constructor for custom
+CRCs.  Backend dispatch mirrors `generic_crc`: stdlib `zlib.crc32` (streamed
+incrementally) for IEEE crc32 / jamcrc, the C extension when built, pure-Python
+otherwise — so chunked data runs at compiled speed and always works.  Results
+are byte-identical to `generic_crc` no matter how the input is split.
+
+### FIXED: `finalize` doc comments now match the parameters
+
+The generated `finalize` doc summary was a fixed string claiming "output
+reflection and the final XOR" for every algorithm; it is now derived from
+`(refin, refout, xorout)`, so e.g. an `xorout=0` algorithm correctly reads as a
+no-op rather than describing transforms it doesn't perform.  The EXAMPLES
+gallery also gained a "Comment styles" section rendering every doc style.
+
 ## v0.14.0 — 2026-06-05
 
 Ergonomic, **fully additive** introspection helpers for apps building UIs on
