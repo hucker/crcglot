@@ -415,6 +415,7 @@ def generate_rust_from_entry(
         fname, state_type=rtype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
+        refin=refin, refout=refout, xorout=xorout,
     )
 
     lines: list[str] = []

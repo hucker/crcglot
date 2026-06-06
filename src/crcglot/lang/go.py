@@ -373,6 +373,7 @@ def generate_go_from_entry(
         fname, state_type=gtype,
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
+        refin=refin, refout=refout, xorout=xorout,
     )
 
     lines: list[str] = []

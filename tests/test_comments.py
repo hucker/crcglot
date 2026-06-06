@@ -518,12 +518,13 @@ def test_header_mentions_oneshot_and_selftest(lang: str) -> None:
 
 @pytest.mark.parametrize("lang", sorted(LANGUAGES))
 def test_each_function_is_documented(lang: str) -> None:
-    """The five standard doc-block summaries each appear in the output."""
+    """The four invariant doc-block summaries each appear in the output."""
     # Arrange -- the invariant summaries authored once in comments.py.
+    # ``finalize`` is deliberately excluded: its summary is parameter-aware
+    # (see test_finalize_summary_*), not a fixed string.
     summaries = (
         "Return the initial CRC state",
         "Fold input into the running CRC state",
-        "Apply output reflection and the final XOR",
         "One-shot convenience",
         "Self-test the implementation",
     )
@@ -534,6 +535,79 @@ def test_each_function_is_documented(lang: str) -> None:
     # Assert
     for summary in summaries:
         assert summary in src, f"{lang}: missing doc block summary {summary!r}"
+
+
+@pytest.mark.parametrize("lang", sorted(LANGUAGES))
+def test_finalize_summary_tracks_xorout(lang: str) -> None:
+    """finalize's summary reflects whether the algorithm has a final XOR.
+
+    The body XORs only when ``xorout != 0``; the summary must agree.  crc32
+    has ``xorout=0xFFFFFFFF`` (final XOR) while crc16-modbus has ``xorout=0``
+    (a ``return state`` no-op), so the two must read differently.
+    """
+    # Act
+    xor_src = _source(lang, "crc32")
+    noop_src = _source(lang, "crc16-modbus")
+
+    # Assert -- xor-only algorithm names the XOR, no-op algorithm denies it.
+    assert "Apply the final XOR to produce the CRC." in xor_src, (
+        f"{lang}: crc32 finalize must document the final XOR"
+    )
+    assert "applies no final transform" not in xor_src, (
+        f"{lang}: crc32 finalize must not claim it is a no-op"
+    )
+    assert "this algorithm applies no final transform" in noop_src, (
+        f"{lang}: crc16-modbus finalize must document the no-op"
+    )
+    assert "final XOR" not in noop_src, (
+        f"{lang}: crc16-modbus finalize must not claim a final XOR"
+    )
+
+
+def test_finalize_summary_reflect_case() -> None:
+    """A ``refin != refout`` algorithm documents output reflection in finalize.
+
+    No catalogue entry hits this (all have ``refin == refout``); a custom spec
+    is the only way to reach the reflect branch, so it is exercised directly.
+    """
+    # Arrange -- a custom spec with mismatched reflection and a final XOR;
+    # generate_python_from_entry is the seam for non-catalogue algorithms.
+    from crcglot.lang.python import generate_python_from_entry
+    from crcglot.catalogue import AlgorithmInfo
+
+    algo = AlgorithmInfo(
+        width=8, poly=0x07, init=0x00, refin=True, refout=False,
+        xorout=0x55, check=0x00, desc="reflect-case probe", source="custom",
+    )
+
+    # Act
+    src = generate_python_from_entry("odd", algo)
+
+    # Assert
+    expected = "Reflect the CRC and apply the final XOR to produce the result."
+    assert expected in src, "mismatched refin/refout must document reflection"
+
+
+def test_finalize_summary_helper_covers_all_shapes() -> None:
+    """The helper maps each (reflects, xors) combination to distinct wording."""
+    # Arrange / Act -- all four shapes; reflects := refout != refin.
+    from crcglot.comments.model import _finalize_summary
+
+    actual = {
+        "reflect+xor": _finalize_summary(refin=True, refout=False, xorout=0x55),
+        "reflect": _finalize_summary(refin=True, refout=False, xorout=0),
+        "xor": _finalize_summary(refin=True, refout=True, xorout=0x55),
+        "noop": _finalize_summary(refin=True, refout=True, xorout=0),
+    }
+    expected = {
+        "reflect+xor": "Reflect the CRC and apply the final XOR to produce the result.",
+        "reflect": "Reflect the CRC to produce the final result.",
+        "xor": "Apply the final XOR to produce the CRC.",
+        "noop": "Return the finished CRC; this algorithm applies no final transform.",
+    }
+
+    # Assert
+    assert actual == expected, f"finalize summary wording mismatch: {actual}"
 
 
 # ── special considerations ───────────────────────────────────────────────

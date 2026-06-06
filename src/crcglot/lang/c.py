@@ -507,6 +507,7 @@ def generate_c_from_entry(
             DocParam("len", "number of bytes available at data."),
         ),
         selftest_returns="0",
+        refin=refin, refout=refout, xorout=xorout,
     )
 
     lines: list[str] = []
