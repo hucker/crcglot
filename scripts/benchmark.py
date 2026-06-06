@@ -984,6 +984,15 @@ def _render_table(
         "C." + speedup
     )
     lines.append("")
+    lines.append(
+        "The same compiled paths back the **streaming** API: "
+        "`crcglot.crc_stream(name)` / `CrcStream` feed chunks into the C "
+        "extension's `CrcStream` (or `zlib.crc32` incrementally for crc32), so "
+        "chunked data -- large files, sockets, sensor logs -- runs at this same "
+        "compiled speed, paying the Python/C transition once across the whole "
+        "message rather than per call."
+    )
+    lines.append("")
     return "\n".join(lines)
 
 

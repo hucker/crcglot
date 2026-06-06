@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-3367%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-3594%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -344,7 +344,7 @@ Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_encode` · `crc_compute`
 
 Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.
 
-> **Performance, stated honestly:** with the C extension, crcglot computes any of the more than 70 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch-c-extension) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
+> **Performance, stated honestly:** with the C extension, crcglot computes any of the more than 70 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
 
 At runtime there's **no variant choice to make** — the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
 
@@ -369,23 +369,34 @@ from crcglot import generic_crc
 crc = generic_crc(b"123456789", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
 ```
 
-### Streaming and batch (C extension)
+### Streaming and batch
 
-For chunked data and high-volume small-buffer workloads, the extension exposes two more shapes:
+`generic_crc` is one-shot.  For chunked data (large files, sockets, sensor logs) use the **streaming** API — the runtime counterpart to the generated `init → update* → finalize` triple.  Bind the algorithm once by catalogue name, feed chunks, and read the finalized value on demand (hashlib idiom: `update` / `digest` / `reset` / `copy`):
+
+```python
+from crcglot import crc_stream
+
+s = crc_stream("crc32")           # by catalogue name
+for chunk in chunks:              # any chunking — the answer never changes
+    s.update(chunk)
+s.digest()        # 0xCBF43926 — an int; non-destructive, call it again
+s.hexdigest()     # 'cbf43926'
+```
+
+`crc_stream` is **backend-smart**, taking the same three-tier dispatch as `generic_crc`: stdlib `zlib.crc32` for IEEE crc32 / jamcrc, the C extension when built, pure-Python otherwise — so it always works, and is fast where it can be.  For a custom (non-catalogue) CRC, construct from raw parameters (signature matches the C extension's) or from an `AlgorithmInfo`:
+
+```python
+from crcglot import CrcStream, ALGORITHMS
+
+CrcStream(width=16, poly=0x8005, init=0xFFFF, refin=True, refout=True, xorout=0)
+CrcStream.from_info(ALGORITHMS["crc16-modbus"])
+```
+
+For high-volume small-buffer workloads, the C extension CRCs many buffers in a single Python↔C transition (the win for framed protocols / packet streams):
 
 ```python
 from crcglot import _c   # present iff the extension is installed
 
-# Streaming -- bind the algorithm once, feed chunks, digest on demand
-# (hashlib idiom: update / digest / reset / copy).
-s = _c.CrcStream(width=32, poly=0x04C11DB7, init=0xFFFFFFFF,
-                 refin=True, refout=True, xorout=0xFFFFFFFF)
-for chunk in stream:
-    s.update(chunk)
-result = s.digest()
-
-# Batch -- CRC many buffers, paying the Python↔C transition once
-# (the win for framed protocols / packet streams).
 results = _c.c_crc_many(list_of_packets, 32, 0x04C11DB7, 0xFFFFFFFF,
                         True, True, 0xFFFFFFFF)
 ```
