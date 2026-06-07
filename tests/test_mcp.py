@@ -360,6 +360,62 @@ class TestCrcCompute:
 
 
 # ---------------------------------------------------------------------------
+# crc_compute_many
+# ---------------------------------------------------------------------------
+
+
+class TestCrcComputeMany:
+    """`crc_compute_many` batches many messages through one call."""
+
+    def test_batch_matches_crc_compute_per_item(self):
+        # Arrange
+        msgs = ["123456789", "", "hello", "world"]
+        # Act -- batch in one call...
+        batch = _call(
+            "crc_compute_many",
+            {"algorithm": "crc16-modbus", "data_texts": msgs},
+        )
+        # ...vs one crc_compute per message.
+        singles = [
+            _call("crc_compute", {"algorithm": "crc16-modbus", "data_text": m})["crc"]
+            for m in msgs
+        ]
+        # Assert -- same values, same order, count reported.
+        assert batch["count"] == len(msgs), "count reflects the batch size"
+        assert [r["crc"] for r in batch["results"]] == singles, "batch == per-item"
+        assert batch["results"][0]["crc"] == 0x4B37, "crc16-modbus of '123456789'"
+
+    def test_b64_batch(self):
+        # Arrange -- binary payloads as base64.
+        b64s = [base64.b64encode(b).decode("ascii") for b in (b"123456789", b"\x00\xff")]
+        # Act
+        out = _call(
+            "crc_compute_many",
+            {"algorithm": "crc32", "data_b64s": b64s},
+        )
+        # Assert
+        assert out["results"][0]["crc"] == 0xCBF43926, "first is crc32 check value"
+        assert out["count"] == 2, "two results"
+
+    def test_empty_batch(self):
+        # Act
+        out = _call("crc_compute_many", {"algorithm": "crc32", "data_texts": []})
+        # Assert
+        assert out["count"] == 0 and out["results"] == [], "empty batch -> no results"
+
+    def test_unknown_algorithm_rejected(self):
+        with pytest.raises(Exception, match="unknown algorithm"):
+            _call("crc_compute_many", {"algorithm": "nope", "data_texts": ["x"]})
+
+    def test_both_inputs_rejected(self):
+        with pytest.raises(Exception, match="exactly one"):
+            _call(
+                "crc_compute_many",
+                {"algorithm": "crc32", "data_texts": ["a"], "data_b64s": ["YQ=="]},
+            )
+
+
+# ---------------------------------------------------------------------------
 # crc_generate
 # ---------------------------------------------------------------------------
 

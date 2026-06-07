@@ -16,6 +16,7 @@ reveng ``check`` value (CRC of ``b"123456789"``) and a human-readable
 from __future__ import annotations
 
 import zlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 
@@ -25,9 +26,11 @@ from dataclasses import dataclass
 # / table-driven speed (~1-2 GB/s).  When absent, the pure-Python loop
 # below runs unchanged.
 try:
+    from crcglot._c import c_crc_many as _c_crc_many
     from crcglot._c import c_generic_crc as _c_generic_crc
 except ImportError:
     _c_generic_crc = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    _c_crc_many = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
 # zlib hardware fast-paths.  CPython's ``zlib.crc32`` is hardware-
@@ -148,6 +151,56 @@ def generic_crc(
     if _c_generic_crc is not None:
         return _c_generic_crc(data, width, poly, init, refin, refout, xorout)
     return _generic_crc_python(data, width, poly, init, refin, refout, xorout)
+
+
+def generic_crc_many(
+    buffers: Sequence[bytes | bytearray | memoryview],
+    width: int,
+    poly: int,
+    init: int,
+    refin: bool,
+    refout: bool,
+    xorout: int,
+) -> list[int]:
+    """CRC of each buffer in ``buffers`` (one algorithm), in order.
+
+    The batch form of :func:`generic_crc`: for a table/slice-by-8 algorithm
+    the C extension builds the lookup table **once** for the whole batch
+    and pays the Python->C transition once, so this is the right tool for
+    "the CRC of many messages with the same algorithm" -- far faster than a
+    Python loop of :func:`generic_crc`, which rebuilds the table per call.
+    Same dispatch as :func:`generic_crc` (zlib fast-path for crc32 / jamcrc,
+    the C extension when built, else the pure-Python loop) and bit-identical
+    results.
+
+    Args:
+        buffers: The payloads; each is CRC'd independently (not concatenated).
+        width: CRC bit width.
+        poly: Generator polynomial in normal (MSB-first) form.
+        init: Initial register value.
+        refin: True to reflect each input byte.
+        refout: True to reflect the final CRC value.
+        xorout: XOR applied to the final CRC value.
+
+    Returns:
+        One CRC value per buffer, in the same order.
+
+    Examples:
+        >>> generic_crc_many([b"123456789", b""], 32, 0x04C11DB7,
+        ...                   0xFFFFFFFF, True, True, 0xFFFFFFFF)
+        [3421780262, 0]
+    """
+    fast_path = _ZLIB_FAST_PATHS.get((width, poly, init, refin, refout, xorout))
+    if fast_path is not None:
+        return [fast_path(b) for b in buffers]
+    if _c_crc_many is not None:
+        return _c_crc_many(
+            list(buffers), width, poly, init, refin, refout, xorout
+        )
+    return [
+        _generic_crc_python(b, width, poly, init, refin, refout, xorout)
+        for b in buffers
+    ]
 
 
 def _generic_crc_python(

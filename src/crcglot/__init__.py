@@ -48,6 +48,7 @@ from crcglot.catalogue import (
     AlgorithmInfo,
     _reflect,
     generic_crc,
+    generic_crc_many,
 )
 from crcglot.detect import (
     Attempt,
@@ -136,4 +137,5 @@ __all__ = [
     "generate_vhdl_from_entry",
     "crc_stream",
     "generic_crc",
+    "generic_crc_many",
 ]

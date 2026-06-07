@@ -35,6 +35,7 @@ from crcglot import (
     encode_int,
     encode_text,
     generic_crc,
+    generic_crc_many,
 )
 from crcglot.mcp._wire import (
     algorithm_to_dict,
@@ -312,6 +313,61 @@ def build_server() -> FastMCP:
             "crc": crc,
             "crc_hex": f"0x{crc:0{hex_w}X}",
             "width": width,
+        }
+
+    # ----- crc_compute_many -----
+
+    @mcp.tool(
+        name="crc_compute_many",
+        description=(
+            "Compute the CRC of MANY messages with one algorithm in a "
+            "single call -- the batch form of crc_compute.  Each message is "
+            "CRC'd independently (not concatenated); results come back in "
+            "order.  Use this instead of calling crc_compute in a loop: it "
+            "builds the lookup table once for the whole batch (via the C "
+            "extension) and pays the Python<->C transition once, so it is "
+            "dramatically faster for many small messages of the same "
+            "algorithm (packet streams, framed protocols, bulk validation). "
+            "Supply exactly one of data_texts or data_b64s (a list); use "
+            "data_b64s for binary payloads."
+        ),
+    )
+    def crc_compute_many(
+        algorithm: str,
+        data_texts: list[str] | None = None,
+        data_b64s: list[str] | None = None,
+        encoding: str = "utf-8",
+    ) -> dict[str, Any]:
+        if algorithm not in ALGORITHMS:
+            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+        if (data_texts is None) == (data_b64s is None):
+            raise ValueError("supply exactly one of data_texts or data_b64s")
+
+        if data_b64s is not None:
+            import base64 as _b64
+
+            buffers: list[bytes] = []
+            for i, item in enumerate(data_b64s):
+                try:
+                    buffers.append(_b64.b64decode(item, validate=True))
+                except Exception as e:
+                    raise ValueError(f"data_b64s[{i}] not valid base64: {e}") from e
+        else:
+            assert data_texts is not None
+            buffers = [t.encode(encoding) for t in data_texts]
+
+        a = ALGORITHMS[algorithm]
+        results = generic_crc_many(
+            buffers, a.width, a.poly, a.init, a.refin, a.refout, a.xorout
+        )
+        hex_w = (a.width + 3) // 4
+        return {
+            "algorithm": algorithm,
+            "width": a.width,
+            "count": len(results),
+            "results": [
+                {"crc": c, "crc_hex": f"0x{c:0{hex_w}X}"} for c in results
+            ],
         }
 
     # ----- crc_generate -----

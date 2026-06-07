@@ -102,6 +102,20 @@ Compute the raw CRC integer of data without packet framing.  Returns
 > instructions.  crcglot internally delegates them to zlib already; the
 > MCP round-trip is wasteful for hot paths.
 
+### `crc_compute_many(algorithm, data_texts | data_b64s, ...)`
+
+Compute the CRC of **many** messages with one algorithm in a single
+call — the batch form of `crc_compute`.  Each message is CRC'd
+independently (not concatenated); results return in order as
+`{algorithm, width, count, results: [{crc, crc_hex}, ...]}`.  Supply
+exactly one of `data_texts` / `data_b64s` (a list).
+
+Prefer this over looping `crc_compute`: it builds the lookup table once
+for the whole batch (via the C extension's `c_crc_many`) and pays the
+Python↔C transition once, so it is far faster for many small messages of
+the same algorithm — packet streams, framed protocols, bulk validation.
+One MCP call instead of N round-trips.
+
 ### `crc_generate(language, algorithm, variant="bitwise", ...)`
 
 Emit verified source code for a (language, variant) cell.
