@@ -23,6 +23,8 @@ Two layers:
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from crcglot import ALGORITHMS
@@ -82,6 +84,38 @@ class TestCExtensionParityWithPython:
         )
         assert c_result == algo.check, (
             f"{name}: C ({c_result:#x}) != reveng check ({algo.check:#x})"
+        )
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            # poly / init with bits ABOVE the width (refin and non-refin).
+            (16, 0x8005 | (1 << 20), 0xFFFF | (1 << 18), True, True, 0),
+            (16, 0x1021 | (1 << 33), 0x1234 | (1 << 40), False, False, 0),
+            # xorout with bits above the width -- the case that used to
+            # diverge (C masked the result to width, Python did not).
+            (16, 0x8005, 0xFFFF, True, True, 1 << 20),
+            (8, 0x07 | (1 << 12), 0x09 | (1 << 9), False, False, 0x55 | (1 << 30)),
+        ],
+    )
+    def test_c_matches_python_on_out_of_width_params(self, params):
+        """C and Python agree even when poly/init/xorout carry bits above
+        the width -- both treat parameters mod 2**width and mask the
+        result, so the "bit-identical" guarantee holds for all inputs,
+        not just the clean catalogue values.
+        """
+        # Act
+        c_result = _c.c_generic_crc(_CHECK_INPUT, *params)
+        py_result = _generic_crc_python(_CHECK_INPUT, *params)
+
+        # Assert -- identical, and within the width.
+        width = params[0]
+        assert c_result == py_result, (
+            f"out-of-width params {params}: C ({c_result:#x}) != "
+            f"Python ({py_result:#x})"
+        )
+        assert c_result < (1 << width), (
+            f"result {c_result:#x} exceeds width {width}"
         )
 
 
@@ -450,3 +484,52 @@ class TestCExtensionTableCache:
             assert actual == expected, (
                 f"poly={poly:#x}: C ({actual:#x}) != Python ({expected:#x})"
             )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Concurrency: the engine is stateless (no shared cache), parallel-safe
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCExtensionConcurrency:
+    """Concurrent CRC computation over many distinct algorithms must stay
+    correct.  The extension holds no shared state -- each call builds and
+    frees its own table -- so concurrent callers are independent by
+    construction; this guards that property (and the per-call build/free
+    path) against regressions.
+
+    On a standard (GIL-enabled) build the GIL also serializes execution,
+    so this is a smoke/regression test.  On a free-threaded build (PEP 703)
+    it runs the builds genuinely in parallel.  Either way, a wrong result
+    or a crash would fail it.
+    """
+
+    def test_concurrent_distinct_algorithms_stay_correct(self):
+        # Arrange -- the whole catalogue, hammered from many threads; each
+        # call builds its own table, so this stresses concurrent build/free.
+        names = sorted(ALGORITHMS)
+        errors: list = []
+
+        def worker() -> None:
+            try:
+                for _ in range(30):
+                    for name in names:
+                        a = ALGORITHMS[name]
+                        v = _c.c_generic_crc(
+                            _CHECK_INPUT, a.width, a.poly, a.init,
+                            a.refin, a.refout, a.xorout,
+                        )
+                        if v != a.check:
+                            errors.append((name, hex(v), hex(a.check)))
+            except Exception as exc:  # noqa: BLE001 - report, don't hang
+                errors.append(exc)
+
+        # Act
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Assert
+        assert not errors, f"concurrent CRC errors: {errors[:5]}"

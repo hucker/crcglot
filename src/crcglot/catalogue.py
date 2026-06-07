@@ -114,6 +114,22 @@ def generic_crc(
     measurable without uninstalling the extension and so the test suite
     can assert parity directly.
 
+    Performance -- THIS IS A ONE-SHOT.  For a table/slice-by-8 algorithm
+    (every byte-aligned width except IEEE crc32 / jamcrc, which ride
+    zlib), each call **rebuilds the lookup table from scratch**; there is
+    no cache.  Calling this in a loop over many messages of the same
+    algorithm therefore rebuilds the table every iteration -- on small
+    buffers that is **4-11x slower** than it needs to be (the build, not
+    the CRC, dominates), and the cost only grows the more you loop.
+
+    For many CRCs of the same algorithm, build the table **once** and
+    reuse it: use :func:`crcglot.crc_stream` / :class:`crcglot.CrcStream`
+    (build once, ``update`` per message) or, for a fixed list of buffers,
+    ``crcglot._c.c_crc_many``.  Independent streams also run fully in
+    parallel across threads.  ``generic_crc`` is the right tool for a
+    *single* CRC (or a check value); a hot loop of it is the one
+    performance mistake to avoid.
+
     Args:
         data: Payload bytes.
         width: CRC bit width (8, 16, 32, etc.).
@@ -177,7 +193,10 @@ def _generic_crc_python(
             crc &= (1 << width) - 1
     if refout != refin:
         crc = _reflect(crc, width)
-    return crc ^ xorout
+    # Mask to ``width`` bits so the result stays a CRC value even if a
+    # caller passes an ``xorout`` with bits above the width -- matches the
+    # C engine's finalize and keeps the two bit-identical for all inputs.
+    return (crc ^ xorout) & ((1 << width) - 1)
 
 
 @dataclass(frozen=True)

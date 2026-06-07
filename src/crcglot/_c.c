@@ -12,11 +12,19 @@
  *         - other byte-aligned widths (8, 16, 24, ...): table-driven
  *           (one lookup per byte)
  *         - non-byte-aligned widths: bit-by-bit
- *       Lookup tables are built once per (width, poly, refin) tuple and
- *       cached, so repeated calls for the same algorithm don't rebuild.
+ *       The lookup table is built fresh on each call (no shared cache);
+ *       for reuse across calls, use CrcStream.
  *
- * Streaming object (``CrcStream``) and the batch API (``c_crc_many``)
- * land in follow-up commits on this branch.
+ *   c_crc_many(buffers, ...) -> list[int]
+ *       The same engine over a sequence of buffers, building the table
+ *       once for the whole batch and paying the Python->C transition once.
+ *
+ *   CrcStream(*, width, poly, ...) -> object
+ *       Incremental (hashlib-style) streaming: update / digest / reset /
+ *       copy.  Binds the parameters and builds its table once at
+ *       construction, then reuses it for every update -- the way to reuse a
+ *       table across many CRCs, and the path that runs fully in parallel
+ *       across threads (no shared state).
  *
  * ---- CPython API notes for the C-extension-curious ----
  *
@@ -38,18 +46,23 @@
  *   ``const uint8_t*`` and length for any bytes-like object.  Release
  *   with ``PyBuffer_Release`` (mandatory; not optional).
  *
- * ---- Table cache + thread safety ----
+ * ---- Tables and thread safety ----
  *
- * The (width, poly, refin) -> tables cache is shared mutable state.
- * It's safe because every mutation happens while the GIL is held:
- * tables are built and the cache is appended-to *before* we release
- * the GIL for the actual CRC computation.  Cache entries are never
- * mutated or freed once created (append-only), so a thread that
- * fetched a table pointer can run with the GIL released while another
- * thread appends a different entry -- the fetched pointer stays valid.
- * If the cache fills (>CACHE_CAP distinct algorithms), further misses
- * build a thread-local table that the caller frees after use; no
- * caching, but correct.
+ * There is NO shared table cache.  Each table/slice8 fetch builds a fresh
+ * table that the caller owns and frees: ``c_generic_crc`` builds one per
+ * call; ``CrcStream`` builds one at construction and holds it for the
+ * object's lifetime; ``c_crc_many`` builds one for the whole batch.  So the
+ * extension carries no shared mutable state -- it is thread-safe by
+ * construction, with no lock, on GIL and free-threaded builds alike, and
+ * the CRC loop runs with the GIL released for large buffers.  Reuse is the
+ * caller's choice: a bare one-shot rebuilds its table each call (cheap
+ * relative to anything but a tight small-buffer loop); for reuse, hold a
+ * CrcStream (build once, update many) -- and N independent streams across N
+ * threads run fully in parallel, sharing nothing.
+ *
+ * Per-object CrcStream state is single-owner (not thread-safe for
+ * concurrent mutation of one stream, like hashlib) -- use one stream per
+ * thread.
  */
 
 #define Py_LIMITED_API 0x030B0000
@@ -57,7 +70,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <stdlib.h>
 
 
 /* ------------------------------------------------------------------ */
@@ -270,62 +282,31 @@ static uint64_t engine_slice8(
 
 
 /* ------------------------------------------------------------------ */
-/* Table cache.  Keyed by (width, poly, refin, has_slice8).  Append-   */
-/* only; entries never mutated or freed.  All access under the GIL.    */
+/* Table builder.  No shared cache: every call allocates and builds a   */
+/* fresh table the caller owns and frees (see the file-header note).    */
+/* The caller decides on reuse by holding the result (CrcStream) or     */
+/* fetching once per batch (c_crc_many).                                */
 /* ------------------------------------------------------------------ */
 
-#define CACHE_CAP 64
-
-typedef struct {
-    int width;
-    uint64_t poly;
-    int refin;
-    int has_slice8;
-    uint64_t (*tables)[256];  /* heap: 1 row (table) or 8 rows (slice8) */
-} TableCache;
-
-static TableCache g_cache[CACHE_CAP];
-static int g_cache_len = 0;
-
-/* Return the tables for (width, poly, refin), building + caching on
- * miss.  ``need_slice8`` selects 8-table vs 1-table layout.  Sets
- * ``*needs_free`` to 1 iff the returned pointer is a fresh allocation
- * the caller must ``free`` after use (only when the cache is full).
- * Returns NULL on allocation failure (no Python error set; caller
- * must handle). */
-static uint64_t (*get_tables(
-    int width, uint64_t poly, int refin, int need_slice8, int *needs_free
+/* Allocate + build the lookup tables for (width, poly, refin).
+ * ``need_slice8`` selects the 8-table vs 1-table layout.  The returned
+ * pointer is always a fresh PyMem allocation the caller must PyMem_Free.
+ * Returns NULL on allocation failure (no Python error set; caller must
+ * handle).  Must be called with the GIL held (uses PyMem_Malloc); no
+ * shared state, so concurrent calls are independent. */
+static uint64_t (*build_tables(
+    int width, uint64_t poly, int refin, int need_slice8
 ))[256] {
-    for (int i = 0; i < g_cache_len; i++) {
-        TableCache *e = &g_cache[i];
-        if (e->width == width && e->poly == poly
-            && e->refin == refin && e->has_slice8 == need_slice8) {
-            *needs_free = 0;
-            return e->tables;
-        }
-    }
     int rows = need_slice8 ? 8 : 1;
     uint64_t (*t)[256] =
-        (uint64_t (*)[256])malloc((size_t)rows * 256 * sizeof(uint64_t));
+        (uint64_t (*)[256])PyMem_Malloc((size_t)rows * 256 * sizeof(uint64_t));
     if (t == NULL) {
-        *needs_free = 0;
         return NULL;
     }
     if (need_slice8) {
         build_slice8(t, width, poly, refin);
     } else {
         build_table(t[0], width, poly, refin);
-    }
-    if (g_cache_len < CACHE_CAP) {
-        TableCache *e = &g_cache[g_cache_len++];
-        e->width = width;
-        e->poly = poly;
-        e->refin = refin;
-        e->has_slice8 = need_slice8;
-        e->tables = t;
-        *needs_free = 0;  /* owned by the cache now */
-    } else {
-        *needs_free = 1;  /* caller frees after use */
     }
     return t;
 }
@@ -339,16 +320,22 @@ static uint64_t (*get_tables(
  * cost dominates for tiny inputs). */
 #define GIL_RELEASE_THRESHOLD 65536
 
-/* Engine code for a width: 0 bit-by-bit, 1 table-driven, 2 slice-by-8. */
-static int pick_engine(int width) {
+/* The compute engine selected for a width. */
+typedef enum {
+    ENGINE_BITWISE = 0,  /* non-byte-aligned widths */
+    ENGINE_TABLE   = 1,  /* byte-aligned, not 32 / 64 */
+    ENGINE_SLICE8  = 2,  /* byte-aligned 32 / 64 */
+} CrcEngine;
+
+static CrcEngine pick_engine(int width) {
     int byte_aligned = (width % 8) == 0;
     if (byte_aligned && (width == 32 || width == 64)) {
-        return 2;
+        return ENGINE_SLICE8;
     }
     if (byte_aligned) {
-        return 1;
+        return ENGINE_TABLE;
     }
-    return 0;
+    return ENGINE_BITWISE;
 }
 
 /* Full init -> engine -> finalize for one buffer, given a pre-selected
@@ -358,12 +345,12 @@ static uint64_t crc_compute(
     const uint8_t *data, size_t len,
     int width, uint64_t poly, uint64_t init,
     int refin, int refout, uint64_t xorout,
-    int engine, uint64_t (*tables)[256]
+    CrcEngine engine, uint64_t (*tables)[256]
 ) {
     uint64_t crc = crc_init_state(width, init, refin);
-    if (engine == 2) {
+    if (engine == ENGINE_SLICE8) {
         crc = engine_slice8(data, len, width, refin, tables, crc);
-    } else if (engine == 1) {
+    } else if (engine == ENGINE_TABLE) {
         crc = engine_table(data, len, width, tables[0], refin, crc);
     } else {
         crc = engine_bitwise(data, len, width, poly, refin, crc);
@@ -377,11 +364,10 @@ static int crcglot_crc_dispatch(
     int refin, int refout, uint64_t xorout,
     uint64_t *out
 ) {
-    int engine = pick_engine(width);
+    CrcEngine engine = pick_engine(width);
     uint64_t (*tables)[256] = NULL;
-    int needs_free = 0;
-    if (engine != 0) {
-        tables = get_tables(width, poly, refin, engine == 2, &needs_free);
+    if (engine != ENGINE_BITWISE) {
+        tables = build_tables(width, poly, refin, engine == ENGINE_SLICE8);
         if (tables == NULL) {
             return -1;  /* OOM */
         }
@@ -398,8 +384,8 @@ static int crcglot_crc_dispatch(
                           refin, refout, xorout, engine, tables);
     }
 
-    if (needs_free) {
-        free(tables);
+    if (tables != NULL) {
+        PyMem_Free(tables);
     }
     *out = crc;
     return 0;
@@ -418,8 +404,9 @@ PyDoc_STRVAR(c_generic_crc_doc,
 "Equivalent to ``crcglot.generic_crc(...)`` -- same algorithm, same\n"
 "parameter conventions, same output for every reveng catalogue entry.\n"
 "Auto-selects slice-by-8 (width 32/64), table-driven (other\n"
-"byte-aligned widths), or bit-by-bit (non-byte-aligned widths) and\n"
-"caches lookup tables per (width, poly, refin).\n"
+"byte-aligned widths), or bit-by-bit (non-byte-aligned widths).\n"
+"Builds its lookup table per call; for table reuse across many CRCs,\n"
+"use CrcStream.\n"
 "\n"
 "Args:\n"
 "    data: bytes-like (bytes, bytearray, memoryview).\n"
@@ -520,12 +507,11 @@ py_c_crc_many(PyObject *self, PyObject *args)
         return NULL;  /* not a sequence; PySequence_Size set TypeError */
     }
 
-    /* Select engine + fetch tables ONCE for the whole batch. */
-    int engine = pick_engine(width);
+    /* Build the tables ONCE for the whole batch (the batch's whole point). */
+    CrcEngine engine = pick_engine(width);
     uint64_t (*tables)[256] = NULL;
-    int needs_free = 0;
-    if (engine != 0) {
-        tables = get_tables(width, poly, refin, engine == 2, &needs_free);
+    if (engine != ENGINE_BITWISE) {
+        tables = build_tables(width, poly, refin, engine == ENGINE_SLICE8);
         if (tables == NULL) {
             return PyErr_NoMemory();
         }
@@ -533,8 +519,8 @@ py_c_crc_many(PyObject *self, PyObject *args)
 
     PyObject *result = PyList_New(n);
     if (result == NULL) {
-        if (needs_free) {
-            free(tables);
+        if (tables != NULL) {
+            PyMem_Free(tables);
         }
         return NULL;
     }
@@ -565,14 +551,14 @@ py_c_crc_many(PyObject *self, PyObject *args)
         }
     }
 
-    if (needs_free) {
-        free(tables);
+    if (tables != NULL) {
+        PyMem_Free(tables);
     }
     return result;
 
 error:
-    if (needs_free) {
-        free(tables);
+    if (tables != NULL) {
+        PyMem_Free(tables);
     }
     Py_DECREF(result);
     return NULL;
@@ -603,32 +589,26 @@ typedef struct {
     int refout;
     uint64_t xorout;
     uint64_t crc;          /* running state */
-    int engine;            /* 0 = bitwise, 1 = table, 2 = slice8 */
-    uint64_t (*tables)[256];  /* NULL for bitwise; else cache ptr or owned */
-    int owns_tables;       /* 1 iff this instance must free() tables */
+    CrcEngine engine;      /* bitwise / table / slice8 */
+    uint64_t (*tables)[256];  /* NULL for bitwise; else owned by this stream */
 } CrcStreamObject;
 
 /* Populate the engine choice + tables for an instance whose width /
- * poly / refin are already set.  Returns 0 on success, -1 on OOM (no
- * Python error set -- caller raises). */
+ * poly / refin are already set.  The stream builds and owns its own
+ * tables (no shared cache), freed in dealloc.  Returns 0 on success, -1
+ * on OOM (no Python error set -- caller raises). */
 static int crcstream_setup_engine(CrcStreamObject *s) {
-    int byte_aligned = (s->width % 8) == 0;
-    int use_slice8 = byte_aligned && (s->width == 32 || s->width == 64);
-    int use_table = byte_aligned && !use_slice8;
-    s->engine = use_slice8 ? 2 : (use_table ? 1 : 0);
+    s->engine = pick_engine(s->width);
     s->tables = NULL;
-    s->owns_tables = 0;
-    if (s->engine == 0) {
+    if (s->engine == ENGINE_BITWISE) {
         return 0;  /* bitwise needs no tables */
     }
-    int needs_free = 0;
-    uint64_t (*t)[256] = get_tables(s->width, s->poly, s->refin,
-                                    s->engine == 2, &needs_free);
+    uint64_t (*t)[256] = build_tables(s->width, s->poly, s->refin,
+                                      s->engine == ENGINE_SLICE8);
     if (t == NULL) {
         return -1;
     }
     s->tables = t;
-    s->owns_tables = needs_free;
     return 0;
 }
 
@@ -655,12 +635,11 @@ CrcStream_init(PyObject *self, PyObject *args, PyObject *kwds)
         return -1;
     }
 
-    /* If __init__ is called twice on the same object, release any
-     * previously-owned tables before rebinding. */
-    if (s->owns_tables && s->tables != NULL) {
-        free(s->tables);
+    /* If __init__ is called twice on the same object, release the
+     * previously-built tables before rebinding. */
+    if (s->tables != NULL) {
+        PyMem_Free(s->tables);
         s->tables = NULL;
-        s->owns_tables = 0;
     }
 
     s->width = width;
@@ -682,8 +661,8 @@ static void
 CrcStream_dealloc(PyObject *self)
 {
     CrcStreamObject *s = (CrcStreamObject *)self;
-    if (s->owns_tables && s->tables != NULL) {
-        free(s->tables);
+    if (s->tables != NULL) {
+        PyMem_Free(s->tables);
     }
     PyTypeObject *tp = Py_TYPE(self);
     freefunc free_self = (freefunc)PyType_GetSlot(tp, Py_tp_free);
@@ -706,9 +685,9 @@ CrcStream_update(PyObject *self, PyObject *args)
     }
     const uint8_t *d = (const uint8_t *)view.buf;
     size_t n = (size_t)view.len;
-    if (s->engine == 2) {
+    if (s->engine == ENGINE_SLICE8) {
         s->crc = engine_slice8(d, n, s->width, s->refin, s->tables, s->crc);
-    } else if (s->engine == 1) {
+    } else if (s->engine == ENGINE_TABLE) {
         s->crc = engine_table(d, n, s->width, s->tables[0], s->refin, s->crc);
     } else {
         s->crc = engine_bitwise(d, n, s->width, s->poly, s->refin, s->crc);
@@ -769,8 +748,8 @@ CrcStream_copy(PyObject *self, PyObject *Py_UNUSED(ignored))
     c->refout = s->refout;
     c->xorout = s->xorout;
     c->crc = s->crc;  /* current state, not init */
-    /* Re-fetch tables for the copy so ownership is per-instance (no
-     * shared free).  Usually a cache hit -> shared, owns_tables=0. */
+    /* The copy builds and owns its own tables (independent of the
+     * original), so the two free separately. */
     if (crcstream_setup_engine(c) != 0) {
         Py_DECREF(c);
         return PyErr_NoMemory();
@@ -829,10 +808,13 @@ PyDoc_STRVAR(module_doc,
 "\n"
 "C-backed Rocksoft/Williams CRC engine that ``crcglot.generic_crc``\n"
 "dispatches to when available.  Auto-selects slice-by-8 / table-driven\n"
-"/ bit-by-bit by width and caches tables per algorithm.  Optional; the\n"
-"pure-Python fallback in crcglot.catalogue is always present.\n"
+"/ bit-by-bit by width.  Stateless (no shared cache); CrcStream reuses\n"
+"its table across updates.  Optional; the pure-Python fallback in\n"
+"crcglot.catalogue is always present.\n"
 "\n"
-"Installed by the ``crcglot[fast]`` extra / the prebuilt wheel.\n");
+"Ships in the prebuilt wheel (``pip install crcglot`` / ``uv add\n"
+"crcglot``); source installs without a compiler use the pure-Python\n"
+"fallback.\n");
 
 static struct PyModuleDef crcglot_c_module = {
     PyModuleDef_HEAD_INIT,

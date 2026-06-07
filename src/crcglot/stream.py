@@ -138,7 +138,9 @@ class _PyBackend:
         crc = self._state
         if self._refout != self._refin:
             crc = _reflect(crc, self._width)
-        return crc ^ self._xorout
+        # Mask to width (matches the C backend and generic_crc) so a dirty
+        # xorout can't leak bits above the width.
+        return (crc ^ self._xorout) & self._mask
 
     def reset(self) -> None:
         self._state = self._init_state

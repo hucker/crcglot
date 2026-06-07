@@ -215,3 +215,29 @@ def test_unknown_algorithm_raises() -> None:
     # Act / Assert
     with pytest.raises(KeyError, match="unknown algorithm"):
         crc_stream("definitely-not-a-crc")
+
+
+def test_dirty_xorout_is_masked_to_width() -> None:
+    """A dirty ``xorout`` (bits above the width) is masked at digest, on the
+    public stream and the pure-Python backend, matching ``generic_crc``.
+
+    Guards the finalize-masking fix: without it the pure-Python backend
+    would leak the high xorout bits while the C/zlib backends would not.
+    """
+    # Arrange -- crc16-modbus params with an xorout bit above width 16.
+    w, poly, init, refin, refout, xorout = 16, 0x8005, 0xFFFF, True, True, 1 << 20
+    expected = generic_crc(_DATA, w, poly, init, refin, refout, xorout)
+    assert expected < (1 << w), "reference result must be within the width"
+
+    # Act / Assert -- public stream (whatever backend is selected here).
+    s = CrcStream(
+        width=w, poly=poly, init=init, refin=refin, refout=refout, xorout=xorout
+    )
+    s.update(_DATA)
+    assert s.digest() == expected, "public stream must match generic_crc"
+    assert s.digest() < (1 << w), "digest must stay within the width"
+
+    # Act / Assert -- the pure-Python backend explicitly (the one that was lax).
+    b = _PyBackend(w, poly, init, refin, refout, xorout)
+    b.update(_DATA)
+    assert b.digest() == expected, "pure-Python backend must mask to width too"
