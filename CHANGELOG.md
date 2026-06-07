@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.16.0 — 2026-06-07
+
+Batch CRC + MCP ergonomics.  Fully additive over 0.15.1.
+
+### NEW: `generic_crc_many` — batch CRC for many messages
+
+`crcglot.generic_crc_many(buffers, width, poly, init, refin, refout, xorout)`
+computes the CRC of many buffers for one algorithm in a single call,
+returning one result per buffer in order.  Same dispatch and bit-identical
+results as `generic_crc` (zlib for crc32 / jamcrc, the C extension's
+`c_crc_many` otherwise, pure-Python fallback), but the C engine builds the
+lookup table **once** for the whole batch and pays the Python↔C transition
+once -- far faster than a loop of `generic_crc` for many small messages of
+the same algorithm (packet streams, framed protocols, bulk validation).
+
+### NEW: `crc_compute_many` MCP tool
+
+The batch form of `crc_compute`: an agent CRCs a whole list of messages
+(`data_texts` / `data_b64s`) in **one** tool call -- results in order --
+instead of N round-trips.  Backed by `generic_crc_many`.
+
+### CHANGED: MCP tools annotated read-only / idempotent
+
+All MCP tools now advertise `ToolAnnotations(readOnlyHint=True,
+idempotentHint=True, destructiveHint=False, openWorldHint=False)`.  Every
+tool is a pure, deterministic, offline read (lists / computes / generates;
+never mutates state or touches the network), so clients can **auto-approve**
+the calls instead of prompting per invocation.
+
 ## v0.15.1 — 2026-06-07
 
 A C-extension correctness and hardening patch.  No public API or generated
