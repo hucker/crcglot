@@ -29,8 +29,9 @@ def c_generic_crc(
     """Compute CRC using Rocksoft/Williams parameterization.
 
     C-backed equivalent of ``crcglot.generic_crc``.  Auto-selects
-    slice-by-8 / table-driven / bit-by-bit by width and caches tables
-    per (width, poly, refin).  ``poly`` / ``init`` / ``xorout`` are
+    slice-by-8 / table-driven / bit-by-bit by width.  Builds its lookup
+    table per call (no shared cache); for table reuse across many CRCs,
+    use :class:`CrcStream`.  ``poly`` / ``init`` / ``xorout`` are
     interpreted modulo ``2**width`` and the result is the low ``width``
     bits.
 

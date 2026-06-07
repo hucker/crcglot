@@ -23,6 +23,8 @@ Two layers:
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from crcglot import ALGORITHMS
@@ -482,3 +484,52 @@ class TestCExtensionTableCache:
             assert actual == expected, (
                 f"poly={poly:#x}: C ({actual:#x}) != Python ({expected:#x})"
             )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Concurrency: the engine is stateless (no shared cache), parallel-safe
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestCExtensionConcurrency:
+    """Concurrent CRC computation over many distinct algorithms must stay
+    correct.  The extension holds no shared state -- each call builds and
+    frees its own table -- so concurrent callers are independent by
+    construction; this guards that property (and the per-call build/free
+    path) against regressions.
+
+    On a standard (GIL-enabled) build the GIL also serializes execution,
+    so this is a smoke/regression test.  On a free-threaded build (PEP 703)
+    it runs the builds genuinely in parallel.  Either way, a wrong result
+    or a crash would fail it.
+    """
+
+    def test_concurrent_distinct_algorithms_stay_correct(self):
+        # Arrange -- the whole catalogue, hammered from many threads; each
+        # call builds its own table, so this stresses concurrent build/free.
+        names = sorted(ALGORITHMS)
+        errors: list = []
+
+        def worker() -> None:
+            try:
+                for _ in range(30):
+                    for name in names:
+                        a = ALGORITHMS[name]
+                        v = _c.c_generic_crc(
+                            _CHECK_INPUT, a.width, a.poly, a.init,
+                            a.refin, a.refout, a.xorout,
+                        )
+                        if v != a.check:
+                            errors.append((name, hex(v), hex(a.check)))
+            except Exception as exc:  # noqa: BLE001 - report, don't hang
+                errors.append(exc)
+
+        # Act
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Assert
+        assert not errors, f"concurrent CRC errors: {errors[:5]}"
