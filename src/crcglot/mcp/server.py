@@ -24,6 +24,7 @@ import json
 from typing import Any, Literal
 
 from mcp.server import FastMCP
+from mcp.types import ToolAnnotations
 
 from crcglot import (
     ALGORITHMS,
@@ -80,6 +81,17 @@ ENDIAN_ENUM = Literal["big", "little", "both"]
 MATCH_ENUM = Literal["first", "all", "set"]
 CRC_BYTE_ORDER_ENUM = Literal["big", "little"]
 
+# Every crcglot tool is a pure, deterministic, offline read: it lists /
+# computes / generates and never mutates external state or touches the
+# network (crc_generate only *returns* source).  These hints let a client
+# auto-approve the calls instead of prompting per invocation.
+_READONLY = ToolAnnotations(
+    readOnlyHint=True,
+    idempotentHint=True,
+    destructiveHint=False,
+    openWorldHint=False,
+)
+
 
 def build_server() -> FastMCP:
     """Construct the configured FastMCP server.
@@ -107,6 +119,7 @@ def build_server() -> FastMCP:
     # ----- crc_list -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_list",
         description=(
             "Browse the crcglot CRC algorithm catalogue.  Returns up to "
@@ -139,6 +152,7 @@ def build_server() -> FastMCP:
     # ----- crc_info -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_info",
         description=(
             "Get the full Rocksoft/Williams parameters (width, poly, "
@@ -159,6 +173,7 @@ def build_server() -> FastMCP:
     # ----- crc_detect -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_detect",
         description=(
             "Identify which catalogue CRC matches a packet whose tail "
@@ -208,6 +223,7 @@ def build_server() -> FastMCP:
     # ----- crc_encode -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_encode",
         description=(
             "Build a complete packet by computing the CRC of the data "
@@ -273,6 +289,7 @@ def build_server() -> FastMCP:
     # ----- crc_compute -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_compute",
         description=(
             "Compute the raw CRC integer for data without packaging or "
@@ -318,6 +335,7 @@ def build_server() -> FastMCP:
     # ----- crc_compute_many -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_compute_many",
         description=(
             "Compute the CRC of MANY messages with one algorithm in a "
@@ -373,6 +391,7 @@ def build_server() -> FastMCP:
     # ----- crc_generate -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_generate",
         description=(
             "Generate verified CRC source code for one (language, "
@@ -555,6 +574,7 @@ def build_server() -> FastMCP:
     # ----- crc_credits -----
 
     @mcp.tool(
+        annotations=_READONLY,
         name="crc_credits",
         description=(
             "Return the projects crcglot stands on (reveng catalogue, "

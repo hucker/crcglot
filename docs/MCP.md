@@ -57,7 +57,11 @@ uv tool run --from mcp mcp-cli \
 
 ## Tools
 
-Each tool maps 1:1 to a `crcglot` CLI subcommand.
+Each tool maps 1:1 to a `crcglot` CLI subcommand.  Every tool is annotated
+**read-only / idempotent** (`readOnlyHint`, `idempotentHint`,
+`destructiveHint=false`, `openWorldHint=false`) — they only list / compute /
+generate, never mutate state or touch the network — so clients can
+auto-approve them without prompting per call.
 
 ### `crc_list(glob=None)`
 

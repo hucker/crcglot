@@ -605,6 +605,27 @@ class TestCrcCredits:
         )
 
 
+class TestToolAnnotations:
+    """Every tool is a pure, read-only, offline computation, so each must
+    advertise read-only / idempotent annotations -- that's what lets an MCP
+    client auto-approve the calls instead of prompting per invocation."""
+
+    def test_all_tools_are_annotated_read_only(self):
+        # Act
+        mcp = build_server()
+        tools = _run(mcp.list_tools())
+
+        # Assert -- the whole surface, so a new tool can't slip through.
+        assert len(tools) == 8, f"expected 8 tools, got {len(tools)}"
+        for t in tools:
+            a = t.annotations
+            assert a is not None, f"{t.name}: missing annotations"
+            assert a.readOnlyHint is True, f"{t.name}: not readOnlyHint"
+            assert a.idempotentHint is True, f"{t.name}: not idempotentHint"
+            assert a.destructiveHint is False, f"{t.name}: destructiveHint set"
+            assert a.openWorldHint is False, f"{t.name}: openWorldHint set"
+
+
 # ---------------------------------------------------------------------------
 # Cross-algorithm coverage
 # ---------------------------------------------------------------------------
