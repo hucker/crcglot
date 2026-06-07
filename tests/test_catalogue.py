@@ -49,7 +49,7 @@ from crcglot import (
     generate_rust,
     generate_vhdl,
 )
-from crcglot.catalogue import _generic_crc_python, generic_crc
+from crcglot.catalogue import _generic_crc_python, generic_crc, generic_crc_many
 
 
 # Reveng-derived canonical check values for the algorithms used in
@@ -592,6 +592,45 @@ class TestZlibFastPaths:
         data = b"123456789"
         assert generic_crc(bytearray(data), *args) == 0xCBF43926
         assert generic_crc(memoryview(data), *args) == 0xCBF43926
+
+
+class TestGenericCrcMany:
+    """``generic_crc_many`` is the batch form of ``generic_crc`` -- one
+    table build for the whole batch -- and must be bit-identical to a loop
+    of ``generic_crc`` for every algorithm and any chunking."""
+
+    _BUFFERS = [b"", b"\x00", b"123456789", b"The quick brown fox", bytes(range(256))]
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    def test_matches_generic_crc_loop(self, name):
+        # Arrange
+        a = ALGORITHMS[name]
+        args = (a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+
+        # Act
+        actual = generic_crc_many(self._BUFFERS, *args)
+        expected = [generic_crc(b, *args) for b in self._BUFFERS]
+
+        # Assert
+        assert actual == expected, f"{name}: batch != per-buffer generic_crc"
+
+    def test_empty_batch_returns_empty_list(self):
+        # Act
+        a = ALGORITHMS["crc16-modbus"]
+        actual = generic_crc_many([], a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+
+        # Assert
+        assert actual == [], "empty batch must return an empty list"
+
+    def test_order_preserved(self):
+        # Act -- distinct inputs in a known order.
+        a = ALGORITHMS["crc32"]
+        bufs = [b"123456789", b"", b"a"]
+        actual = generic_crc_many(bufs, a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+
+        # Assert -- first is the canonical check value; order matches input.
+        assert actual[0] == 0xCBF43926, "first result is crc32 of '123456789'"
+        assert len(actual) == 3, "one result per input"
 
 
 class TestGenerators:

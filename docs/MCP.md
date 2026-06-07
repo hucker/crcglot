@@ -57,7 +57,11 @@ uv tool run --from mcp mcp-cli \
 
 ## Tools
 
-Each tool maps 1:1 to a `crcglot` CLI subcommand.
+Each tool maps 1:1 to a `crcglot` CLI subcommand.  Every tool is annotated
+**read-only / idempotent** (`readOnlyHint`, `idempotentHint`,
+`destructiveHint=false`, `openWorldHint=false`) — they only list / compute /
+generate, never mutate state or touch the network — so clients can
+auto-approve them without prompting per call.
 
 ### `crc_list(glob=None)`
 
@@ -101,6 +105,20 @@ Compute the raw CRC integer of data without packet framing.  Returns
 > C: zlib + PCLMULQDQ; Rust: `crc32fast`) because they use CPU CRC
 > instructions.  crcglot internally delegates them to zlib already; the
 > MCP round-trip is wasteful for hot paths.
+
+### `crc_compute_many(algorithm, data_texts | data_b64s, ...)`
+
+Compute the CRC of **many** messages with one algorithm in a single
+call — the batch form of `crc_compute`.  Each message is CRC'd
+independently (not concatenated); results return in order as
+`{algorithm, width, count, results: [{crc, crc_hex}, ...]}`.  Supply
+exactly one of `data_texts` / `data_b64s` (a list).
+
+Prefer this over looping `crc_compute`: it builds the lookup table once
+for the whole batch (via the C extension's `c_crc_many`) and pays the
+Python↔C transition once, so it is far faster for many small messages of
+the same algorithm — packet streams, framed protocols, bulk validation.
+One MCP call instead of N round-trips.
 
 ### `crc_generate(language, algorithm, variant="bitwise", ...)`
 

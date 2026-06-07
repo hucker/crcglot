@@ -338,7 +338,7 @@ Then wire it into your MCP client.  Claude Desktop's `claude_desktop_config.json
 }
 ```
 
-Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_encode` · `crc_compute` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
+Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
 
 ## Fast runtime CRC (optional C extension)
 
@@ -394,14 +394,17 @@ CrcStream(width=16, poly=0x8005, init=0xFFFF, refin=True, refout=True, xorout=0)
 CrcStream.from_info(ALGORITHMS["crc16-modbus"])
 ```
 
-For high-volume small-buffer workloads, the C extension CRCs many buffers in a single Python↔C transition (the win for framed protocols / packet streams):
+For high-volume small-buffer workloads (framed protocols, packet streams, bulk validation) where you have a list of payloads up front, **`generic_crc_many`** CRCs them all in one call — building the lookup table **once** for the whole batch and paying the Python↔C transition once, instead of rebuilding per call the way a loop of `generic_crc` would:
 
 ```python
-from crcglot import _c   # present iff the extension is installed
+from crcglot import generic_crc_many, ALGORITHMS
 
-results = _c.c_crc_many(list_of_packets, 32, 0x04C11DB7, 0xFFFFFFFF,
-                        True, True, 0xFFFFFFFF)
+a = ALGORITHMS["crc16-modbus"]
+results = generic_crc_many(list_of_packets, a.width, a.poly, a.init,
+                           a.refin, a.refout, a.xorout)   # one CRC per packet, in order
 ```
+
+It uses the same dispatch as `generic_crc` (zlib for crc32 / jamcrc, the C extension's `c_crc_many` otherwise, pure-Python fallback), and is exposed over MCP as the `crc_compute_many` tool — so an agent can CRC a whole batch of captured frames in a single tool call.
 
 See [BENCHMARKS.md](BENCHMARKS.md) for measured throughput of each runtime path against the generated-code gallery.
 
