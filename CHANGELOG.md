@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.15.1 — 2026-06-07
+
+A C-extension correctness and hardening patch.  No public API or generated
+output changes; safe drop-in over 0.15.0.
+
+### FIXED: C / Python parity for out-of-width `xorout`
+
+`crcglot.generic_crc` (and the streaming pure-Python backend) now mask the
+finalized result to `width`, matching the C engine, so the two are
+bit-identical for *all* inputs -- not just the clean catalogue values.
+Previously a caller passing an `xorout` with bits above the width got the
+width-masked value from the C engine but the unmasked value from pure
+Python.  Catalogue algorithms were never affected.  Regression tests pin
+C == Python on dirty `poly` / `init` / `xorout`.
+
+### CHANGED: the C extension is now stateless (no shared table cache)
+
+The `crcglot._c` engine previously kept a process-global, append-only cache
+of up to 64 lookup tables.  It has been removed: each table/slice-by-8 CRC
+builds a fresh table the caller owns and frees.  This makes the extension
+**thread-safe by construction** -- no lock, no shared state, correct on
+free-threaded builds (PEP 703), and concurrent builds run fully in
+parallel -- and drops the append-only shutdown leak and the 64-entry
+cache-thrash cliff.
+
+Table *reuse* now lives where ownership is explicit: `CrcStream` builds its
+table once and reuses it across `update`s; `c_crc_many` builds once per
+batch.  Only the bare one-shot `generic_crc` / `c_generic_crc` rebuilds per
+call.  **Performance note:** because there is no cache, calling
+`generic_crc` in a hot loop over the same algorithm rebuilds the table
+every iteration (4-11x slower on small buffers).  For repeated CRCs of one
+algorithm, use `crc_stream` / `CrcStream`.  Documented on `generic_crc` and
+in the README.
+
+### Other
+
+Internal C cleanup: `PyMem_*` allocators, a `CrcEngine` enum replacing magic
+codes, de-duplicated engine selection, honest doc comments, and removal of a
+stale "follow-up commits" note and a dead `crcglot[fast]` extra reference.
+
 ## v0.15.0 — 2026-06-06
 
 Two headline features — idiomatic per-language **naming** for generated code
