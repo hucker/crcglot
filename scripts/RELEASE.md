@@ -14,7 +14,7 @@ pushes the tag that triggers them.
 
 Two scripts, one human-in-the-loop gap between them:
 
-```
+```text
 release_prep.py 0.8.0        # local: bump, regen, test, CHANGELOG stub, commit
         |
         v
@@ -40,12 +40,12 @@ Before the first release that uses this flow, confirm the trusted
 publisher on <https://pypi.org/manage/project/crcglot/settings/publishing/>
 lists:
 
-| Field             | Value          |
-| ----------------- | -------------- |
-| Owner             | `hucker`       |
-| Repository        | `crcglot`      |
-| Workflow filename | `wheels.yml`   |
-| Environment       | *(leave blank)*|
+| Field             | Value           |
+| ----------------- | --------------- |
+| Owner             | `hucker`        |
+| Repository        | `crcglot`       |
+| Workflow filename | `wheels.yml`    |
+| Environment       | *(leave blank)* |
 
 If it still says `publish.yml`, add a new publisher for `wheels.yml` (or
 edit the existing one).  Symptom of getting this wrong: the CI publish
