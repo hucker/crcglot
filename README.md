@@ -371,7 +371,9 @@ crc = generic_crc(b"123456789", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFF
 
 ### Streaming and batch
 
-`generic_crc` is one-shot.  For chunked data (large files, sockets, sensor logs) use the **streaming** API — the runtime counterpart to the generated `init → update* → finalize` triple.  Bind the algorithm once by catalogue name, feed chunks, and read the finalized value on demand (hashlib idiom: `update` / `digest` / `reset` / `copy`):
+> **⚠️ Don't call `generic_crc` in a hot loop.**  It's a *one-shot*: for any table/slice-by-8 algorithm (everything byte-aligned except IEEE crc32 / jamcrc, which ride zlib) it **rebuilds the lookup table on every call** — there is no cache.  Looping it over many messages of the same algorithm rebuilds the table each iteration, which on small buffers is **4–11× slower than necessary** and only worsens the longer you loop.  **For many CRCs of the same algorithm, build the table once with a `CrcStream` and `update` per message** (and independent streams run fully in parallel across threads).  Use `generic_crc` for a *single* CRC; use streaming for repetition.
+
+Two reasons to use the **streaming** API instead of `generic_crc`: **chunked data** (a message arriving in pieces — large files, sockets, sensor logs) and **repetition** (many messages of the same algorithm — build the table once, not per call).  It's the runtime counterpart to the generated `init → update* → finalize` triple.  Bind the algorithm once by catalogue name, feed chunks, and read the finalized value on demand (hashlib idiom: `update` / `digest` / `reset` / `copy`):
 
 ```python
 from crcglot import crc_stream
