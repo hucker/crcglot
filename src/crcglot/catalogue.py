@@ -177,7 +177,10 @@ def _generic_crc_python(
             crc &= (1 << width) - 1
     if refout != refin:
         crc = _reflect(crc, width)
-    return crc ^ xorout
+    # Mask to ``width`` bits so the result stays a CRC value even if a
+    # caller passes an ``xorout`` with bits above the width -- matches the
+    # C engine's finalize and keeps the two bit-identical for all inputs.
+    return (crc ^ xorout) & ((1 << width) - 1)
 
 
 @dataclass(frozen=True)

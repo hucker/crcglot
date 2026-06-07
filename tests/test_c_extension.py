@@ -84,6 +84,38 @@ class TestCExtensionParityWithPython:
             f"{name}: C ({c_result:#x}) != reveng check ({algo.check:#x})"
         )
 
+    @pytest.mark.parametrize(
+        "params",
+        [
+            # poly / init with bits ABOVE the width (refin and non-refin).
+            (16, 0x8005 | (1 << 20), 0xFFFF | (1 << 18), True, True, 0),
+            (16, 0x1021 | (1 << 33), 0x1234 | (1 << 40), False, False, 0),
+            # xorout with bits above the width -- the case that used to
+            # diverge (C masked the result to width, Python did not).
+            (16, 0x8005, 0xFFFF, True, True, 1 << 20),
+            (8, 0x07 | (1 << 12), 0x09 | (1 << 9), False, False, 0x55 | (1 << 30)),
+        ],
+    )
+    def test_c_matches_python_on_out_of_width_params(self, params):
+        """C and Python agree even when poly/init/xorout carry bits above
+        the width -- both treat parameters mod 2**width and mask the
+        result, so the "bit-identical" guarantee holds for all inputs,
+        not just the clean catalogue values.
+        """
+        # Act
+        c_result = _c.c_generic_crc(_CHECK_INPUT, *params)
+        py_result = _generic_crc_python(_CHECK_INPUT, *params)
+
+        # Assert -- identical, and within the width.
+        width = params[0]
+        assert c_result == py_result, (
+            f"out-of-width params {params}: C ({c_result:#x}) != "
+            f"Python ({py_result:#x})"
+        )
+        assert c_result < (1 << width), (
+            f"result {c_result:#x} exceeds width {width}"
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Buffer-protocol input acceptance

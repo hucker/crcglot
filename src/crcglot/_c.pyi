@@ -30,7 +30,16 @@ def c_generic_crc(
 
     C-backed equivalent of ``crcglot.generic_crc``.  Auto-selects
     slice-by-8 / table-driven / bit-by-bit by width and caches tables
-    per (width, poly, refin).
+    per (width, poly, refin).  ``poly`` / ``init`` / ``xorout`` are
+    interpreted modulo ``2**width`` and the result is the low ``width``
+    bits.
+
+    Note:
+        For large buffers the GIL is released around the compute.  If
+        ``data`` is a *writable* buffer (``bytearray`` / writable
+        ``memoryview``), do not mutate its contents from another thread
+        during the call -- that would race with the in-flight read.
+        ``bytes`` (immutable) has no such caveat.
 
     Raises:
         ValueError: if ``width`` is not in ``[8, 64]``.
