@@ -66,6 +66,18 @@ fields), and `crc_verify` checks a frame against a named algorithm (wrapping
 `verify`, the inverse of `crc_encode`).  All read-only annotated.  See
 [docs/MCP.md](docs/MCP.md).
 
+### CHANGED: compute / encode / verify accept a custom polynomial
+
+`crc_compute`, `crc_compute_many`, `crc_encode`, and `crc_verify` now take
+**either** `algorithm` (a catalogue name) **or** `custom_params` — a Rocksoft
+tuple `{width, poly, init, refin, refout, xorout}`, the same shape `crc_generate`
+already accepts and the shape `crc_reverse` returns.  This closes the
+recover → use loop: an agent recovers a vendor's custom CRC with `crc_reverse`,
+then computes / verifies / builds packets with it directly, instead of only
+being able to generate code for it.  Underpinning this, the library's `encode` /
+`encode_int` / `encode_text` / `verify` now accept an `AlgorithmInfo` in place
+of a catalogue name (additive — names still work).
+
 ## v0.17.0 — 2026-06-07
 
 Reveng catalogue completion: the sub-byte, non-byte-aligned, and CRC-24

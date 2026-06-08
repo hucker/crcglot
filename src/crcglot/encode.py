@@ -46,8 +46,12 @@ def _format_bytes_as_hex_text(packet: bytes, fmt: HexFormat) -> str:
     return joined
 
 
-def _lookup(algorithm: str) -> AlgorithmInfo:
-    # Trivial wrapper; the helpful error message is the only value-add.
+def _lookup(algorithm: str | AlgorithmInfo) -> AlgorithmInfo:
+    # Resolve a catalogue name to its record, or pass an AlgorithmInfo through
+    # unchanged -- the latter lets callers checksum a custom / recovered
+    # polynomial (e.g. the output of crcglot.reverse) with the same functions.
+    if isinstance(algorithm, AlgorithmInfo):
+        return algorithm
     try:
         return ALGORITHMS[algorithm]
     except KeyError:
@@ -59,7 +63,7 @@ def _lookup(algorithm: str) -> AlgorithmInfo:
 
 def encode(
     data: bytes | bytearray,
-    algorithm: str,
+    algorithm: str | AlgorithmInfo,
     *,
     endianness: Endianness = "big",
 ) -> bytes:
@@ -73,7 +77,8 @@ def encode(
     Args:
         data: Payload to checksum.  ``bytes`` and ``bytearray`` are both
             accepted; the result is always ``bytes``.
-        algorithm: Catalogue name (e.g. ``"crc32"``); see ``crcglot list``.
+        algorithm: Catalogue name (e.g. ``"crc32"``; see ``crcglot list``), or
+            an :class:`AlgorithmInfo` for a custom / recovered polynomial.
         endianness: Byte order of the trailing CRC bytes.  Default ``"big"``.
 
     Returns:
@@ -99,7 +104,7 @@ def encode(
 
 def encode_text(
     data: str,
-    algorithm: str,
+    algorithm: str | AlgorithmInfo,
     *,
     sep: str = " ",
     leader: str = "",
@@ -116,7 +121,8 @@ def encode_text(
     Args:
         data: The text payload (encoded to bytes via ``encoding`` for
             CRC computation).
-        algorithm: Catalogue name (e.g. ``"crc32"``).
+        algorithm: Catalogue name (e.g. ``"crc32"``) or an
+            :class:`AlgorithmInfo` for a custom polynomial.
         sep: Separator between data and hex; defaults to a single space.
         leader: Hex prefix; typically ``""``, ``"0x"``, or ``"0X"``.
         uppercase: Emit hex digits in upper-case A-F.
@@ -225,7 +231,7 @@ def encode_match(
 
 def encode_int(
     data: bytes | bytearray | str,
-    algorithm: str,
+    algorithm: str | AlgorithmInfo,
     *,
     encoding: str = "utf-8",
 ) -> int:
@@ -236,7 +242,8 @@ def encode_int(
 
     Args:
         data: Payload; ``str`` is encoded via ``encoding`` first.
-        algorithm: Catalogue name.
+        algorithm: Catalogue name, or an :class:`AlgorithmInfo` for a custom
+            polynomial.
         encoding: Used only when ``data`` is ``str``.  Default ``"utf-8"``.
 
     Returns:
@@ -280,7 +287,7 @@ class VerifyResult:
 
 def verify(
     packet: bytes | bytearray | str,
-    algorithm: str,
+    algorithm: str | AlgorithmInfo,
     *,
     endianness: Endianness = "big",
     encoding: str = "utf-8",
@@ -299,7 +306,8 @@ def verify(
     Args:
         packet: The whole frame -- message followed by its CRC field, as binary
             bytes or a ``"data <sep> hexcrc"`` text line.
-        algorithm: Catalogue name (e.g. ``"crc32"``).
+        algorithm: Catalogue name (e.g. ``"crc32"``) or an
+            :class:`AlgorithmInfo` for a custom / recovered polynomial.
         endianness: Byte order of the trailing CRC field.  Default ``"big"``.
         encoding: Used only for a text frame, to bytes-encode the data portion.
             Default ``"utf-8"``.

@@ -560,6 +560,76 @@ class TestCrcVerify:
 
 
 # ---------------------------------------------------------------------------
+# custom_params -- compute / verify / encode a CUSTOM (non-catalogue) CRC
+# ---------------------------------------------------------------------------
+
+
+class TestCustomParams:
+    """compute / compute_many / encode / verify accept a custom Rocksoft tuple
+    (the same shape crc_generate takes), so the output of crc_reverse can be
+    *used*, not just turned into code -- the recover -> use loop."""
+
+    # A custom poly NOT in the catalogue.
+    CP = {"width": 16, "poly": 0x1009, "init": 0xFFFF,
+          "refin": True, "refout": True, "xorout": 0}
+
+    def _truth(self, data: bytes) -> int:
+        return generic_crc(data, 16, 0x1009, 0xFFFF, True, True, 0)
+
+    def test_compute_matches_engine(self):
+        # Act
+        out = _call("crc_compute", {"custom_params": self.CP, "data_text": "hello"})
+        # Assert
+        actual, expected = out["crc"], self._truth(b"hello")
+        assert actual == expected, f"custom compute 0x{actual:X} != 0x{expected:X}"
+
+    def test_compute_many_matches_engine(self):
+        out = _call("crc_compute_many",
+                    {"custom_params": self.CP, "data_texts": ["a", "bb", "ccc"]})
+        actual = [r["crc"] for r in out["results"]]
+        expected = [self._truth(b"a"), self._truth(b"bb"), self._truth(b"ccc")]
+        assert actual == expected, f"custom batch {actual} != {expected}"
+        assert out["algorithm"] == "custom", "label for an unnamed custom CRC"
+
+    def test_encode_then_verify_round_trip(self):
+        # Build a packet with the custom CRC, then verify it with the same tuple.
+        enc = _call("crc_encode", {"custom_params": self.CP, "data_text": "frame"})
+        # encode_text default packet is "data hexcrc"; verify the text frame.
+        ver = _call("crc_verify",
+                    {"custom_params": self.CP, "packet_text": enc["packet_text"]})
+        assert ver["valid"] is True, "custom encode -> custom verify must round-trip"
+
+    def test_reverse_then_verify_loop(self):
+        # The headline workflow: recover a custom CRC, then validate a NEW frame
+        # against the recovered parameters -- all via MCP.
+        import random
+        rng = random.Random(5)
+        msgs = [bytes(rng.randrange(256) for _ in range(n))
+                for n in ([8] * 12 + [9, 11, 13, 17])]
+        packets = [(m + generic_crc(m, 16, 0x1009, 0xFFFF, True, True, 0)
+                    .to_bytes(2, "big")).hex() for m in msgs]
+        rev = _call("crc_reverse", {"packets": packets, "std_algo_only": False})
+        model = rev["candidates"][0]
+        cp = {k: model[k] for k in
+              ("width", "poly", "init", "refin", "refout", "xorout")}
+        # A fresh frame the recovery never saw, CRC'd with the true params.
+        fresh = b"a brand new frame"
+        good = (fresh + generic_crc(fresh, 16, 0x1009, 0xFFFF, True, True, 0)
+                .to_bytes(2, "big"))
+        ver = _call("crc_verify", {"custom_params": cp, "packet_hex": good.hex()})
+        assert ver["valid"] is True, "recovered params must validate an unseen frame"
+
+    def test_requires_exactly_one_source(self):
+        with pytest.raises(Exception, match="exactly one of algorithm"):
+            _call("crc_compute",
+                  {"algorithm": "crc32", "custom_params": self.CP, "data_text": "x"})
+
+    def test_custom_params_needs_width_and_poly(self):
+        with pytest.raises(Exception, match="width.*poly|requires"):
+            _call("crc_compute", {"custom_params": {"width": 16}, "data_text": "x"})
+
+
+# ---------------------------------------------------------------------------
 # crc_generate
 # ---------------------------------------------------------------------------
 

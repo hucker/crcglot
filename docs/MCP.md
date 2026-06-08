@@ -131,29 +131,40 @@ from reveng).  Mirrors [`crcglot.reverse_packets`][rev].
 
 [rev]: ../src/crcglot/reverse.py
 
-### `crc_verify(algorithm, packet_hex | packet_text | packet_b64, crc_byte_order="big")`
+### `crc_verify(algorithm | custom_params, packet_hex | packet_text | packet_b64, ...)`
 
-Check whether a frame's trailing CRC is valid for a **known** algorithm — the
-inverse of `crc_encode` (which builds the frame) and the natural follow-up to
-`crc_detect` (which names the algorithm).  Peels the trailing CRC field,
-recomputes the CRC over the message, and compares.  Accepts the same frame
-shapes as `crc_detect`: `packet_hex` / `packet_b64` (binary) or `packet_text`
-(`data <sep> hexcrc`).  Returns `{valid, expected, expected_hex, actual,
-actual_hex, width, algorithm}` — comparing `expected` vs `actual` shows *how* a
-bad frame is wrong.  Mirrors [`crcglot.verify`][vfy].
+Check whether a frame's trailing CRC is valid — the inverse of `crc_encode`
+(which builds the frame) and the natural follow-up to `crc_detect` (which names
+the algorithm).  Peels the trailing CRC field, recomputes the CRC over the
+message, and compares.  Identify the CRC with `algorithm` (a catalogue name)
+**or** `custom_params` (see below) — so you can validate further frames against
+a CRC `crc_reverse` recovered.  Accepts the same frame shapes as `crc_detect`:
+`packet_hex` / `packet_b64` (binary) or `packet_text` (`data <sep> hexcrc`).
+Returns `{valid, expected, expected_hex, actual, actual_hex, width, algorithm}`
+— comparing `expected` vs `actual` shows *how* a bad frame is wrong.  Mirrors
+[`crcglot.verify`][vfy].
 
 [vfy]: ../src/crcglot/encode.py
 
-### `crc_encode(algorithm, data_text | data_b64, ...)`
+### `crc_encode(algorithm | custom_params, data_text | data_b64, ...)`
 
 Append a freshly-computed CRC to data and return the packet.  Pairs
 round-trip with `crc_detect` / `crc_verify`.  `crc_byte_order` controls the CRC
-bytes only.  Mirrors `crcglot encode`.
+bytes only.  Takes `algorithm` or `custom_params` (see below).  Mirrors
+`crcglot encode`.
 
-### `crc_compute(algorithm, data_text | data_b64, ...)`
+### `crc_compute(algorithm | custom_params, data_text | data_b64, ...)`
 
 Compute the raw CRC integer of data without packet framing.  Returns
 `{crc, crc_hex, width}`.  Mirrors `crcglot compute`.
+
+**Custom / recovered CRCs** — `crc_compute`, `crc_compute_many`, `crc_encode`,
+and `crc_verify` each take **either** `algorithm` (a catalogue name) **or**
+`custom_params`, a Rocksoft tuple `{width, poly, init, refin, refout, xorout}`
+(`width` + `poly` required) — the same shape `crc_generate` accepts and the
+shape `crc_reverse` returns.  This closes the loop: recover a vendor's custom
+CRC with `crc_reverse`, then compute / verify / build packets with it directly
+— no need to be in the catalogue.
 
 > **Perf note for `crc32` / `crc32-jamcrc`** — these two algorithms run
 > ~30× faster via your target language's stdlib (Python: `zlib.crc32`;
@@ -161,7 +172,7 @@ Compute the raw CRC integer of data without packet framing.  Returns
 > instructions.  crcglot internally delegates them to zlib already; the
 > MCP round-trip is wasteful for hot paths.
 
-### `crc_compute_many(algorithm, data_texts | data_b64s, ...)`
+### `crc_compute_many(algorithm | custom_params, data_texts | data_b64s, ...)`
 
 Compute the CRC of **many** messages with one algorithm in a single
 call — the batch form of `crc_compute`.  Each message is CRC'd

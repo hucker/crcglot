@@ -10,6 +10,7 @@ import pytest
 
 from crcglot import (
     ALGORITHMS,
+    AlgorithmInfo,
     HexFormat,
     TextFormat,
     detect,
@@ -17,6 +18,7 @@ from crcglot import (
     encode_int,
     encode_match,
     encode_text,
+    generic_crc,
     verify,
 )
 
@@ -380,3 +382,29 @@ class TestVerify:
     def test_unknown_algorithm_rejected(self) -> None:
         with pytest.raises(ValueError, match="unknown algorithm"):
             verify(b"\x00\x00\x00\x00", "definitely-not-real")
+
+
+class TestCustomAlgorithmInfo:
+    """encode / encode_int / verify accept an AlgorithmInfo, not just a name --
+    so a custom / recovered polynomial can be checksummed with the same code."""
+
+    @staticmethod
+    def _custom() -> AlgorithmInfo:
+        # A custom poly NOT in the catalogue (width 16, reflected).
+        w, p, i, ri, ro, xo = 16, 0x1009, 0xFFFF, True, True, 0x0000
+        check = generic_crc(b"123456789", w, p, i, ri, ro, xo)
+        return AlgorithmInfo(w, p, i, ri, ro, xo, check, "custom", "test")
+
+    def test_info_passthrough_matches_name(self) -> None:
+        # A catalogue AlgorithmInfo produces the same packet as its name.
+        info = ALGORITHMS["crc32"]
+        by_info, by_name = encode(b"hello", info), encode(b"hello", "crc32")
+        assert by_info == by_name, "AlgorithmInfo and name must encode identically"
+
+    def test_encode_verify_round_trip_custom(self) -> None:
+        info = self._custom()
+        packet = encode(b"payload", info)
+        result = verify(packet, info)
+        assert result.valid is True, "custom AlgorithmInfo must encode->verify clean"
+        actual = encode_int(b"payload", info)
+        assert actual == result.expected, "encode_int agrees with verify.expected"

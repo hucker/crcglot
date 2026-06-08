@@ -97,6 +97,41 @@ _READONLY = ToolAnnotations(
 )
 
 
+def _resolve_algorithm(
+    algorithm: str | None, custom_params: dict[str, Any] | None,
+) -> tuple[AlgorithmInfo, str]:
+    """Resolve a catalogue name OR a custom Rocksoft tuple to ``(info, label)``.
+
+    ``custom_params`` is ``{width, poly, init?, refin?, refout?, xorout?, name?,
+    desc?}`` (``width`` and ``poly`` required); its ``check`` is computed.  This
+    lets the compute / encode / verify tools work with a custom or *recovered*
+    polynomial -- e.g. the parameter set ``crc_reverse`` returns -- not just a
+    catalogue entry, the same way ``crc_generate`` already accepts custom_params.
+    """
+    if (algorithm is None) == (custom_params is None):
+        raise ValueError("supply exactly one of algorithm or custom_params")
+    if algorithm is not None:
+        if algorithm not in ALGORITHMS:
+            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+        return ALGORITHMS[algorithm], algorithm
+    cp = custom_params
+    assert cp is not None
+    if "width" not in cp or "poly" not in cp:
+        raise ValueError(
+            "custom_params requires at least 'width' and 'poly' "
+            "(plus optional init / refin / refout / xorout)")
+    width, poly = int(cp["width"]), int(cp["poly"])
+    init = int(cp.get("init", 0))
+    refin, refout = bool(cp.get("refin", False)), bool(cp.get("refout", False))
+    xorout = int(cp.get("xorout", 0))
+    check = generic_crc(b"123456789", width, poly, init, refin, refout, xorout)
+    info = AlgorithmInfo(
+        width=width, poly=poly, init=init, refin=refin, refout=refout,
+        xorout=xorout, check=check, desc=str(cp.get("desc", "")), source="custom",
+    )
+    return info, str(cp.get("name", "custom"))
+
+
 def build_server() -> FastMCP:
     """Construct the configured FastMCP server.
 
@@ -239,14 +274,17 @@ def build_server() -> FastMCP:
             "binary data pass data_b64; for text use data_text plus "
             "optional sep / leader / uppercase / fmt formatting.  Use "
             "this to generate test vectors, write expected values into "
-            "test fixtures, or send a freshly-CRC'd packet on the wire.\n"
+            "test fixtures, or send a freshly-CRC'd packet on the wire.  "
+            "Identify the CRC with 'algorithm' (catalogue name) OR "
+            "'custom_params' (a custom / recovered Rocksoft tuple).\n"
             "\n"
             "crc_byte_order controls the byte order of the appended CRC "
             "bytes only (the data portion is unaffected)."
         ),
     )
     def crc_encode(
-        algorithm: str,
+        algorithm: str | None = None,
+        custom_params: dict[str, Any] | None = None,
         data_text: str | None = None,
         data_b64: str | None = None,
         crc_byte_order: CRC_BYTE_ORDER_ENUM = "big",
@@ -256,8 +294,8 @@ def build_server() -> FastMCP:
         fmt: str = "{data}{sep}{leader}{crc}",
         encoding: str = "utf-8",
     ) -> dict[str, Any]:
-        if algorithm not in ALGORITHMS:
-            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+        info, _label = _resolve_algorithm(algorithm, custom_params)
+        hex_w = (info.width + 3) // 4
         if (data_text is None) == (data_b64 is None):
             raise ValueError("supply exactly one of data_text or data_b64")
         if data_b64 is not None:
@@ -267,19 +305,19 @@ def build_server() -> FastMCP:
                 raw = _b64.b64decode(data_b64, validate=True)
             except Exception as e:
                 raise ValueError(f"data_b64 not valid base64: {e}") from e
-            packet = encode(raw, algorithm, endianness=crc_byte_order)
-            crc_int = encode_int(raw, algorithm)
+            packet = encode(raw, info, endianness=crc_byte_order)
+            crc_int = encode_int(raw, info)
             return {
                 "packet_b64": _b64.b64encode(packet).decode("ascii"),
                 "packet_hex": packet.hex(),
                 "crc": crc_int,
-                "crc_hex": f"0x{crc_int:0{(ALGORITHMS[algorithm].width + 3) // 4}X}",
+                "crc_hex": f"0x{crc_int:0{hex_w}X}",
             }
         # text branch
         assert data_text is not None
         text = encode_text(
             data_text,
-            algorithm,
+            info,
             sep=sep,
             leader=leader,
             uppercase=uppercase,
@@ -287,11 +325,11 @@ def build_server() -> FastMCP:
             encoding=encoding,
             fmt=fmt,
         )
-        crc_int = encode_int(data_text, algorithm, encoding=encoding)
+        crc_int = encode_int(data_text, info, encoding=encoding)
         return {
             "packet_text": text,
             "crc": crc_int,
-            "crc_hex": f"0x{crc_int:0{(ALGORITHMS[algorithm].width + 3) // 4}X}",
+            "crc_hex": f"0x{crc_int:0{hex_w}X}",
         }
 
     # ----- crc_compute -----
@@ -305,6 +343,11 @@ def build_server() -> FastMCP:
             "against a captured value, fill in a struct field).  Supply "
             "exactly one of data_text or data_b64.\n"
             "\n"
+            "Identify the CRC with 'algorithm' (a catalogue name) OR "
+            "'custom_params' for a custom / recovered polynomial -- "
+            "{width, poly, init, refin, refout, xorout} (width + poly "
+            "required), e.g. the parameter set crc_reverse returns.\n"
+            "\n"
             "Python-specific perf note: if algorithm is 'crc32' or "
             "'crc32-jamcrc', the stdlib's zlib.crc32 produces the same "
             "value with one fewer round-trip and is the routine crcglot "
@@ -312,13 +355,13 @@ def build_server() -> FastMCP:
         ),
     )
     def crc_compute(
-        algorithm: str,
+        algorithm: str | None = None,
+        custom_params: dict[str, Any] | None = None,
         data_text: str | None = None,
         data_b64: str | None = None,
         encoding: str = "utf-8",
     ) -> dict[str, Any]:
-        if algorithm not in ALGORITHMS:
-            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+        info, _label = _resolve_algorithm(algorithm, custom_params)
         if (data_text is None) == (data_b64 is None):
             raise ValueError("supply exactly one of data_text or data_b64")
         if data_b64 is not None:
@@ -328,16 +371,15 @@ def build_server() -> FastMCP:
                 raw = _b64.b64decode(data_b64, validate=True)
             except Exception as e:
                 raise ValueError(f"data_b64 not valid base64: {e}") from e
-            crc = encode_int(raw, algorithm)
+            crc = encode_int(raw, info)
         else:
             assert data_text is not None
-            crc = encode_int(data_text, algorithm, encoding=encoding)
-        width = ALGORITHMS[algorithm].width
-        hex_w = (width + 3) // 4
+            crc = encode_int(data_text, info, encoding=encoding)
+        hex_w = (info.width + 3) // 4
         return {
             "crc": crc,
             "crc_hex": f"0x{crc:0{hex_w}X}",
-            "width": width,
+            "width": info.width,
         }
 
     # ----- crc_compute_many -----
@@ -355,17 +397,19 @@ def build_server() -> FastMCP:
             "dramatically faster for many small messages of the same "
             "algorithm (packet streams, framed protocols, bulk validation). "
             "Supply exactly one of data_texts or data_b64s (a list); use "
-            "data_b64s for binary payloads."
+            "data_b64s for binary payloads.  Identify the CRC with 'algorithm' "
+            "(catalogue name) OR 'custom_params' (a custom / recovered "
+            "Rocksoft tuple), as in crc_compute."
         ),
     )
     def crc_compute_many(
-        algorithm: str,
+        algorithm: str | None = None,
+        custom_params: dict[str, Any] | None = None,
         data_texts: list[str] | None = None,
         data_b64s: list[str] | None = None,
         encoding: str = "utf-8",
     ) -> dict[str, Any]:
-        if algorithm not in ALGORITHMS:
-            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+        a, label = _resolve_algorithm(algorithm, custom_params)
         if (data_texts is None) == (data_b64s is None):
             raise ValueError("supply exactly one of data_texts or data_b64s")
 
@@ -382,13 +426,12 @@ def build_server() -> FastMCP:
             assert data_texts is not None
             buffers = [t.encode(encoding) for t in data_texts]
 
-        a = ALGORITHMS[algorithm]
         results = generic_crc_many(
             buffers, a.width, a.poly, a.init, a.refin, a.refout, a.xorout
         )
         hex_w = (a.width + 3) // 4
         return {
-            "algorithm": algorithm,
+            "algorithm": label,
             "width": a.width,
             "count": len(results),
             "results": [
@@ -511,15 +554,18 @@ def build_server() -> FastMCP:
         annotations=_READONLY,
         name="crc_verify",
         description=(
-            "Check whether a packet's trailing CRC is valid for a KNOWN "
-            "algorithm -- the inverse of crc_encode (which builds the packet) "
-            "and the natural follow-up to crc_detect (which names the "
-            "algorithm).  Splits the trailing CRC field off the frame, "
-            "recomputes the CRC over the message, and compares.\n"
+            "Check whether a packet's trailing CRC is valid -- the inverse of "
+            "crc_encode (which builds the packet) and the natural follow-up to "
+            "crc_detect (which names the algorithm).  Splits the trailing CRC "
+            "field off the frame, recomputes the CRC over the message, and "
+            "compares.\n"
             "\n"
-            "Supply the algorithm name plus the frame as packet_hex (binary, any "
-            "common formatting tolerated), packet_b64 (binary, base64), or "
-            "packet_text ('data <sep> hexcrc' -- the trailing hex CRC is peeled "
+            "Identify the CRC with 'algorithm' (a KNOWN catalogue name) OR "
+            "'custom_params' (a custom / recovered Rocksoft tuple -- e.g. what "
+            "crc_reverse returns, so you can validate further frames against a "
+            "recovered CRC).  Supply the frame as packet_hex (binary, any common "
+            "formatting tolerated), packet_b64 (binary, base64), or packet_text "
+            "('data <sep> hexcrc' -- the trailing hex CRC is peeled "
             "automatically, like crc_detect); exactly one.  crc_byte_order is "
             "the byte order of the trailing CRC field ('big' default / "
             "'little').\n"
@@ -530,25 +576,25 @@ def build_server() -> FastMCP:
         ),
     )
     def crc_verify(
-        algorithm: str,
+        algorithm: str | None = None,
+        custom_params: dict[str, Any] | None = None,
         packet_hex: str | None = None,
         packet_text: str | None = None,
         packet_b64: str | None = None,
         crc_byte_order: CRC_BYTE_ORDER_ENUM = "big",
         encoding: str = "utf-8",
     ) -> dict[str, Any]:
-        if algorithm not in ALGORITHMS:
-            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+        info, label = _resolve_algorithm(algorithm, custom_params)
         if sum(p is not None for p in (packet_hex, packet_text, packet_b64)) != 1:
             raise ValueError(
                 "supply exactly one of packet_hex / packet_text / packet_b64")
         if packet_text is not None:
             result = verify(
-                packet_text, algorithm, endianness=crc_byte_order, encoding=encoding)
+                packet_text, info, endianness=crc_byte_order, encoding=encoding)
         else:
             packet = parse_packet(packet_hex, None, packet_b64)
             assert isinstance(packet, bytes)  # hex / base64 forms decode to bytes
-            result = verify(packet, algorithm, endianness=crc_byte_order)
+            result = verify(packet, info, endianness=crc_byte_order)
         hw = (result.width + 3) // 4
         return {
             "valid": result.valid,
@@ -557,7 +603,7 @@ def build_server() -> FastMCP:
             "actual": result.actual,
             "actual_hex": f"0x{result.actual:0{hw}X}",
             "width": result.width,
-            "algorithm": algorithm,
+            "algorithm": label,
         }
 
     # ----- crc_generate -----
