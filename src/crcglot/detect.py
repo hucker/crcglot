@@ -437,6 +437,21 @@ def _parse_text(text: str, encoding: str) -> _ParsedText | None:
     )
 
 
+def _read_hex_crc(hex_str: str, endian: Endianness) -> int | None:
+    """Read a trailing hex CRC field as an integer per byte order.
+
+    Shared by :func:`crcglot.verify` and :func:`crcglot.reverse_packets` so a
+    text frame ("data <sep> hexcrc") splits the same way :func:`detect` reads
+    it.  Returns ``None`` when a little-endian reading is asked of an odd-nibble
+    field (a sub-byte width like 11 -> 3 nibbles has no whole bytes to reverse).
+    """
+    if endian == "big":
+        return int(hex_str, 16)
+    if len(hex_str) % 2 == 1:
+        return None
+    return int.from_bytes(bytes.fromhex(hex_str), "little")
+
+
 def _check_binary(packet: bytes, algo: AlgorithmInfo, w: int, endian: Endianness) -> bool:
     """Recompute the CRC of ``packet[:-w]`` and compare to ``packet[-w:]``.
 

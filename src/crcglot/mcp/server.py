@@ -37,7 +37,8 @@ from crcglot import (
     encode_text,
     generic_crc,
     generic_crc_many,
-    reverse,
+    reverse_packets,
+    verify,
 )
 from crcglot.mcp._wire import (
     algorithm_to_dict,
@@ -81,6 +82,8 @@ COMMENT_STYLE_ENUM = Literal[
 ENDIAN_ENUM = Literal["big", "little", "both"]
 MATCH_ENUM = Literal["first", "all", "set"]
 CRC_BYTE_ORDER_ENUM = Literal["big", "little"]
+# How the per-packet strings in crc_reverse are encoded.
+PACKET_FORMAT_ENUM = Literal["hex", "base64", "text"]
 
 # Every crcglot tool is a pure, deterministic, offline read: it lists /
 # computes / generates and never mutates external state or touches the
@@ -107,11 +110,13 @@ def build_server() -> FastMCP:
             "crcglot exposes the reveng CRC catalogue (more than 100 algorithms), "
             "a multi-language code generator (C / C# / Go / Python / Rust "
             "/ TypeScript / Verilog / VHDL), and a runtime CRC engine.  "
-            "Use crc_list / crc_info to browse; crc_detect to identify "
-            "the CRC of a captured packet against the catalogue; crc_reverse "
-            "to recover an UNKNOWN / custom CRC's parameters from message-CRC "
-            "pairs; crc_compute for raw integer CRC values; crc_encode to "
-            "build a packet; crc_generate to emit verified source code.  For "
+            "Use crc_list / crc_info to browse.  The packet tools all take the "
+            "same shape -- whole frames with the CRC as the trailing field: "
+            "crc_detect identifies a KNOWN CRC, crc_reverse recovers an UNKNOWN "
+            "/ custom one, and crc_verify checks a frame against a named "
+            "algorithm.  crc_compute gives raw integer CRC values; crc_encode "
+            "builds a packet (the inverse of crc_verify); crc_generate emits "
+            "verified source code.  For "
             "IEEE crc32 and crc32-jamcrc "
             "specifically, prefer the target language's stdlib (e.g. "
             "Python's zlib.crc32) -- those algorithms run ~30x faster "
@@ -398,19 +403,29 @@ def build_server() -> FastMCP:
         name="crc_reverse",
         description=(
             "Reverse-engineer the parameters of an UNKNOWN / custom CRC from "
-            "(message, crc) codewords -- the recovery counterpart to "
-            "crc_detect (which only identifies CRCs already in the catalogue). "
-            "Use this when a device's CRC is NOT any known algorithm: supply "
-            "several codewords and it solves the Rocksoft/Williams parameters "
-            "algebraically over GF(2).\n"
+            "captured packets -- the recovery counterpart to crc_detect (which "
+            "only identifies CRCs already in the catalogue).  Takes the SAME "
+            "input shape as crc_detect: whole frames with the CRC as the "
+            "trailing field.  Use this when a device's CRC is NOT any known "
+            "algorithm; it solves the Rocksoft/Williams parameters algebraically "
+            "over GF(2).\n"
             "\n"
-            "Each codeword is an object {message_hex | message_b64, crc} -- the "
-            "message bytes (one of hex or base64) and the integer CRC it "
-            "produced.  Supply SEVERAL VARIED frames: varied in CONTENT (so the "
-            "polynomial converges) and in LENGTH (to separate init from "
-            "xorout); ~4+ is typical and more is better.  Fix any known "
-            "parameter (width / refin / refout / poly / init / xorout) to "
-            "reduce how many codewords are needed.\n"
+            "'packets' is a list of frames.  packet_format selects how each is "
+            "encoded: 'hex' (default; any common formatting -- spaces, colons, "
+            "0x prefixes tolerated), 'base64' (raw bytes), or 'text' for a "
+            "'data <sep> hexcrc' line where the CRC is appended as hex after a "
+            "separator (the trailing hex field is peeled automatically, like "
+            "crc_detect).  Supply SEVERAL VARIED frames: varied in CONTENT (so "
+            "the polynomial converges) and in LENGTH (to separate init from "
+            "xorout); ~6+ is typical and more is better.\n"
+            "\n"
+            "'crc_bytes' is the size of the trailing CRC field for binary frames "
+            "(e.g. 2 for a 16-bit CRC); leave it null to auto-detect, and it's "
+            "ignored for text frames (the hex field is already delimited).  "
+            "'crc_byte_order' is that field's byte order ('big' default, "
+            "'little', or 'both' to try each).  Fix any known parameter (width / "
+            "refin / refout / poly / init / xorout) to reduce how many frames "
+            "are needed.\n"
             "\n"
             "Returns 'status': 'catalogue' (matched a known algorithm), "
             "'unique' (recovered, one parameter set), 'equivalent' (recovered "
@@ -420,14 +435,20 @@ def build_server() -> FastMCP:
             "the polynomial is always unique), 'underdetermined' (supply more "
             "varied frames), or 'none'.  Every returned model is self-verified "
             "against the engine, and 'validated_frames' reports a held-out "
-            "generalisation check.  Guarantee: a recovered model is correct on "
-            "unseen data, or honestly reports underdetermined -- never "
-            "confidently wrong.  std_algo_only=True restricts to the catalogue "
-            "tier (identical to crc_detect on these pairs)."
+            "generalisation check; when the field size / byte order was "
+            "auto-detected, 'note' records the split that was chosen.  "
+            "Guarantee: a recovered model is correct on unseen data, or honestly "
+            "reports underdetermined -- never confidently wrong.  "
+            "std_algo_only=True restricts to the catalogue tier (identical to "
+            "crc_detect)."
         ),
     )
     def crc_reverse(
-        codewords: list[dict[str, Any]],
+        packets: list[str],
+        crc_bytes: int | None = None,
+        crc_byte_order: ENDIAN_ENUM = "big",
+        packet_format: PACKET_FORMAT_ENUM = "hex",
+        encoding: str = "utf-8",
         std_algo_only: bool = False,
         width: int | None = None,
         refin: bool | None = None,
@@ -437,37 +458,29 @@ def build_server() -> FastMCP:
         xorout: int | None = None,
         validate: bool = True,
     ) -> dict[str, Any]:
-        import base64 as _b64
-
-        if not codewords:
+        if not packets:
             raise ValueError(
-                "codewords must be a non-empty list of "
-                "{message_hex|message_b64, crc}"
+                "packets must be a non-empty list of frames (message followed "
+                "by the CRC), each a hex string (or base64 / text per "
+                "packet_format)"
             )
-        frames: list[tuple[bytes, int]] = []
-        for i, cw in enumerate(codewords):
-            if "crc" not in cw:
-                raise ValueError(f"codewords[{i}]: missing 'crc'")
-            raw_crc = cw["crc"]
-            crc = int(raw_crc, 0) if isinstance(raw_crc, str) else int(raw_crc)
-            mh, mb = cw.get("message_hex"), cw.get("message_b64")
-            if (mh is None) == (mb is None):
-                raise ValueError(
-                    f"codewords[{i}]: supply exactly one of "
-                    "message_hex or message_b64"
-                )
-            try:
-                if mh is not None:
-                    msg = bytes.fromhex(mh)
-                else:
-                    assert mb is not None  # narrowed by the check above
-                    msg = _b64.b64decode(mb, validate=True)
-            except Exception as e:
-                raise ValueError(f"codewords[{i}]: bad message bytes: {e}") from e
-            frames.append((msg, crc))
+        frames_in: list[bytes | str]
+        if packet_format == "text":
+            frames_in = list(packets)  # text frames pass through to _parse_text
+        else:
+            frames_in = []
+            for i, p in enumerate(packets):
+                try:
+                    raw = (parse_packet(None, None, p) if packet_format == "base64"
+                           else parse_packet(p, None, None))
+                except ValueError as e:
+                    raise ValueError(f"packets[{i}]: {e}") from e
+                assert isinstance(raw, bytes)  # hex / base64 forms decode to bytes
+                frames_in.append(raw)
 
-        result = reverse(
-            frames, std_algo_only=std_algo_only, width=width,
+        result = reverse_packets(
+            frames_in, crc_bytes=crc_bytes, crc_byte_order=crc_byte_order,
+            encoding=encoding, std_algo_only=std_algo_only, width=width,
             refin=refin, refout=refout, poly=poly, init=init, xorout=xorout,
             validate=validate,
         )
@@ -490,6 +503,61 @@ def build_server() -> FastMCP:
             "validated_frames": result.validated_frames,
             "candidates": [_model(c) for c in result.candidates],
             "note": result.note,
+        }
+
+    # ----- crc_verify -----
+
+    @mcp.tool(
+        annotations=_READONLY,
+        name="crc_verify",
+        description=(
+            "Check whether a packet's trailing CRC is valid for a KNOWN "
+            "algorithm -- the inverse of crc_encode (which builds the packet) "
+            "and the natural follow-up to crc_detect (which names the "
+            "algorithm).  Splits the trailing CRC field off the frame, "
+            "recomputes the CRC over the message, and compares.\n"
+            "\n"
+            "Supply the algorithm name plus the frame as packet_hex (binary, any "
+            "common formatting tolerated), packet_b64 (binary, base64), or "
+            "packet_text ('data <sep> hexcrc' -- the trailing hex CRC is peeled "
+            "automatically, like crc_detect); exactly one.  crc_byte_order is "
+            "the byte order of the trailing CRC field ('big' default / "
+            "'little').\n"
+            "\n"
+            "Returns 'valid' (bool), 'expected' (the CRC the message should "
+            "carry) and 'actual' (the value read from the field), in decimal and "
+            "hex -- comparing the two shows HOW a bad frame is wrong."
+        ),
+    )
+    def crc_verify(
+        algorithm: str,
+        packet_hex: str | None = None,
+        packet_text: str | None = None,
+        packet_b64: str | None = None,
+        crc_byte_order: CRC_BYTE_ORDER_ENUM = "big",
+        encoding: str = "utf-8",
+    ) -> dict[str, Any]:
+        if algorithm not in ALGORITHMS:
+            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+        if sum(p is not None for p in (packet_hex, packet_text, packet_b64)) != 1:
+            raise ValueError(
+                "supply exactly one of packet_hex / packet_text / packet_b64")
+        if packet_text is not None:
+            result = verify(
+                packet_text, algorithm, endianness=crc_byte_order, encoding=encoding)
+        else:
+            packet = parse_packet(packet_hex, None, packet_b64)
+            assert isinstance(packet, bytes)  # hex / base64 forms decode to bytes
+            result = verify(packet, algorithm, endianness=crc_byte_order)
+        hw = (result.width + 3) // 4
+        return {
+            "valid": result.valid,
+            "expected": result.expected,
+            "expected_hex": f"0x{result.expected:0{hw}X}",
+            "actual": result.actual,
+            "actual_hex": f"0x{result.actual:0{hw}X}",
+            "width": result.width,
+            "algorithm": algorithm,
         }
 
     # ----- crc_generate -----

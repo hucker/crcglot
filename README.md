@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-5161%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-5323%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -114,16 +114,16 @@ Layer an LLM on top when you want richer prose.  The point is that the *baseline
 
 The generated public functions read like hand-written code in each target: Go and C# get `PascalCase` (`Crc16ModbusUpdate`), Java and TypeScript get `camelCase` (`crc16ModbusUpdate`), and C, Rust, Python, Verilog, and VHDL get `snake_case` (`crc16_modbus_update`).  Those are the **defaults** — a linter (`govet`, StyleCop, ESLint, …) won't flag the output.  Override with `--naming=<convention>`; each language offers only the conventions its ecosystem actually uses (C is a free-for-all, Python and Rust are snake-only):
 
-| Language       | default      | `--naming` choices         |
-| -------------- | ------------ | -------------------------- |
-| C / C++ ⚙️     | `snake`      | `snake`, `camel`, `pascal` |
-| C# 💠          | `pascal`     | `pascal`, `camel`          |
-| Go 🚦          | `pascal`     | `pascal`, `camel`          |
-| Java ☕         | `camel`      | `camel`, `pascal`          |
-| TypeScript 🔷  | `camel`      | `camel`, `snake`, `pascal` |
-| Rust 🦀        | `snake`      | `snake`                    |
-| Python 🐍      | `snake`      | `snake`                    |
-| Verilog 🔧 / VHDL 🔌 | `snake` | `snake`                   |
+| Language           | default  | `--naming` choices         |
+| ------------------ | -------- | -------------------------- |
+| C / C++ ⚙️          | `snake`  | `snake`, `camel`, `pascal` |
+| C# 💠               | `pascal` | `pascal`, `camel`          |
+| Go 🚦               | `pascal` | `pascal`, `camel`          |
+| Java ☕             | `camel`  | `camel`, `pascal`          |
+| TypeScript 🔷       | `camel`  | `camel`, `snake`, `pascal` |
+| Rust 🦀             | `snake`  | `snake`                    |
+| Python 🐍           | `snake`  | `snake`                    |
+| Verilog 🔧 / VHDL 🔌 | `snake`  | `snake`                    |
 
 ```bash
 crcglot go crc32 --naming camel          # crc32Update instead of Crc32Update
@@ -201,15 +201,15 @@ Print acknowledgments for the upstream work crcglot stands on (also exported as 
 
 Generate source code for the chosen target language.  Pick your intent — crcglot picks the implementation:
 
-| Option / token    | Effect                                                                                                                    |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `--small`         | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                                       |
-| `--fast`          | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise.                      |
-| `--custom`        | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                                               |
-| `--comment=STYLE` | Documentation style for the generated comments (default `plain`).  See [Documentation comments](#documentation-comments). |
+| Option / token        | Effect                                                                                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--small`             | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                                                                                           |
+| `--fast`              | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise.                                                                          |
+| `--custom`            | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                                                                                                   |
+| `--comment=STYLE`     | Documentation style for the generated comments (default `plain`).  See [Documentation comments](#documentation-comments).                                                     |
 | `--naming=CONVENTION` | Casing of the public function/method names (`snake` / `camel` / `pascal`).  Defaults to each language's idiomatic convention.  See [Naming conventions](#naming-conventions). |
-| `file=STEM`       | Write to disk (extension picked per language; see below).  Omit for stdout.                                               |
-| `symbol=NAME`     | Override the emitted function name (emitted verbatim, bypassing `--naming`).  Default: derived from algorithm, or from `file=STEM` if given. |
+| `file=STEM`           | Write to disk (extension picked per language; see below).  Omit for stdout.                                                                                                   |
+| `symbol=NAME`         | Override the emitted function name (emitted verbatim, bypassing `--naming`).  Default: derived from algorithm, or from `file=STEM` if given.                                  |
 
 File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; Java `.java`; TypeScript `.ts`.  (For Java, every algorithm shares one container class named after `STEM`, so the stem must be a valid Java identifier.)
 
@@ -318,7 +318,7 @@ code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 
 ## Use with an MCP client (optional)
 
-`crcglot[mcp]` exposes the CLI surface as a [Model Context Protocol](https://modelcontextprotocol.io) server so LLM clients (Claude Desktop, Cursor, mcp-cli, …) can call `crc_detect` / `crc_reverse` / `crc_compute` / `crc_generate` etc. as named tools.  The LLM never has to remember a polynomial, slice bytes off a packet to find the CRC, or write a reflection loop — it asks crcglot.  (`crc_detect` identifies a *known* CRC; `crc_reverse` recovers the parameters of an *unknown / custom* one from message-CRC pairs.)
+`crcglot[mcp]` exposes the CLI surface as a [Model Context Protocol](https://modelcontextprotocol.io) server so LLM clients (Claude Desktop, Cursor, mcp-cli, …) can call `crc_detect` / `crc_reverse` / `crc_verify` / `crc_compute` / `crc_generate` etc. as named tools.  The LLM never has to remember a polynomial, slice bytes off a packet to find the CRC, or write a reflection loop — it asks crcglot.  The three packet tools take the same input shape (a frame with the CRC at the tail — binary hex/base64 or a `data <sep> hexcrc` text line): `crc_detect` names a *known* CRC, `crc_reverse` recovers an *unknown / custom* one, and `crc_verify` checks a frame against a named algorithm.
 
 ```bash
 pip install 'crcglot[mcp]'        # the extra ships the MCP SDK
@@ -338,7 +338,7 @@ Then wire it into your MCP client.  Claude Desktop's `claude_desktop_config.json
 }
 ```
 
-Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
+Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_verify` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
 
 ## Fast runtime CRC (optional C extension)
 

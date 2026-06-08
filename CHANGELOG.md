@@ -37,13 +37,34 @@ falls through to an algebraic solve.
 Scope: the CRC is the trailing field of each codeword; byte-aligned messages;
 width ≤ 64.
 
-### NEW: `crc_reverse` MCP tool
+### NEW: `crcglot.reverse_packets(packets, …)` — the packet-shaped entry
 
-The MCP server gains a 9th tool, `crc_reverse`, wrapping `crcglot.reverse` so
-LLM clients can recover a custom CRC from `(message, crc)` codewords — the
-recovery counterpart to `crc_detect` (catalogue lookup).  Read-only annotated
-like the rest; returns the full equivalence class with the determinacy /
-held-out-validation fields.  See [docs/MCP.md](docs/MCP.md).
+`reverse` takes the `(message, crc)` split directly; `reverse_packets` takes
+whole captured frames — the **same shapes `detect` accepts** — and peels the CRC
+off for you.  Binary frames (`bytes`) split at the trailing `crc_bytes`
+(auto-detected when omitted: the largest consistent cut, since CRC register
+feedback can make a smaller cut look valid too).  Text frames
+(`"data <sep> hexcrc"`) reuse `detect`'s trailing-hex parser, so a CRC appended
+as hex to a log line / NMEA-style frame recovers with no manual splitting.
+`crc_byte_order` is `big` / `little` / `both`.
+
+### NEW: `crcglot.verify(packet, algorithm, …)` + `VerifyResult`
+
+The inverse of `encode`: check a frame's trailing CRC against a **known**
+algorithm.  Accepts the same binary or `"data <sep> hexcrc"` text frames; returns
+`{valid, expected, actual, width}` — `expected` vs `actual` shows *how* a bad
+frame is wrong.
+
+### NEW: `crc_reverse` + `crc_verify` MCP tools (8 → 10)
+
+The MCP server gains two tools so its three packet tools — `crc_detect`,
+`crc_reverse`, `crc_verify` — now share **one input shape** (a frame with the
+CRC at the tail, as hex / base64 / `data <sep> hexcrc` text): `crc_detect` names
+a known CRC, `crc_reverse` recovers an unknown one (wrapping `reverse_packets`,
+returning the full equivalence class with the determinacy / held-out-validation
+fields), and `crc_verify` checks a frame against a named algorithm (wrapping
+`verify`, the inverse of `crc_encode`).  All read-only annotated.  See
+[docs/MCP.md](docs/MCP.md).
 
 ## v0.17.0 — 2026-06-07
 
@@ -274,16 +295,16 @@ comments in each language's native syntax) is the default; every language also
 has its idiomatic doc-tool style, and each is verified by compiling and running
 the documented code on its real toolchain:
 
-| Language       | `--comment` styles                |
-| -------------- | --------------------------------- |
-| C / C++        | `plain`, `doxygen`                |
-| C#             | `plain`, `doxygen`, `docfx`       |
-| Java           | `plain`, `doxygen`, `javadoc`     |
+| Language       | `--comment` styles                 |
+| -------------- | ---------------------------------- |
+| C / C++        | `plain`, `doxygen`                 |
+| C#             | `plain`, `doxygen`, `docfx`        |
+| Java           | `plain`, `doxygen`, `javadoc`      |
 | Python         | `plain`, `google`, `numpy`, `rest` |
-| Rust           | `plain`, `rustdoc`                |
-| Go             | `plain`, `godoc`                  |
-| TypeScript     | `plain`, `jsdoc`                  |
-| Verilog / VHDL | `plain`                           |
+| Rust           | `plain`, `rustdoc`                 |
+| Go             | `plain`, `godoc`                   |
+| TypeScript     | `plain`, `jsdoc`                   |
+| Verilog / VHDL | `plain`                            |
 
 ```bash
 crcglot c crc32 --comment=doxygen        # /** @brief @param @return */
@@ -1129,13 +1150,13 @@ human-readable `desc`.
 
 Mechanical search-and-replace for downstream callers:
 
-| Old                            | New                                       |
-| ------------------------------ | ----------------------------------------- |
-| `CRC_CATALOGUE`                | `ALGORITHMS`                              |
-| `entry["width"]`               | `algo.width` (etc.)                       |
-| `GENERATORS[lang]`             | `LANGUAGES[lang].generator`               |
-| `GENERATORS_FROM_ENTRY[lang]`  | `LANGUAGES[lang].generator_from_entry`    |
-| `entry = {"width": ..., ...}`  | `AlgorithmInfo(name=..., width=..., ...)` |
+| Old                           | New                                       |
+| ----------------------------- | ----------------------------------------- |
+| `CRC_CATALOGUE`               | `ALGORITHMS`                              |
+| `entry["width"]`              | `algo.width` (etc.)                       |
+| `GENERATORS[lang]`            | `LANGUAGES[lang].generator`               |
+| `GENERATORS_FROM_ENTRY[lang]` | `LANGUAGES[lang].generator_from_entry`    |
+| `entry = {"width": ..., ...}` | `AlgorithmInfo(name=..., width=..., ...)` |
 
 ### Internal
 

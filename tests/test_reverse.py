@@ -17,7 +17,7 @@ import random
 
 import pytest
 
-from crcglot import ReverseResult, generic_crc, reverse
+from crcglot import ReverseResult, generic_crc, reverse, reverse_packets
 from crcglot.catalogue import ALGORITHMS
 from crcglot.reverse import _solve_dials
 
@@ -231,3 +231,93 @@ class TestBehaviour:
         r = reverse(_codewords(16, 0x8001, 0, False, False, 0), std_algo_only=False)
         assert isinstance(r, ReverseResult), "reverse() must return a ReverseResult"
         assert bool(r) is True, "a recovered model should be truthy"
+
+
+# ---------------------------------------------------------------------------
+# reverse_packets -- the packet-oriented entry (CRC at the tail of each frame)
+# ---------------------------------------------------------------------------
+
+
+def _byte_packets(width, poly, init, refin, refout, xorout, *, crc_bytes, order="big"):
+    """Codewords reshaped into binary frames: message + CRC at the tail."""
+    return [
+        m + generic_crc(m, width, poly, init, refin, refout, xorout).to_bytes(crc_bytes, order)
+        for m, _c in _codewords(width, poly, init, refin, refout, xorout)
+    ]
+
+
+def _text_packets(width, poly, init, refin, refout, xorout, *, nibbles=4, sep=" "):
+    """Codewords reshaped into 'data <sep> hexcrc' text frames."""
+    out = []
+    for i, (m, _c) in enumerate(_codewords(width, poly, init, refin, refout, xorout)):
+        # Use printable, varied data so the text regex has a clean data/sep/hex split.
+        data = f"frame{i:02d}-{m.hex()}"
+        crc = generic_crc(data.encode(), width, poly, init, refin, refout, xorout)
+        out.append(f"{data}{sep}{crc:0{nibbles}x}")
+    return out
+
+
+class TestReversePackets:
+    """`reverse_packets` splits the CRC off the tail (binary) or the trailing
+    hex field (text), then recovers -- the detect-shaped entry to `reverse`."""
+
+    def test_binary_with_known_field_size(self):
+        # Arrange -- custom poly, 2-byte big-endian CRC field.
+        pkts = _byte_packets(16, 0x1009, 0xFFFF, True, True, 0, crc_bytes=2)
+        # Act
+        r = reverse_packets(pkts, crc_bytes=2, std_algo_only=False)
+        # Assert
+        assert r.info is not None and r.info.poly == 0x1009, "poly recovered"
+
+    def test_binary_autodetects_field_size(self):
+        # crc_bytes omitted -> the largest consistent cut (2) is chosen.
+        pkts = _byte_packets(16, 0x1009, 0xFFFF, True, True, 0, crc_bytes=2)
+        r = reverse_packets(pkts, std_algo_only=False)
+        assert r.info is not None and r.info.poly == 0x1009, "poly recovered"
+        assert "2 byte" in r.note, f"chosen field size not reported: {r.note!r}"
+
+    def test_binary_little_endian_field(self):
+        pkts = _byte_packets(16, 0x8005, 0xFFFF, True, True, 0, crc_bytes=2, order="little")
+        # 'both' must discover the little-endian split and name the catalogue entry.
+        r = reverse_packets(pkts, crc_byte_order="both", std_algo_only=False)
+        assert r.status == "catalogue", f"status {r.status}"
+        assert r.catalogue_name == "crc16-modbus", r.catalogue_name
+        assert "little-endian" in r.note, f"byte order not reported: {r.note!r}"
+
+    def test_feedback_false_positive_avoided(self):
+        # A reflected 16-bit CRC's low byte algebraically predicts its high byte,
+        # so crc_bytes=1 is *also* consistent -- the largest-cut rule must still
+        # pick the true 2-byte field, not the 1-byte feedback artifact.
+        pkts = _byte_packets(16, 0x8005, 0xFFFF, True, True, 0, crc_bytes=2)
+        r = reverse_packets(pkts, std_algo_only=False)
+        assert "2 byte" in r.note, f"should pick the 2-byte field, got {r.note!r}"
+
+    def test_text_frames(self):
+        # Custom poly recovered from 'data hexcrc' text lines (no size hint).
+        pkts = _text_packets(16, 0x1009, 0xFFFF, True, True, 0)
+        r = reverse_packets(pkts, std_algo_only=False)
+        assert r.info is not None and r.info.poly == 0x1009, "poly recovered from text"
+        assert "text hex" not in r.note, "single-order search shouldn't tag the note"
+
+    def test_text_catalogue_passthrough(self):
+        a = ALGORITHMS["crc16-xmodem"]
+        pkts = _text_packets(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        r = reverse_packets(pkts)  # std_algo_only=True default
+        assert r.status == "catalogue", f"status {r.status}"
+        assert r.catalogue_name == "crc16-xmodem", r.catalogue_name
+
+    def test_mixed_text_and_binary_rejected(self):
+        with pytest.raises(ValueError, match="all text or all binary"):
+            reverse_packets([b"\x00\x01\x02", "frame 1234"])
+
+    def test_empty_rejected(self):
+        with pytest.raises(ValueError, match="at least one"):
+            reverse_packets([])
+
+    def test_short_binary_packet_rejected(self):
+        with pytest.raises(ValueError, match="too short"):
+            reverse_packets([b"\x01", b"\x02"], crc_bytes=2)
+
+    def test_non_text_frame_rejected(self):
+        with pytest.raises(ValueError, match="not a text frame"):
+            reverse_packets(["no-trailing-hex-here!"], std_algo_only=False)

@@ -9,8 +9,17 @@ the shape inference can have.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
-from crcglot.detect import DetectMatch, Endianness, HexFormat, TextFormat
+from crcglot.detect import (
+    DetectMatch,
+    Endianness,
+    HexFormat,
+    TextFormat,
+    _parse_text,
+    _read_hex_crc,
+)
 
 
 def _format_bytes_as_hex_text(packet: bytes, fmt: HexFormat) -> str:
@@ -246,4 +255,103 @@ def encode_int(
     return generic_crc(
         bytes(data), algo.width, algo.poly, algo.init,
         algo.refin, algo.refout, algo.xorout,
+    )
+
+
+@dataclass(frozen=True)
+class VerifyResult:
+    """Outcome of :func:`verify`.
+
+    Attributes:
+        valid: Whether the packet's trailing CRC matches the recomputed one.
+        expected: The CRC the message *should* carry (recomputed).
+        actual: The CRC value read from the packet's trailing field.
+        width: The algorithm's CRC width in bits.
+    """
+
+    valid: bool
+    expected: int
+    actual: int
+    width: int
+
+    def __bool__(self) -> bool:
+        return self.valid
+
+
+def verify(
+    packet: bytes | bytearray | str,
+    algorithm: str,
+    *,
+    endianness: Endianness = "big",
+    encoding: str = "utf-8",
+) -> VerifyResult:
+    """Check whether a packet's trailing CRC is valid for ``algorithm``.
+
+    The inverse of :func:`encode`: peels the trailing CRC field off ``packet``,
+    recomputes the CRC over the remaining message, and compares.  ``packet`` may
+    be a **binary** frame (``bytes``; the CRC is the trailing ``ceil(width / 8)``
+    bytes) or a **text** frame (``str`` ``"data <sep> hexcrc"``; the trailing
+    hex field is peeled the same way :func:`detect` reads it).  Use this to
+    validate a received frame against a *known* algorithm; use
+    :func:`crcglot.detect` when the algorithm is unknown, or
+    :func:`crcglot.reverse_packets` when it is custom.
+
+    Args:
+        packet: The whole frame -- message followed by its CRC field, as binary
+            bytes or a ``"data <sep> hexcrc"`` text line.
+        algorithm: Catalogue name (e.g. ``"crc32"``).
+        endianness: Byte order of the trailing CRC field.  Default ``"big"``.
+        encoding: Used only for a text frame, to bytes-encode the data portion.
+            Default ``"utf-8"``.
+
+    Returns:
+        A :class:`VerifyResult`; truthy when the CRC checks out.  ``expected`` is
+        the CRC the message should carry, ``actual`` the value read from the
+        field -- comparing them shows *how* a bad frame is wrong.
+
+    Raises:
+        ValueError: ``algorithm`` is not in the catalogue, ``packet`` is too
+            short / not a ``"data <sep> hexcrc"`` text frame, or a little-endian
+            reading was asked of an odd-nibble hex field.
+
+    Examples:
+        >>> from crcglot import encode, verify
+        >>> good = encode(b"123456789", "crc32")
+        >>> verify(good, "crc32").valid
+        True
+        >>> verify(good[:-1] + bytes([good[-1] ^ 1]), "crc32").valid
+        False
+        >>> verify("123456789 cbf43926", "crc32").valid
+        True
+    """
+    algo = _lookup(algorithm)
+    if isinstance(packet, str):
+        parsed = _parse_text(packet, encoding)
+        if parsed is None:
+            raise ValueError(
+                f"not a text frame ('data <sep> hexcrc'): {packet!r}")
+        message, _tf, _hex_len, hex_str = parsed
+        read = _read_hex_crc(hex_str, endianness)
+        if read is None:
+            raise ValueError(
+                "little-endian needs an even-nibble hex field; "
+                f"got {hex_str!r}")
+        actual = read
+    else:
+        pkt = bytes(packet)
+        n = (algo.width + 7) // 8  # ceil: CRC field width in whole bytes
+        if len(pkt) < n:
+            raise ValueError(
+                f"packet of length {len(pkt)} is too short for a {algo.width}-bit "
+                f"CRC field ({n} bytes)"
+            )
+        message, field = pkt[:-n], pkt[-n:]
+        actual = int.from_bytes(field, endianness)
+    expected = generic_crc(
+        message, algo.width, algo.poly, algo.init,
+        algo.refin, algo.refout, algo.xorout,
+    )
+    return VerifyResult(
+        valid=expected == actual, expected=expected, actual=actual,
+        width=algo.width,
     )

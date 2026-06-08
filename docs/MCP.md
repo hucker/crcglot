@@ -57,11 +57,19 @@ uv tool run --from mcp mcp-cli \
 
 ## Tools
 
-Each tool maps 1:1 to a `crcglot` CLI subcommand.  Every tool is annotated
-**read-only / idempotent** (`readOnlyHint`, `idempotentHint`,
-`destructiveHint=false`, `openWorldHint=false`) — they only list / compute /
-generate, never mutate state or touch the network — so clients can
-auto-approve them without prompting per call.
+Most tools map to a `crcglot` CLI subcommand (`crc_reverse` and `crc_verify`
+are MCP-only).  Every tool is annotated **read-only / idempotent**
+(`readOnlyHint`, `idempotentHint`, `destructiveHint=false`,
+`openWorldHint=false`) — they only list / compute / generate, never mutate
+state or touch the network — so clients can auto-approve them without prompting
+per call.
+
+The three **packet tools** — `crc_detect`, `crc_reverse`, `crc_verify` — all
+take the same input shape (a whole frame with the CRC as the trailing field),
+so an agent learns one convention: `crc_detect` names a *known* CRC,
+`crc_reverse` recovers an *unknown* one, `crc_verify` checks a frame against a
+named algorithm.  `crc_encode` is the inverse of `crc_verify` (it builds the
+frame `crc_verify` checks).
 
 ### `crc_list(glob=None)`
 
@@ -89,35 +97,58 @@ little-endian (and vice versa); the two are independent.
 
 [det]: ../src/crcglot/detect.py
 
-### `crc_reverse(codewords, std_algo_only=False, ...)`
+### `crc_reverse(packets, crc_bytes=None, crc_byte_order="big", packet_format="hex", ...)`
 
-Recover the parameters of an **unknown / custom** CRC from `(message, crc)`
-codewords — the recovery counterpart to `crc_detect`, which only identifies
-CRCs already in the catalogue.  Use it when a device's CRC isn't any known
-algorithm.  `codewords` is a list of `{message_hex | message_b64, crc}`; supply
+Recover the parameters of an **unknown / custom** CRC from captured packets —
+the recovery counterpart to `crc_detect`, which only identifies CRCs already in
+the catalogue.  Use it when a device's CRC isn't any known algorithm.  Takes the
+**same packet shape as `crc_detect`**: whole frames with the CRC as the trailing
+field.
+
+`packets` is a list of frames; `packet_format` selects the encoding — `hex`
+(default, any common formatting tolerated), `base64`, or `text` for a
+`data <sep> hexcrc` line (the trailing hex CRC is peeled structurally, the same
+way `crc_detect` reads it — handy for log lines / NMEA-style frames).  Supply
 several **varied** frames — varied in *content* (so the polynomial converges)
-and in *length* (to separate `init` from `xorout`); ~4+ is typical, more is
-better.  Fix any known parameter (`width` / `refin` / `refout` / `poly` /
-`init` / `xorout`) to reduce how many codewords are needed.
+and in *length* (to separate `init` from `xorout`); ~6+ is typical, more is
+better.  `crc_bytes` is the trailing field size for binary frames (null
+auto-detects it — largest consistent cut wins; ignored for text, where the hex
+field is already delimited); `crc_byte_order` is `big` / `little` / `both`.  Fix
+any known parameter (`width` / `refin` / `refout` / `poly` / `init` / `xorout`)
+to reduce how many frames are needed.
 
 Returns `{status, candidates, catalogue_name, ambiguity_bits,
 validated_frames, note}`.  `status` is `catalogue` (matched a known algorithm),
 `unique`, `equivalent` (several `(init, xorout)` labellings are observationally
 identical — **all** are returned, a complete and provably-exhaustive set of
 size `2 ** ambiguity_bits`; the polynomial is always unique),
-`underdetermined`, or `none`.  Every returned model is self-verified against the
-engine and validated against a held-out frame: a recovered model is correct on
-unseen data, or honestly reports underdetermined — never confidently wrong.
-Clean-room (derived from CRC linearity over GF(2), not from reveng).  Mirrors
-[`crcglot.reverse`][rev].
+`underdetermined`, or `none`.  When the field size / byte order was
+auto-detected, `note` records the split chosen.  Every returned model is
+self-verified against the engine and validated against a held-out frame: a
+recovered model is correct on unseen data, or honestly reports underdetermined —
+never confidently wrong.  Clean-room (derived from CRC linearity over GF(2), not
+from reveng).  Mirrors [`crcglot.reverse_packets`][rev].
 
 [rev]: ../src/crcglot/reverse.py
+
+### `crc_verify(algorithm, packet_hex | packet_text | packet_b64, crc_byte_order="big")`
+
+Check whether a frame's trailing CRC is valid for a **known** algorithm — the
+inverse of `crc_encode` (which builds the frame) and the natural follow-up to
+`crc_detect` (which names the algorithm).  Peels the trailing CRC field,
+recomputes the CRC over the message, and compares.  Accepts the same frame
+shapes as `crc_detect`: `packet_hex` / `packet_b64` (binary) or `packet_text`
+(`data <sep> hexcrc`).  Returns `{valid, expected, expected_hex, actual,
+actual_hex, width, algorithm}` — comparing `expected` vs `actual` shows *how* a
+bad frame is wrong.  Mirrors [`crcglot.verify`][vfy].
+
+[vfy]: ../src/crcglot/encode.py
 
 ### `crc_encode(algorithm, data_text | data_b64, ...)`
 
 Append a freshly-computed CRC to data and return the packet.  Pairs
-round-trip with `crc_detect`.  `crc_byte_order` controls the CRC bytes
-only.  Mirrors `crcglot encode`.
+round-trip with `crc_detect` / `crc_verify`.  `crc_byte_order` controls the CRC
+bytes only.  Mirrors `crcglot encode`.
 
 ### `crc_compute(algorithm, data_text | data_b64, ...)`
 

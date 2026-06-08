@@ -24,7 +24,7 @@ import sys
 
 import pytest
 
-from crcglot import ALGORITHMS, LANGUAGES, generic_crc
+from crcglot import ALGORITHMS, LANGUAGES, encode, generic_crc
 from crcglot.mcp.server import build_server
 
 
@@ -421,28 +421,29 @@ class TestCrcComputeMany:
 
 
 class TestCrcReverse:
-    """`crc_reverse` recovers an UNKNOWN / custom CRC's parameters from
-    codewords -- the recovery counterpart to crc_detect."""
+    """`crc_reverse` recovers an UNKNOWN / custom CRC's parameters from whole
+    packets (CRC at the tail) -- the recovery counterpart to crc_detect, and
+    taking the same packet input shape."""
 
     @staticmethod
-    def _codewords(width, poly, init, refin, refout, xorout, *, hexmode=True):
+    def _packets(width, poly, init, refin, refout, xorout, *,
+                 crc_bytes=2, order="big", b64=False):
+        """Build frames = message + CRC, as hex (or base64) strings."""
         import random
         rng = random.Random(1)
         out = []
         for length in [8] * 12 + [9, 11, 13, 17]:
             m = bytes(rng.randrange(256) for _ in range(length))
             c = generic_crc(m, width, poly, init, refin, refout, xorout)
-            if hexmode:
-                out.append({"message_hex": m.hex(), "crc": c})
-            else:
-                out.append({"message_b64": base64.b64encode(m).decode(), "crc": c})
+            frame = m + c.to_bytes(crc_bytes, order)
+            out.append(base64.b64encode(frame).decode() if b64 else frame.hex())
         return out
 
     def test_recovers_custom_crc(self):
-        # Arrange -- a custom poly NOT in the catalogue.
-        cws = self._codewords(16, 0x1009, 0x1234, False, False, 0x5678)
-        # Act
-        out = _call("crc_reverse", {"codewords": cws})
+        # Arrange -- a custom poly NOT in the catalogue; CRC at the tail.
+        pkts = self._packets(16, 0x1009, 0x1234, False, False, 0x5678)
+        # Act -- crc_bytes omitted: the tool auto-detects the field size.
+        out = _call("crc_reverse", {"packets": pkts})
         # Assert -- recovered; the polynomial is exact; the true (init, xorout)
         # is in the returned class.
         assert out["status"] in ("unique", "equivalent"), f"status {out['status']}"
@@ -451,10 +452,16 @@ class TestCrcReverse:
         pairs = {(c["init"], c["xorout"]) for c in out["candidates"]}
         assert (0x1234, 0x5678) in pairs, f"true (init, xorout) missing from {pairs}"
 
+    def test_autodetects_field_size(self):
+        # No crc_bytes -> the chosen split is reported in the note.
+        pkts = self._packets(16, 0x1009, 0x1234, False, False, 0x5678)
+        out = _call("crc_reverse", {"packets": pkts})
+        assert "2 byte" in out["note"], f"field size not reported: {out['note']!r}"
+
     def test_equivalent_class_returned_complete(self):
         # poly 0x8005's generator carries (x+1) -> 2 identical (init, xorout) sets.
-        cws = self._codewords(16, 0x8005, 0x1234, False, False, 0x5678)
-        out = _call("crc_reverse", {"codewords": cws})
+        pkts = self._packets(16, 0x8005, 0x1234, False, False, 0x5678)
+        out = _call("crc_reverse", {"packets": pkts})
         assert out["status"] == "equivalent", f"status {out['status']}"
         assert out["ambiguity_bits"] == 1, f"ambiguity_bits {out['ambiguity_bits']}"
         assert len(out["candidates"]) == 2, f"{len(out['candidates'])} candidates"
@@ -462,24 +469,94 @@ class TestCrcReverse:
     def test_catalogue_passthrough(self):
         # A known algorithm -> the catalogue tier names it.
         a = ALGORITHMS["crc16-modbus"]
-        cws = self._codewords(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
-        out = _call("crc_reverse", {"codewords": cws})
+        pkts = self._packets(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        out = _call("crc_reverse", {"packets": pkts})
         assert out["status"] == "catalogue", f"status {out['status']}"
         assert out["catalogue_name"] == "crc16-modbus", out["catalogue_name"]
 
-    def test_base64_messages_and_fixed_width(self):
-        cws = self._codewords(16, 0x1009, 0x1234, False, False, 0x5678, hexmode=False)
-        out = _call("crc_reverse", {"codewords": cws, "width": 16})
-        assert out["candidates"][0]["poly"] == 0x1009, "poly via b64 + fixed width"
-        assert out["candidates"][0]["width"] == 16, "width"
+    def test_little_endian_field(self):
+        pkts = self._packets(16, 0x1009, 0x1234, False, False, 0x5678, order="little")
+        out = _call("crc_reverse", {"packets": pkts, "crc_byte_order": "little"})
+        assert out["candidates"][0]["poly"] == 0x1009, "poly via little-endian field"
 
-    def test_empty_codewords_rejected(self):
+    def test_base64_packets_and_fixed_dials(self):
+        pkts = self._packets(16, 0x1009, 0x1234, False, False, 0x5678, b64=True)
+        out = _call("crc_reverse", {
+            "packets": pkts, "packet_format": "base64", "width": 16, "crc_bytes": 2})
+        actual_poly, actual_width = out["candidates"][0]["poly"], out["candidates"][0]["width"]
+        assert actual_poly == 0x1009, "poly via base64 packets + fixed dials"
+        assert actual_width == 16, "width honoured"
+
+    def test_text_frames(self):
+        # 'data <sep> hexcrc' lines -- the trailing hex CRC is peeled like detect.
+        import random
+        rng = random.Random(2)
+        frames = []
+        for i in range(16):
+            data = f"f{i:02d}-" + "".join(
+                chr(97 + rng.randrange(26)) for _ in range(rng.randrange(4, 12)))
+            c = generic_crc(data.encode(), 16, 0x1009, 0xFFFF, True, True, 0)
+            frames.append(f"{data} {c:04x}")
+        out = _call("crc_reverse", {"packets": frames, "packet_format": "text"})
+        assert out["candidates"], "no candidates from text frames"
+        assert out["candidates"][0]["poly"] == 0x1009, "poly recovered from text"
+
+    def test_empty_packets_rejected(self):
         with pytest.raises(Exception, match="non-empty"):
-            _call("crc_reverse", {"codewords": []})
+            _call("crc_reverse", {"packets": []})
 
-    def test_missing_message_rejected(self):
+    def test_bad_packet_rejected(self):
+        with pytest.raises(Exception, match=r"packets\[0\]"):
+            _call("crc_reverse", {"packets": ["not-hex-zz"]})
+
+
+# ---------------------------------------------------------------------------
+# crc_verify
+# ---------------------------------------------------------------------------
+
+
+class TestCrcVerify:
+    """`crc_verify` checks a frame's trailing CRC against a KNOWN algorithm --
+    the inverse of crc_encode, taking the same packet shape as crc_detect."""
+
+    def test_valid_packet(self):
+        # Arrange -- a correctly-CRC'd frame.
+        good = encode(b"123456789", "crc32")
+        # Act
+        out = _call("crc_verify", {"algorithm": "crc32", "packet_hex": good.hex()})
+        # Assert
+        assert out["valid"] is True, "a correctly-CRC'd frame must validate"
+        assert out["expected"] == out["actual"], "expected == actual when valid"
+
+    def test_invalid_packet_shows_mismatch(self):
+        good = encode(b"123456789", "crc32")
+        bad = good[:-1] + bytes([good[-1] ^ 1])  # flip one CRC bit
+        out = _call("crc_verify", {"algorithm": "crc32", "packet_hex": bad.hex()})
+        assert out["valid"] is False, "a tampered CRC must fail"
+        assert out["expected"] != out["actual"], "the mismatch must be surfaced"
+        assert out["actual"] == (out["expected"] ^ 1), "off by exactly the flipped bit"
+
+    def test_base64_and_little_endian_field(self):
+        good = encode(b"hello world", "crc16-modbus", endianness="little")
+        out = _call("crc_verify", {
+            "algorithm": "crc16-modbus",
+            "packet_b64": base64.b64encode(good).decode(),
+            "crc_byte_order": "little"})
+        assert out["valid"] is True, "little-endian CRC field must round-trip"
+
+    def test_text_frame(self):
+        # A 'data <sep> hexcrc' line verifies against the named algorithm.
+        out = _call("crc_verify", {
+            "algorithm": "crc32", "packet_text": "123456789 cbf43926"})
+        assert out["valid"] is True, "text frame should verify"
+
+    def test_unknown_algorithm_rejected(self):
+        with pytest.raises(Exception, match="unknown algorithm"):
+            _call("crc_verify", {"algorithm": "nope", "packet_hex": "0000"})
+
+    def test_no_packet_form_rejected(self):
         with pytest.raises(Exception, match="exactly one"):
-            _call("crc_reverse", {"codewords": [{"crc": 5}]})
+            _call("crc_verify", {"algorithm": "crc32"})
 
 
 # ---------------------------------------------------------------------------
@@ -683,7 +760,7 @@ class TestToolAnnotations:
         tools = _run(mcp.list_tools())
 
         # Assert -- the whole surface, so a new tool can't slip through.
-        assert len(tools) == 9, f"expected 9 tools, got {len(tools)}"
+        assert len(tools) == 10, f"expected 10 tools, got {len(tools)}"
         for t in tools:
             a = t.annotations
             assert a is not None, f"{t.name}: missing annotations"

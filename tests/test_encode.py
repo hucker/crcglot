@@ -17,6 +17,7 @@ from crcglot import (
     encode_int,
     encode_match,
     encode_text,
+    verify,
 )
 
 
@@ -327,3 +328,55 @@ class TestEncodeInt:
         assert actual == expected, (
             f"str input mismatch: actual=0x{actual:X} expected=0x{expected:X}"
         )
+
+
+class TestVerify:
+    """`verify` is the inverse of `encode`: it checks a frame's trailing CRC
+    against a known algorithm, for binary and text frames alike."""
+
+    def test_binary_round_trip_valid(self) -> None:
+        # Arrange -- a correctly-encoded binary frame.
+        packet = encode(CHECK_INPUT_BYTES, "crc32")
+        # Act
+        result = verify(packet, "crc32")
+        # Assert
+        assert result.valid is True, "encode -> verify must round-trip valid"
+        assert bool(result) is True, "VerifyResult.__bool__ tracks .valid"
+        actual, expected = result.actual, result.expected
+        assert actual == expected, f"actual 0x{actual:X} != expected 0x{expected:X}"
+
+    def test_binary_tampered_invalid_with_mismatch(self) -> None:
+        packet = encode(CHECK_INPUT_BYTES, "crc32")
+        bad = packet[:-1] + bytes([packet[-1] ^ 1])  # flip one CRC bit
+        result = verify(bad, "crc32")
+        assert result.valid is False, "a tampered CRC must fail"
+        assert result.expected != result.actual, "the mismatch must be visible"
+
+    def test_little_endian_field(self) -> None:
+        packet = encode(b"hello world", "crc16-modbus", endianness="little")
+        result = verify(packet, "crc16-modbus", endianness="little")
+        assert result.valid is True, "little-endian field round-trips"
+
+    def test_text_frame_valid(self) -> None:
+        # Act -- a 'data <sep> hexcrc' line, the way encode_text writes it.
+        frame = encode_text(CHECK_INPUT_TEXT, "crc32")
+        result = verify(frame, "crc32")
+        # Assert
+        assert result.valid is True, f"text frame {frame!r} should verify"
+
+    def test_text_frame_invalid(self) -> None:
+        result = verify("123456789 deadbeef", "crc32")
+        assert result.valid is False, "wrong text CRC must fail"
+        assert result.expected == ALGORITHMS["crc32"].check, "expected = true CRC"
+
+    def test_too_short_binary_rejected(self) -> None:
+        with pytest.raises(ValueError, match="too short"):
+            verify(b"\x01", "crc32")  # 1 byte < 4-byte crc32 field
+
+    def test_non_text_string_rejected(self) -> None:
+        with pytest.raises(ValueError, match="not a text frame"):
+            verify("no hex CRC at the end!", "crc32")
+
+    def test_unknown_algorithm_rejected(self) -> None:
+        with pytest.raises(ValueError, match="unknown algorithm"):
+            verify(b"\x00\x00\x00\x00", "definitely-not-real")
