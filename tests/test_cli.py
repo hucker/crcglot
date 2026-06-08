@@ -552,14 +552,24 @@ class TestCodegenIntentFlags:
             "--small should be bit-by-bit, no tables"
         )
 
-    def test_small_matches_default(self, capsys):
-        # --small is the default; output must be byte-identical to no flag.
-        rc1 = main(["c", "crc32", "--small"])
-        small_out, _ = capsys.readouterr()
+    def test_fast_matches_default(self, capsys):
+        # The default is now the fastest variant: no flag must be byte-identical
+        # to --fast (it flipped from --small in the fast-by-default change).
+        rc1 = main(["c", "crc32", "--fast"])
+        fast_out, _ = capsys.readouterr()
         rc2 = main(["c", "crc32"])
         default_out, _ = capsys.readouterr()
         assert rc1 == 0 and rc2 == 0
-        assert small_out == default_out, "--small must equal the default output"
+        assert fast_out == default_out, "no flag must equal --fast (fastest is the default)"
+
+    def test_default_is_no_longer_bit_by_bit(self, capsys):
+        # Document the flip: a width-32 CRC defaults to a table/slice impl now,
+        # not bit-by-bit. --small remains the explicit opt-in to smallest.
+        rc = main(["c", "crc32"])
+        default_out, _ = capsys.readouterr()
+        assert rc == 0
+        actual_has_table = "crcglot_table" in default_out or "crcglot_slice" in default_out
+        assert actual_has_table, "default should now be fast (table/slice), not bit-by-bit"
 
     @pytest.mark.parametrize(
         "flags",

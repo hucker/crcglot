@@ -658,6 +658,23 @@ class TestCrcGenerate:
                 f"{language}: extension should be like '.c', got {f['extension']!r}"
             )
 
+    def test_default_variant_is_fastest(self):
+        # No variant -> "auto" -> fastest the target+width supports.
+        rust32 = _call("crc_generate", {"language": "rust", "algorithm": "crc32"})
+        assert rust32["variant"] == "slice8", "rust crc32 default should be slice-by-8"
+        c8 = _call("crc_generate", {"language": "c", "algorithm": "crc8"})
+        assert c8["variant"] == "table", "c crc8 (width 8) default should be table"
+        # A mixed-width bundle takes the fastest valid for ALL members: slice8 is
+        # invalid for crc8, so the bundle settles on table.
+        bundle = _call("crc_generate", {"language": "c", "algorithm": ["crc32", "crc8"]})
+        assert bundle["variant"] == "table", "bundle default = fastest common variant"
+
+    def test_explicit_bitwise_still_smallest(self):
+        out = _call("crc_generate",
+                    {"language": "rust", "algorithm": "crc32", "variant": "bitwise"})
+        assert out["variant"] == "bitwise", "explicit bitwise must be honoured"
+        assert "slice" not in out["files"][0]["content"].lower(), "no slice table"
+
     def test_c_emits_header_plus_source(self):
         # Act -- C is the only target that ships two files (.h + .c).
         out = _call(

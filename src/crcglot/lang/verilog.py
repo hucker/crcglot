@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from crcglot._helpers import _func_name, _variant_to_flags, crc_function_names
+from crcglot._helpers import _func_name, _variant_to_flags, resolve_variant, crc_function_names
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -74,7 +74,7 @@ def _self_test_sv(names, check, width, style, docs) -> list[str]:
 def generate_verilog(
     name: str,
     symbol: str | None = None,
-    variant: Literal["bitwise"] = "bitwise",
+    variant: Literal["auto", "bitwise"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> str | None:
@@ -96,7 +96,7 @@ def generate_verilog_from_entry(
     name: str,
     algo: AlgorithmInfo,
     symbol: str | None = None,
-    variant: Literal["bitwise"] = "bitwise",
+    variant: Literal["auto", "bitwise"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> str:
@@ -108,7 +108,8 @@ def generate_verilog_from_entry(
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  Package name derives
             from the symbol.
-        variant: Always ``"bitwise"`` -- accepted for API symmetry with
+        variant: ``"auto"`` / ``"bitwise"`` (both bit-by-bit; the only
+            shape this generator emits) -- accepted for API symmetry with
             the other generators.  Passing ``"table"`` or ``"slice8"``
             raises ``ValueError`` (table-driven Verilog deferred, same
             scope decision as VHDL).
@@ -116,7 +117,8 @@ def generate_verilog_from_entry(
     Returns:
         SystemVerilog source string.
     """
-    _variant_to_flags(variant, allow_table=False, allow_slice8=False)
+    resolved = resolve_variant("verilog", algo.width, variant)
+    _variant_to_flags(resolved, allow_table=False, allow_slice8=False)
     w = algo.width
     poly = algo.poly
     init = algo.init

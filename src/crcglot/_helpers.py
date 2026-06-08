@@ -212,6 +212,38 @@ def _build_slice8_tables(
     return tables
 
 
+def resolve_variant(language: str, width: int, variant: str) -> str:
+    """Resolve the ``"auto"`` variant sentinel to a concrete implementation.
+
+    ``"auto"`` -- the shared default of the CLI, the MCP ``crc_generate`` tool,
+    and every library generator -- means "the fastest variant valid for this
+    (language, width)", so a caller who doesn't choose gets fast code rather than
+    the smallest.  An explicit ``"bitwise"`` / ``"table"`` / ``"slice8"`` is
+    returned unchanged.
+
+    Args:
+        language: Target language code (e.g. ``"rust"``).
+        width: CRC width in bits, used to pick the fastest valid variant.
+        variant: ``"auto"`` or an explicit variant name.
+
+    Returns:
+        A concrete variant name.
+
+    Examples:
+        >>> resolve_variant("rust", 32, "table")
+        'table'
+        >>> resolve_variant("rust", 32, "auto")
+        'slice8'
+    """
+    if variant != "auto":
+        return variant
+    # Lazy import: ``targets`` imports the generators that import this module, so
+    # resolving at call time (after both are loaded) sidesteps the cycle.
+    from crcglot.targets import LANGUAGES
+
+    return LANGUAGES[language].fastest_variant_for_width(width)
+
+
 def _variant_to_flags(
     variant: str,
     *,

@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-5334%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-5340%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -18,10 +18,10 @@ crcglot c crc32 file=mycrc
 
 That's it.  You now have `mycrc.h` and `mycrc.c` — drop-in CRC-32 with a built-in `_self_test()` you can call to verify it matches the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
 
-**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` shows the more than 100), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `java` / `typescript`), and whether you want it **`--small`** (smallest code, the default) or **`--fast`** (fastest the target supports).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
+**The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … — `crcglot list` shows the more than 100), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `java` / `typescript`), and whether you want it **`--fast`** (fastest the target supports, and the default) or **`--small`** (smallest code).  crcglot figures out the implementation details — you never have to know what "slice-by-8" is.
 
 ```bash
-crcglot rust crc32 --fast file=mycrc     # fastest Rust crc32 to file mycrc.rs
+crcglot rust crc32 file=mycrc            # fastest Rust crc32 (the default) to mycrc.rs
 crcglot c crc8 --small                   # smallest C crc8, to stdout
 ```
 
@@ -203,8 +203,8 @@ Generate source code for the chosen target language.  Pick your intent — crcgl
 
 | Option / token        | Effect                                                                                                                                                                        |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--small`             | Smallest code, zero RAM table (bit-by-bit).  **The default** — works for any width.                                                                                           |
-| `--fast`              | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise.                                                                          |
+| `--small`             | Smallest code, zero RAM table (bit-by-bit).  Works for any width.                                                                                                              |
+| `--fast`              | Fastest the target supports: slice-by-8 for width 32/64 on compiled targets, table-driven otherwise.  **The default** when no variant flag is given.                          |
 | `--custom`            | Use raw Rocksoft/Williams params instead of a catalogue lookup (see below).                                                                                                   |
 | `--comment=STYLE`     | Documentation style for the generated comments (default `plain`).  See [Documentation comments](#documentation-comments).                                                     |
 | `--naming=CONVENTION` | Casing of the public function/method names (`snake` / `camel` / `pascal`).  Defaults to each language's idiomatic convention.  See [Naming conventions](#naming-conventions). |
@@ -219,7 +219,7 @@ File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.
 
 Rules:
 
-- The variant selectors `--small` / `--fast` / `--table` / `--slice8` are mutually exclusive — pick at most one (exit 2 otherwise).  No selector = `--small`.
+- The variant selectors `--small` / `--fast` / `--table` / `--slice8` are mutually exclusive — pick at most one (exit 2 otherwise).  No selector = `--fast` (the fastest the target supports); pass `--small` for the smallest code.
 - `--slice8 python` silently falls back to `--table` (CPython's per-int overhead eats the slice-by-8 speedup; stderr warns).  `--fast` never needs this fallback — it only picks slice-by-8 where it actually applies.
 - Without `file=`, output goes to stdout.  For C, header is emitted first, then source.
 - C / Rust / VHDL files embed `<symbol>_self_test()` returning 0 on success.  In constrained embedded targets, standard toolchain flags (`-Wl,--gc-sections` for C, LTO for Rust) strip whatever you don't call.

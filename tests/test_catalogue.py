@@ -317,6 +317,40 @@ class TestVariantsForWidth:
                     )
 
 
+class TestFastestVariant:
+    """``fastest_variant_for_width`` / ``resolve_variant`` -- the spine of the
+    fast-by-default behaviour: an unspecified variant resolves to the fastest
+    the (language, width) actually supports."""
+
+    def test_fastest_is_last_of_variants_for_width(self):
+        # Assert -- the fastest is the highest-speed entry variants_for_width
+        # offers (it's ordered slowest-to-fastest).
+        for code in LANGUAGES:
+            for width in (5, 8, 16, 32, 64):
+                actual = LANGUAGES[code].fastest_variant_for_width(width)
+                expected = LANGUAGES[code].variants_for_width(width)[-1]
+                assert actual == expected, f"{code}@{width}: {actual} != {expected}"
+
+    def test_fastest_per_language_and_width(self):
+        # The headline cases: 32-bit -> slice8 (compiled), table (python),
+        # bitwise (HDL); sub-byte -> always bitwise.
+        cases = {
+            ("rust", 32): "slice8", ("c", 32): "slice8", ("python", 32): "table",
+            ("c", 16): "table", ("c", 8): "table", ("c", 5): "bitwise",
+            ("verilog", 32): "bitwise", ("vhdl", 64): "bitwise",
+        }
+        for (code, width), expected in cases.items():
+            actual = LANGUAGES[code].fastest_variant_for_width(width)
+            assert actual == expected, f"{code}@{width}: got {actual}, want {expected}"
+
+    def test_resolve_variant_auto_and_passthrough(self):
+        from crcglot._helpers import resolve_variant
+
+        assert resolve_variant("rust", 32, "auto") == "slice8", "auto -> fastest"
+        assert resolve_variant("python", 32, "auto") == "table", "auto -> fastest (py)"
+        assert resolve_variant("rust", 32, "bitwise") == "bitwise", "explicit passes through"
+
+
 class TestVariantInfo:
     """``variant_info`` / ``VariantInfo`` mirror the comment-style metadata."""
 

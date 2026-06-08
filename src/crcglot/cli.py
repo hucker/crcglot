@@ -422,25 +422,22 @@ def _resolve_variant(
     """Map the chosen CLI flags to a ``variant`` string for the generator.
 
     ``--small`` / ``--fast`` are the intent front door; ``--table`` /
-    ``--slice8`` are expert overrides.  ``--fast`` picks the fastest
-    implementation the (language, width) actually supports -- slice-by-8
-    for width 32/64 on languages that emit it, table-driven otherwise --
-    so it never errors and needs no fallback.  ``--small`` (or no
-    selector) is bit-by-bit.
+    ``--slice8`` are expert overrides.  ``--fast`` -- and **no selector at
+    all**, since the default is the fastest implementation, not the
+    smallest -- picks the fastest the (language, width) actually supports:
+    slice-by-8 for width 32/64 on languages that emit it, table-driven for
+    byte-aligned widths, bit-by-bit for sub-byte widths.  ``--small`` is the
+    explicit opt-in to bit-by-bit (smallest code, zero RAM table).
 
     Returns ``(variant, note)``; ``note`` is an optional stderr message
     for the explicit-``--slice8`` -> table fallback on languages that
-    don't emit slice-by-8.  ``LANGUAGES[lang].variants`` is the single
-    source of truth for capability.
+    don't emit slice-by-8.  ``LANGUAGES[lang].variants`` /
+    ``fastest_variant_for_width`` are the single source of truth.
     """
-    del small  # tracked only for parser symmetry; no-selector path handles it
     variants = LANGUAGES[lang].variants
-    if fast:
-        if width in (32, 64) and "slice8" in variants:
-            return ("slice8", None)
-        if "table" in variants:
-            return ("table", None)
-        return ("bitwise", None)
+    # --fast, or no selector at all: the default is now fastest, not smallest.
+    if fast or not (small or table or slice8):
+        return (LANGUAGES[lang].fastest_variant_for_width(width), None)
     if table:
         return ("table", None)
     if slice8:
@@ -457,7 +454,7 @@ def _resolve_variant(
                 f"using --table instead."
             )
         return ("table", note)
-    # --small or no selector: bit-by-bit.
+    # --small: explicit bit-by-bit.
     return ("bitwise", None)
 
 
@@ -835,13 +832,14 @@ def build_parser() -> argparse.ArgumentParser:
         # them to the right implementation for the language and width.
         p.add_argument(
             "--small", action="store_true",
-            help="Smallest code, no lookup table (bit-by-bit). The default.",
+            help="Smallest code, no lookup table (bit-by-bit).",
         )
         p.add_argument(
             "--fast", action="store_true",
             help=(
                 "Fastest implementation the target supports "
-                "(slice-by-8 for width 32/64, else table-driven)."
+                "(slice-by-8 for width 32/64, else table-driven). "
+                "This is the default when no variant flag is given."
             ),
         )
         # Expert overrides: name the exact implementation.  Most users

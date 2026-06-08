@@ -475,11 +475,14 @@ def test_docfx_is_csharp_only() -> None:
 
 def test_comment_style_default_is_plain() -> None:
     """Omitting comment_style yields the same bytes as an explicit plain."""
-    # Act
+    # Act -- hold variant constant (bitwise, matching _source) so this isolates
+    # comment_style; the default variant is "auto"/fastest, a separate axis.
     implicit = _source("rust")
     explicit = "\n".join(  # rust returns a str, but stay uniform
         s if isinstance(s, str) else "\n".join(s)
-        for s in [LANGUAGES["rust"].generator("crc32", comment_style="plain")]
+        for s in [
+            LANGUAGES["rust"].generator("crc32", variant="bitwise", comment_style="plain")
+        ]
     )
 
     # Assert

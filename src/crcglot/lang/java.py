@@ -58,6 +58,7 @@ from crcglot._helpers import (
     _build_table,
     _func_name,
     _variant_to_flags,
+    resolve_variant,
     crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
@@ -398,7 +399,7 @@ def combine_java(outputs: list[str], stem: str | None = None) -> str:
 def generate_java(
     name: str,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "camel",
 ) -> str | None:
@@ -425,7 +426,7 @@ def generate_java_from_entry(
     name: str,
     algo: AlgorithmInfo,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "camel",
 ) -> str:
@@ -437,7 +438,7 @@ def generate_java_from_entry(
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         symbol: Optional override for the emitted method-name stem
             (default: ``_func_name(name)``).
-        variant: ``"bitwise"`` (default), ``"table"`` (256-entry lookup),
+        variant: ``"auto"`` (default -- fastest valid), ``"bitwise"``, ``"table"`` (256-entry lookup),
             or ``"slice8"`` (8 tables; width 32 / 64 only, else
             ``ValueError``).
 
@@ -445,7 +446,8 @@ def generate_java_from_entry(
         Java source declaring a ``public final class`` (named ``CrcGlot``;
         :func:`combine_java` renames it from the file stem).
     """
-    table, slice8 = _variant_to_flags(variant)
+    resolved = resolve_variant("java", algo.width, variant)
+    table, slice8 = _variant_to_flags(resolved)
     w = algo.width
     if w < 8 and table:
         # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray

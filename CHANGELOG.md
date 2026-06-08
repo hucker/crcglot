@@ -2,8 +2,32 @@
 
 ## v0.18.0 — unreleased
 
-CRC reverse-engineering: recover the parameters of an **unknown / custom** CRC
-from message-CRC pairs.  Additive over 0.17.0 — `detect` is untouched.
+CRC reverse-engineering plus a coherent packet/MCP surface.  Additive over
+0.17.0 **except** the code-generation default, which now favours speed over size
+(see the first entry).
+
+### CHANGED (default behaviour): the fastest variant is now the default
+
+Code generation used to default to `bitwise` (smallest code, slowest).  It now
+defaults to the **fastest variant the target + width support** — slice-by-8 for
+width 32/64 on compiled languages, table-driven for byte-aligned widths,
+bit-by-bit only where that's the only option (sub-byte widths, Verilog / VHDL).
+Generating *on someone's behalf* shouldn't silently pick the slowest
+implementation.
+
+- A new `"auto"` variant (now the default everywhere) resolves to
+  `LanguageInfo.fastest_variant_for_width(width)`; explicit
+  `bitwise` / `table` / `slice8` are unchanged.
+- **CLI:** `crcglot rust crc32` (no flag) now emits slice-by-8, not bit-by-bit.
+  `--small` is the explicit opt-in to the smallest code; `--fast` still works
+  and now equals the no-flag default.
+- **Library:** `generate_*` / `generate_*_from_entry` and
+  `LANGUAGES[code].generator(name)` default to `variant="auto"`.
+- **MCP:** `crc_generate` defaults to `variant="auto"`; the server now also
+  steers the model to ask smallest-vs-fastest when the user hasn't said.
+
+Migration: pass `--small` (CLI) or `variant="bitwise"` (library / MCP) to keep
+the old output.
 
 ### NEW: `crcglot.reverse(frames, …)` + `ReverseResult`
 

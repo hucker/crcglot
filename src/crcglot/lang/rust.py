@@ -39,6 +39,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    resolve_variant,
     crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
@@ -337,7 +338,7 @@ def _self_test_rust(names, check, width, rtype, style, docs) -> str:
 def generate_rust(
     name: str,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> str | None:
@@ -360,7 +361,7 @@ def generate_rust_from_entry(
     name: str,
     algo: AlgorithmInfo,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> str:
@@ -371,7 +372,7 @@ def generate_rust_from_entry(
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
-        variant: Implementation shape -- ``"bitwise"`` (default),
+        variant: Implementation shape -- ``"auto"`` (default -- fastest valid), ``"bitwise"``,
             ``"table"`` (256-entry lookup), or ``"slice8"`` (8 tables;
             requires ``algo.width`` to be 32 or 64; ``ValueError``
             otherwise).
@@ -379,7 +380,8 @@ def generate_rust_from_entry(
     Returns:
         Rust source code string.
     """
-    table, slice8 = _variant_to_flags(variant)
+    resolved = resolve_variant("rust", algo.width, variant)
+    table, slice8 = _variant_to_flags(resolved)
     w = algo.width
     if w < 8 and table:
         # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray

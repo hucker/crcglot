@@ -307,6 +307,33 @@ class LanguageInfo:
             and not (v == "table" and width < 8)
         )
 
+    def fastest_variant_for_width(self, width: int) -> str:
+        """The fastest implementation variant valid at this width.
+
+        This is the default the CLI, MCP, and generators resolve ``"auto"`` to:
+        slice-by-8 where the language and width allow it (32 / 64), else
+        table-driven, else bit-by-bit (sub-byte widths, or a language that only
+        ships bitwise).  Since :meth:`variants_for_width` is ordered
+        slowest-to-fastest and always includes ``"bitwise"``, this is just its
+        last element.
+
+        Args:
+            width: CRC width in bits.
+
+        Returns:
+            One of ``"bitwise"`` / ``"table"`` / ``"slice8"``.
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> LANGUAGES["c"].fastest_variant_for_width(32)
+            'slice8'
+            >>> LANGUAGES["c"].fastest_variant_for_width(16)
+            'table'
+            >>> LANGUAGES["python"].fastest_variant_for_width(32)
+            'table'
+        """
+        return self.variants_for_width(width)[-1]
+
     def variant_infos_for_width(self, width: int) -> tuple[VariantInfo, ...]:
         """:meth:`variants_for_width` as rich :class:`VariantInfo` records.
 

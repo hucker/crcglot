@@ -21,7 +21,7 @@ for MCP -- which makes it composable with any MCP client.
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from mcp.server import FastMCP
 from mcp.types import ToolAnnotations
@@ -66,7 +66,7 @@ LANG_ENUM = Literal[
     "vhdl",
 ]
 
-VARIANT_ENUM = Literal["bitwise", "table", "slice8"]
+VARIANT_ENUM = Literal["auto", "bitwise", "table", "slice8"]
 # Naming convention for the generated public function / method names.
 # Which conventions a language offers (and its default) lives on
 # ``LanguageInfo.naming`` / ``.default_naming``; the schema accepts all three
@@ -151,7 +151,10 @@ def build_server() -> FastMCP:
             "/ custom one, and crc_verify checks a frame against a named "
             "algorithm.  crc_compute gives raw integer CRC values; crc_encode "
             "builds a packet (the inverse of crc_verify); crc_generate emits "
-            "verified source code.\n"
+            "verified source code -- it defaults to the FASTEST implementation "
+            "the target supports, so when the user hasn't said, ask whether "
+            "they want smallest (variant='bitwise') or fastest, rather than "
+            "silently picking.\n"
             "\n"
             "CHOOSING vs MATCHING: if the CRC crosses a boundary you don't "
             "control -- an existing device, wire protocol, or file format -- you "
@@ -630,12 +633,15 @@ def build_server() -> FastMCP:
         description=(
             "Generate verified CRC source code for one (language, "
             "algorithm, variant) cell.  Supports C, C#, Go, Java, Python, "
-            "Rust, TypeScript, Verilog, VHDL.  Variants: 'bitwise' "
-            "(smallest, default), 'table' (256-entry LUT, faster), "
-            "'slice8' (8 tables, fastest, width 32/64 only, not on "
-            "Python / Verilog / VHDL).  Every emitted file embeds a "
-            "_self_test() against the reveng canonical vector for "
-            "b'123456789'.\n"
+            "Rust, TypeScript, Verilog, VHDL.  Variants: 'auto' (DEFAULT -- "
+            "the fastest the target + width support), 'bitwise' (smallest "
+            "code, zero RAM table), 'table' (256-entry LUT), 'slice8' (8 "
+            "tables, fastest, width 32/64 only, not on Python / Verilog / "
+            "VHDL).  The default is fast, not small: pass variant='bitwise' "
+            "for the smallest code (embedded / tiny MCUs).  When the user "
+            "hasn't said which they want, it's worth asking small-vs-fast.  "
+            "Every emitted file embeds a _self_test() against the reveng "
+            "canonical vector for b'123456789'.\n"
             "\n"
             "PERFORMANCE STEER: for IEEE crc32 -- and crc32-jamcrc "
             "which crcglot routes through the same zlib path -- prefer "
@@ -674,7 +680,7 @@ def build_server() -> FastMCP:
     def crc_generate(
         language: LANG_ENUM,
         algorithm: str | list[str] | None = None,
-        variant: VARIANT_ENUM = "bitwise",
+        variant: VARIANT_ENUM = "auto",
         symbol: str | None = None,
         custom_params: dict[str, Any] | None = None,
         comment_style: COMMENT_STYLE_ENUM = "plain",
@@ -714,6 +720,13 @@ def build_server() -> FastMCP:
                     "symbol names a single function; omit it when generating "
                     "multiple algorithms (each uses its catalogue name)"
                 )
+            # "auto" -> the fastest variant valid for EVERY algorithm in the
+            # bundle (the intersection's fastest; variants_for_width is ordered
+            # slowest-to-fastest and always includes bitwise, so it's non-empty).
+            if variant == "auto":
+                per = [info.variants_for_width(ALGORITHMS[n].width) for n in names]
+                common = [v for v in per[0] if all(v in p for p in per)]
+                variant = cast(VARIANT_ENUM, common[-1])
             # variant must be legal for EVERY algorithm's width (slice8 is
             # 32/64-only), so a mixed-width bundle can't silently break one.
             for n in names:
@@ -743,6 +756,8 @@ def build_server() -> FastMCP:
             assert custom_params is not None
             cp = custom_params
             width = int(cp.get("width", 0))
+            if variant == "auto":
+                variant = cast(VARIANT_ENUM, info.fastest_variant_for_width(width))
             valid_variants = info.variants_for_width(width)
             if variant not in valid_variants:
                 raise ValueError(

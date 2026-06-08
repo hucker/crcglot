@@ -41,6 +41,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    resolve_variant,
     crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
@@ -422,7 +423,7 @@ def combine_c(
 def generate_c(
     name: str,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> tuple[str, str] | None:
@@ -444,7 +445,7 @@ def generate_c_from_entry(
     name: str,
     algo: AlgorithmInfo,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> tuple[str, str]:
@@ -464,8 +465,8 @@ def generate_c_from_entry(
             (default: ``_func_name(name)``).  Header filename and
             include guard derive from the symbol so the generated
             header references match.
-        variant: Implementation shape -- ``"bitwise"`` (default,
-            smallest code), ``"table"`` (one 256-entry table, ~10x
+        variant: Implementation shape -- ``"auto"`` (default -- fastest valid), ``"bitwise"``
+            (smallest code), ``"table"`` (one 256-entry table, ~10x
             faster than bitwise), or ``"slice8"`` (8 tables, ~10x
             faster than ``"table"`` for large buffers; requires
             ``algo.width`` to be 32 or 64).
@@ -473,7 +474,8 @@ def generate_c_from_entry(
     Returns:
         ``(header_source, impl_source)`` tuple of strings.
     """
-    table, slice8 = _variant_to_flags(variant)
+    resolved = resolve_variant("c", algo.width, variant)
+    table, slice8 = _variant_to_flags(resolved)
     w = algo.width
     if w < 8 and table:
         # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a

@@ -49,6 +49,7 @@ from crcglot._helpers import (
     _build_table,
     _func_name,
     _variant_to_flags,
+    resolve_variant,
     crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
@@ -430,7 +431,7 @@ def combine_csharp(outputs: list[str], stem: str | None = None) -> str:
 def generate_csharp(
     name: str,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "pascal",
 ) -> str | None:
@@ -453,7 +454,7 @@ def generate_csharp_from_entry(
     name: str,
     algo: AlgorithmInfo,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "pascal",
 ) -> str:
@@ -466,7 +467,7 @@ def generate_csharp_from_entry(
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  The class name is
             derived as the PascalCase'd form of the function name.
-        variant: Implementation shape -- ``"bitwise"`` (default),
+        variant: Implementation shape -- ``"auto"`` (default -- fastest valid), ``"bitwise"``,
             ``"table"`` (256-entry lookup), or ``"slice8"`` (8 tables;
             requires ``algo.width`` to be 32 or 64; ``ValueError``
             otherwise).
@@ -474,7 +475,8 @@ def generate_csharp_from_entry(
     Returns:
         C# source code string declaring a ``public static class``.
     """
-    table, slice8 = _variant_to_flags(variant)
+    resolved = resolve_variant("csharp", algo.width, variant)
+    table, slice8 = _variant_to_flags(resolved)
     w = algo.width
     if w < 8 and table:
         # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray

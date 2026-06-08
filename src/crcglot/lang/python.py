@@ -36,6 +36,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    resolve_variant,
     crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
@@ -80,7 +81,7 @@ def _self_test_python(names, check, width, style, docs) -> list[str]:
 def generate_python(
     name: str,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> str | None:
@@ -94,7 +95,7 @@ def generate_python(
         name: Algorithm name from :data:`crcglot.ALGORITHMS`.
         symbol: Optional override for the generated function name
             (default: a sanitized form of ``name``).
-        variant: ``"bitwise"`` (default) or ``"table"`` (256-entry
+        variant: ``"auto"`` (default -- fastest valid) or ``"bitwise"`` or ``"table"`` (256-entry
             lookup, ~10x faster).  No ``"slice8"`` -- Python's per-int
             overhead eats the win.
         comment_style: Documentation style for the generated comments
@@ -116,7 +117,7 @@ def generate_python_from_entry(
     name: str,
     algo: AlgorithmInfo,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
 ) -> str:
@@ -128,13 +129,14 @@ def generate_python_from_entry(
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
-        variant: ``"bitwise"`` (default) or ``"table"`` (256-entry
+        variant: ``"auto"`` (default -- fastest valid) or ``"bitwise"`` or ``"table"`` (256-entry
             lookup, ~10x faster).  No ``"slice8"``.
 
     Returns:
         Python source code string.
     """
-    table, _slice8 = _variant_to_flags(variant, allow_slice8=False)
+    resolved = resolve_variant("python", algo.width, variant)
+    table, _slice8 = _variant_to_flags(resolved, allow_slice8=False)
     w = algo.width
     if w < 8:
         # Sub-byte CRCs are bit-by-bit only: a 256-entry table to checksum

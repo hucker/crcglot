@@ -47,6 +47,7 @@ from crcglot._helpers import (
     _func_name,
     _hex,
     _variant_to_flags,
+    resolve_variant,
     crc_function_names,
 )
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
@@ -381,7 +382,7 @@ def _self_test_ts(names, check, width, style, docs) -> list[str]:
 def generate_typescript(
     name: str,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "camel",
 ) -> str | None:
@@ -403,7 +404,7 @@ def generate_typescript_from_entry(
     name: str,
     algo: AlgorithmInfo,
     symbol: str | None = None,
-    variant: Literal["bitwise", "table", "slice8"] = "bitwise",
+    variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "camel",
 ) -> str:
@@ -414,7 +415,7 @@ def generate_typescript_from_entry(
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
-        variant: Implementation shape -- ``"bitwise"`` (default),
+        variant: Implementation shape -- ``"auto"`` (default -- fastest valid), ``"bitwise"``,
             ``"table"`` (256-entry lookup), or ``"slice8"`` (8 tables;
             requires ``algo.width`` to be 32 or 64; ``ValueError``
             otherwise).
@@ -422,7 +423,8 @@ def generate_typescript_from_entry(
     Returns:
         TypeScript source code string.
     """
-    table, slice8 = _variant_to_flags(variant)
+    resolved = resolve_variant("typescript", algo.width, variant)
+    table, slice8 = _variant_to_flags(resolved)
     w = algo.width
     if w < 8 and table:
         # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray
