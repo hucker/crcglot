@@ -60,6 +60,7 @@ from crcglot.detect import (
     detect_iter,
 )
 from crcglot.encode import encode, encode_int, encode_match, encode_text
+from crcglot.reverse import ReverseResult, reverse
 from crcglot.stream import CrcStream, crc_stream
 from crcglot.lang.c import generate_c, generate_c_from_entry
 from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
@@ -104,6 +105,7 @@ __all__ = [
     "LanguageInfo",
     "NAMING_ORDER",
     "NamingInfo",
+    "ReverseResult",
     "TextFormat",
     "VARIANT_ORDER",
     "VariantInfo",
@@ -138,4 +140,5 @@ __all__ = [
     "crc_stream",
     "generic_crc",
     "generic_crc_many",
+    "reverse",
 ]

@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.18.0 — unreleased
+
+CRC reverse-engineering: recover the parameters of an **unknown / custom** CRC
+from message-CRC pairs.  Additive over 0.17.0 — `detect` is untouched.
+
+### NEW: `crcglot.reverse(frames, …)` + `ReverseResult`
+
+`detect` identifies CRCs that are already in the catalogue; `reverse` recovers a
+CRC that **isn't** — a vendor's private polynomial — from a handful of
+`(message, crc)` codewords.  Two tiers: it first tries the catalogue (default
+`std_algo_only=True`, identical to `detect`), and with `std_algo_only=False`
+falls through to an algebraic solve.
+
+- **Clean-room, MIT.** Derived from the linearity of CRCs over GF(2) — the same
+  public mathematics CRC RevEng implements, written from first principles, *not*
+  from reveng's source (reveng is GPLv3+).  Reuses only crcglot's own engine.
+- **Polynomial** is recovered uniquely (GCD of equal-length difference
+  codewords); **init/xorout** by a GF(2) linear solve; **width/refin/refout**
+  are searched or fixed via keyword (a known parameter reduces the codewords
+  needed).
+- **Honest about ambiguity.** A generator carrying the `(x+1)` factor (most
+  well-made CRCs do — it's what detects all odd-bit errors) admits several
+  `(init, xorout)` labellings that are *observationally identical*.  `reverse`
+  returns the **complete** equivalence class (a finite, provably-exhaustive
+  coset of size `2 ** ambiguity_bits`) with a canonical representative first;
+  `status` is `unique` or `equivalent`.
+- **Self-verifying + held-out validation.** Every returned model is re-checked
+  against `generic_crc`, and by default the model is also validated against a
+  held-out frame it didn't train on (`validated_frames`).  The guarantee, under
+  a counterexample-hunting test suite (all 113 catalogue algorithms + a random
+  custom-CRC sweep, each validated on unseen messages): a recovered model is
+  **correct on unseen data, or honestly reports none/underdetermined — never
+  confidently wrong.**
+
+Scope: the CRC is the trailing field of each codeword; byte-aligned messages;
+width ≤ 64.
+
 ## v0.17.0 — 2026-06-07
 
 Reveng catalogue completion: the sub-byte, non-byte-aligned, and CRC-24

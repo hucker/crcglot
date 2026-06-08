@@ -1,0 +1,233 @@
+"""Tests for CRC parameter recovery (``crcglot.reverse``).
+
+The headline tests are a *counterexample hunt*: recover parameters for every
+catalogue algorithm and for hundreds of random custom CRCs, then assert the
+recovered model **predicts the CRC of held-out messages it never trained on**.
+That predictive check -- not exact-parameter-match -- is the right correctness
+criterion, because a CRC whose generator carries the ``(x+1)`` factor has
+several ``(init, xorout)`` labellings that are observationally identical.  The
+standing guarantee these tests enforce is: **a recovered model is either
+correct on unseen data, or honestly reports no/under-determined -- never
+confidently wrong.**
+"""
+
+from __future__ import annotations
+
+import random
+
+import pytest
+
+from crcglot import ReverseResult, generic_crc, reverse
+from crcglot.catalogue import ALGORITHMS
+from crcglot.reverse import _solve_dials
+
+# A spread of held-out lengths the solver never sees during recovery.
+_HELD_LENS = (3, 5, 21, 40, 77)
+
+
+def _codewords(width, poly, init, refin, refout, xorout, *, seed=0):
+    """Varied codewords: enough same-length frames for the poly GCD to converge
+    (more differences clear spurious common factors) + mixed lengths to separate
+    init from xorout."""
+    rng = random.Random(seed)
+    lens = [8] * 12 + [9, 11, 13, 17, 23]
+    out = []
+    for length in lens:
+        m = bytes(rng.randrange(256) for _ in range(length))
+        out.append((m, generic_crc(m, width, poly, init, refin, refout, xorout)))
+    return out
+
+
+_Params = tuple  # (width, poly, init, refin, refout, xorout)
+
+
+def _info_params(info) -> _Params:
+    return (info.width, info.poly, info.init, info.refin, info.refout, info.xorout)
+
+
+def _agree(pa: _Params, pb: _Params, *, seed=99) -> bool:
+    """True if two parameter sets give the same CRC on fresh held-out messages."""
+    rng = random.Random(seed)
+    held = [bytes(rng.randrange(256) for _ in range(L)) for L in _HELD_LENS]
+    return all(generic_crc(m, *pa) == generic_crc(m, *pb) for m in held)
+
+
+# ---------------------------------------------------------------------------
+# Catalogue round-trip -- the algebraic tier against 113 known algorithms
+# ---------------------------------------------------------------------------
+
+
+class TestRecoversEveryCatalogueAlgorithm:
+    """For every catalogue entry, the algebraic solver recovers a model that
+    predicts held-out messages, and recovers the polynomial exactly."""
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS))
+    def test_recovers_predictive_model(self, name):
+        # Arrange -- codewords from this algorithm; solve with width fixed (the
+        # algebra under test, not the width search).
+        a = ALGORITHMS[name]
+        cws = _codewords(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+
+        # Act -- the Tier-2 core (bypasses the catalogue short-circuit).
+        solved = _solve_dials(cws, a.width, None, None, None, None, None)
+
+        # Assert
+        assert solved is not None, f"{name}: recovered no model"
+        w, p, ri, ro, members, _dim = solved
+        actual_poly, expected_poly = p, a.poly
+        assert actual_poly == expected_poly, (
+            f"{name}: poly {actual_poly:#x} != {expected_poly:#x}"
+        )
+        init, xorout = members[0]
+        recovered = (w, p, init, ri, ro, xorout)
+        truth = (a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        assert _agree(recovered, truth), (
+            f"{name}: recovered model mispredicts a held-out message"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Random adversarial sweep -- the "never confidently wrong" guarantee
+# ---------------------------------------------------------------------------
+
+
+class TestRandomCustomCrcs:
+    """Recover hundreds of random custom CRCs (none in any catalogue) and
+    confirm: every truthy result predicts held-out data, and none is wrong."""
+
+    @pytest.mark.parametrize("width", [8, 12, 15, 16, 24, 32])
+    def test_no_wrong_answers(self, width):
+        rng = random.Random(20240608 + width)
+        wrong, no_model, ok = [], 0, 0
+        for _ in range(40):
+            poly = rng.randrange(1, 1 << width) | 1   # generators are odd
+            init = rng.randrange(0, 1 << width)
+            xorout = rng.randrange(0, 1 << width)
+            ri, ro = rng.random() < .5, rng.random() < .5
+            cws = _codewords(width, poly, init, ri, ro, xorout, seed=rng.randrange(1 << 30))
+            r = reverse(cws, std_algo_only=False, width=width)
+            if r.info is None:
+                no_model += 1
+                continue
+            if _agree(_info_params(r.info), (width, poly, init, ri, ro, xorout)):
+                ok += 1
+            else:
+                wrong.append((width, poly, init, ri, ro, xorout))
+        # The guarantee: zero wrong answers.  No-model is an honest outcome.
+        assert wrong == [], f"width {width}: {len(wrong)} WRONG recoveries: {wrong[:3]}"
+        assert ok >= 1, f"width {width}: recovered nothing at all"
+
+    def test_full_blind_search_recovers(self):
+        # Arrange -- a custom CRC, recovered with ALL dials searched (no hints).
+        width, poly, init, ri, ro, xorout = 16, 0x1009, 0x1234, False, True, 0x5678
+        cws = _codewords(width, poly, init, ri, ro, xorout)
+
+        # Act -- width/refin/refout all None.
+        r = reverse(cws, std_algo_only=False)
+
+        # Assert -- predicts held-out (the model is correct on unseen data).
+        assert r.info is not None, "full-blind recovery returned no model"
+        assert r.info.width == width, f"width {r.info.width} != {width}"
+        assert _agree(_info_params(r.info), (width, poly, init, ri, ro, xorout)), (
+            "full-blind recovered model mispredicts held-out"
+        )
+
+
+# ---------------------------------------------------------------------------
+# The (init, xorout) equivalence class
+# ---------------------------------------------------------------------------
+
+
+class TestEquivalenceClass:
+    """The complete set of observationally-identical parameter sets."""
+
+    def test_x_plus_1_free_is_unique(self):
+        # Arrange -- poly 0x8001's generator has no (x+1) factor -> unique.
+        cws = _codewords(16, 0x8001, 0x1234, False, False, 0x5678)
+        # Act
+        r = reverse(cws, std_algo_only=False)
+        # Assert
+        assert r.status == "unique", f"expected unique, got {r.status}"
+        assert r.ambiguity_bits == 0, f"ambiguity_bits {r.ambiguity_bits} != 0"
+        assert len(r.candidates) == 1, f"{len(r.candidates)} candidates, expected 1"
+
+    def test_x_plus_1_factor_yields_full_class(self):
+        # Arrange -- poly 0x8005's generator has one (x+1) factor -> 2 sets.
+        cws = _codewords(16, 0x8005, 0x1234, False, False, 0x5678)
+        # Act
+        r = reverse(cws, std_algo_only=False)
+        # Assert -- exactly 2 members, all observationally identical.
+        assert r.status == "equivalent", f"expected equivalent, got {r.status}"
+        assert r.ambiguity_bits == 1, f"ambiguity_bits {r.ambiguity_bits} != 1"
+        assert len(r.candidates) == 2, f"{len(r.candidates)} members, expected 2"
+        rng = random.Random(7)
+        for _ in range(200):
+            m = bytes(rng.randrange(256) for _ in range(rng.randrange(0, 40)))
+            values = {
+                generic_crc(m, c.width, c.poly, c.init, c.refin, c.refout, c.xorout)
+                for c in r.candidates
+            }
+            assert len(values) == 1, f"class members disagree on {m!r}: {values}"
+
+    def test_fixed_init_resolves_to_unique(self):
+        # Arrange / Act -- pinning init collapses the class.
+        cws = _codewords(16, 0x8005, 0x1234, False, False, 0x5678)
+        r = reverse(cws, std_algo_only=False, init=0x1234)
+        # Assert
+        assert r.status == "unique", f"expected unique, got {r.status}"
+        assert r.info is not None, "unique result must carry a model"
+        assert r.info.init == 0x1234, f"init {r.info.init:#x} != 0x1234"
+        assert r.info.xorout == 0x5678, f"xorout {r.info.xorout:#x} != 0x5678"
+
+
+# ---------------------------------------------------------------------------
+# Held-out validation + catalogue tier + edges
+# ---------------------------------------------------------------------------
+
+
+class TestBehaviour:
+    def test_held_out_validation_runs(self):
+        # Act
+        r = reverse(_codewords(16, 0x8001, 0, False, False, 0), std_algo_only=False)
+        # Assert -- the recovered model predicted the held-out frame.
+        assert r.validated_frames == 1, (
+            f"expected 1 validated held-out frame, got {r.validated_frames}"
+        )
+
+    def test_tier1_matches_catalogue(self):
+        # Arrange -- codewords from a known algorithm.
+        a = ALGORITHMS["crc16-modbus"]
+        cws = _codewords(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        # Act -- default (std_algo_only=True).
+        r = reverse(cws)
+        # Assert
+        assert r.status == "catalogue", f"expected catalogue, got {r.status}"
+        assert r.catalogue_name == "crc16-modbus", (
+            f"named {r.catalogue_name!r}"
+        )
+
+    def test_custom_under_std_algo_only_returns_none(self):
+        # A custom CRC with std_algo_only=True (default) -> no catalogue match.
+        cws = _codewords(16, 0x1009, 0x1234, False, False, 0x5678)
+        r = reverse(cws)
+        assert r.status == "none", f"expected none, got {r.status}"
+        assert not r, "custom CRC under std_algo_only should be falsy"
+
+    def test_empty_frames_raises(self):
+        with pytest.raises(ValueError, match="at least one"):
+            reverse([])
+
+    def test_too_few_frames_is_honest_not_wrong(self):
+        # A custom (non-catalogue) poly with just 2 same-length frames gives a
+        # single difference -> can't pin the polynomial -> underdetermined, NOT
+        # a wrong answer.  (Uses a custom poly so the catalogue tier can't match.)
+        two = _codewords(16, 0x1009, 0x1234, False, False, 0x5678)[:2]
+        r = reverse(two, std_algo_only=False)
+        assert r.status in ("underdetermined", "none"), (
+            f"too-few frames gave {r.status} (should be honest, not a guess)"
+        )
+
+    def test_result_is_reverseresult(self):
+        r = reverse(_codewords(16, 0x8001, 0, False, False, 0), std_algo_only=False)
+        assert isinstance(r, ReverseResult), "reverse() must return a ReverseResult"
+        assert bool(r) is True, "a recovered model should be truthy"
