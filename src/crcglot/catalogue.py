@@ -64,6 +64,39 @@ _ZLIB_FAST_PATHS = {
 }
 
 
+def has_faster_alternative(algo: AlgorithmInfo) -> bool:
+    """Whether a faster ready-made implementation exists than generated code.
+
+    True for the two IEEE CRC-32 variants (``crc32`` and ``crc32-jamcrc``) and
+    for any *custom* parameter set equivalent to them: these are common enough
+    that every modern language ships a standard-library or canonical-package
+    CRC-32 (usually on CPU CRC instructions) that beats emitted code.  Derived
+    from the same table that routes :func:`generic_crc` to ``zlib.crc32``, so it
+    is the single source of truth, and it won't miss jamcrc or a custom
+    CRC-32-equivalent the way a name check (``name == "crc32"``) would.
+
+    The faster path needn't be hardware-specific; this just reports that a
+    better-than-generated option is available, which generation surfaces surface
+    as an advisory without re-deriving the rule.
+
+    Args:
+        algo: The algorithm's parameters.
+
+    Returns:
+        ``True`` iff a faster ready-made implementation exists for these
+        parameters.
+
+    Examples:
+        >>> from crcglot import ALGORITHMS, has_faster_alternative
+        >>> has_faster_alternative(ALGORITHMS["crc32"])
+        True
+        >>> has_faster_alternative(ALGORITHMS["crc16-modbus"])
+        False
+    """
+    params = (algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout)
+    return params in _ZLIB_FAST_PATHS
+
+
 # ---------------------------------------------------------------------------
 # Generic CRC engine - Rocksoft/Williams parameterization
 # ---------------------------------------------------------------------------

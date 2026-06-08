@@ -507,6 +507,44 @@ class TestCodegenOptions:
         assert "variant='slice8' requires width" in err
 
 
+class TestGenerationAdvisories:
+    """The CLI surfaces faster-path advisories on stderr -- stdout stays a
+    clean source file (pipe-safe)."""
+
+    def test_crc32_hints_the_stdlib_on_stderr(self, capsys):
+        rc = main(["rust", "crc32"])
+        _out, err = capsys.readouterr()
+        assert rc == 0
+        assert "crc32fast" in err, "rust crc32 should hint the crc32fast crate"
+
+    def test_non_crc32_is_silent(self, capsys):
+        rc = main(["c", "crc16-modbus"])
+        _out, err = capsys.readouterr()
+        assert rc == 0
+        assert err == "", "no advisory for a non-crc32 algorithm"
+
+    def test_python_target_warns_to_use_the_package(self, capsys):
+        rc = main(["python", "crc8"])
+        _out, err = capsys.readouterr()
+        assert rc == 0
+        assert "package itself" in err, "python target -> 'use the crcglot package'"
+
+    def test_advisory_never_pollutes_stdout(self, capsys):
+        main(["rust", "crc32"])
+        out, _err = capsys.readouterr()
+        assert "Faster CRC-32" not in out, "advisory must stay off stdout"
+
+    def test_custom_crc32_equivalent_is_advised(self, capsys):
+        # The CLI has the full params, so a custom CRC that IS crc32 still warns.
+        rc = main([
+            "c", "--custom", "width=32", "poly=0x04C11DB7", "init=0xFFFFFFFF",
+            "refin=true", "refout=true", "xorout=0xFFFFFFFF",
+        ])
+        _out, err = capsys.readouterr()
+        assert rc == 0
+        assert "Faster CRC-32" in err, "custom crc32-equivalent should still advise"
+
+
 class TestCodegenIntentFlags:
     """``--small`` / ``--fast`` are the intent front door: the user says
     what they want and crcglot picks the implementation for the
@@ -536,13 +574,14 @@ class TestCodegenIntentFlags:
         assert "crcglot_slice" not in out, "width 16 has no slice-by-8"
 
     def test_fast_python_picks_table(self, capsys):
-        # Python lists no slice8 variant, so --fast is table-driven, silently
-        # (no fallback note -- --fast never asks for an unsupported variant).
+        # Python lists no slice8 variant, so --fast is table-driven without a
+        # fallback note (--fast never asks for an unsupported variant).  stderr
+        # still carries the always-on Python-runtime advisory, which is separate.
         rc = main(["python", "crc32", "--fast"])
         out, err = capsys.readouterr()
         assert rc == 0
         assert "_crcglot_table_crc32 = (" in out, "fast python should be table-driven"
-        assert err == "", "--fast should not emit a fallback note"
+        assert "slower than --table" not in err, "no --slice8 fallback note for --fast"
 
     def test_small_is_bit_by_bit(self, capsys):
         rc = main(["c", "crc32", "--small"])

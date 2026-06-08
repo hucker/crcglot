@@ -49,6 +49,7 @@ from crcglot.catalogue import (
     _reflect,
     generic_crc,
     generic_crc_many,
+    has_faster_alternative,
 )
 from crcglot.detect import (
     Attempt,
@@ -85,6 +86,7 @@ from crcglot.targets import (
     LANGUAGES,
     NAMING_ORDER,
     VARIANT_ORDER,
+    Advisory,
     LanguageInfo,
     NamingInfo,
     VariantInfo,
@@ -102,6 +104,7 @@ __all__ = [
     "ACKNOWLEDGMENTS",
     "ALGORITHMS",
     "ATTRIBUTION",
+    "Advisory",
     "AlgorithmInfo",
     "Attempt",
     "CrcStream",
@@ -148,6 +151,7 @@ __all__ = [
     "crc_stream",
     "generic_crc",
     "generic_crc_many",
+    "has_faster_alternative",
     "reverse",
     "reverse_packets",
     "verify",

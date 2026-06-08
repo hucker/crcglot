@@ -351,6 +351,59 @@ class TestFastestVariant:
         assert resolve_variant("rust", 32, "bitwise") == "bitwise", "explicit passes through"
 
 
+class TestAdvisories:
+    """`has_faster_alternative` + `LanguageInfo.advisories_for`: the per-target
+    'a faster path exists' notes the CLI / MCP / a UI all read from one place."""
+
+    def test_has_faster_alternative_covers_crc32_family(self):
+        from crcglot import has_faster_alternative
+
+        assert has_faster_alternative(ALGORITHMS["crc32"]) is True, "crc32 has one"
+        assert has_faster_alternative(ALGORITHMS["crc32-jamcrc"]) is True, "jamcrc too"
+        assert has_faster_alternative(ALGORITHMS["crc16-modbus"]) is False, "16-bit none"
+
+    def test_stdlib_crc32_set_for_software_none_for_hdl(self):
+        for code in ("c", "csharp", "go", "java", "python", "rust", "typescript"):
+            assert LANGUAGES[code].stdlib_crc32, f"{code} should name a stdlib CRC-32"
+        for code in ("verilog", "vhdl"):
+            assert LANGUAGES[code].stdlib_crc32 is None, f"{code} has no stdlib"
+
+    def test_compiled_crc32_gets_info_naming_the_stdlib(self):
+        adv = LANGUAGES["c"].advisories_for(["crc32"])
+        assert len(adv) == 1, f"one advisory, got {adv}"
+        assert adv[0].kind == "stdlib-crc32" and adv[0].severity == "info", adv[0]
+        stdlib = LANGUAGES["c"].stdlib_crc32
+        assert stdlib is not None and stdlib in adv[0].message, "message names the stdlib"
+
+    def test_python_target_warns_not_stdlib(self):
+        # Python crc32 -> the 'use the package' warning (it already uses zlib),
+        # NOT the stdlib-crc32 info: the two triggers are mutually exclusive.
+        adv = LANGUAGES["python"].advisories_for(["crc32"])
+        assert len(adv) == 1, adv
+        assert adv[0].kind == "python-runtime" and adv[0].severity == "warning", adv[0]
+
+    def test_non_crc32_compiled_target_is_silent(self):
+        assert LANGUAGES["c"].advisories_for(["crc16-modbus"]) == (), "no fast path"
+
+    def test_hdl_never_advised(self):
+        for code in ("verilog", "vhdl"):
+            assert LANGUAGES[code].advisories_for(["crc32"]) == (), code
+
+    def test_bundle_advised_if_any_member_eligible(self):
+        adv = LANGUAGES["c"].advisories_for(["crc16-modbus", "crc32", "crc8"])
+        assert len(adv) == 1 and adv[0].kind == "stdlib-crc32", adv
+
+    def test_custom_crc32_equivalent_detected(self):
+        # The param-tuple check catches a custom CRC that IS crc32 -- a name
+        # check (the old downstream approach) could not.
+        from crcglot import AlgorithmInfo, generic_crc
+
+        p = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+        custom = AlgorithmInfo(*p, generic_crc(b"123456789", *p), "mine", "custom")
+        adv = LANGUAGES["c"].advisories_for([custom])
+        assert len(adv) == 1 and adv[0].kind == "stdlib-crc32", "custom crc32 detected"
+
+
 class TestVariantInfo:
     """``variant_info`` / ``VariantInfo`` mirror the comment-style metadata."""
 

@@ -21,10 +21,12 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, Literal
 
 from crcglot._helpers import combine_concat
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, has_faster_alternative
 
 if TYPE_CHECKING:
     from crcglot.comments import StyleInfo
@@ -213,6 +215,30 @@ def naming_convention_for(language: str, naming: str) -> str:
 
 
 @dataclass(frozen=True)
+class Advisory:
+    """A per-target informational note about a generated CRC.
+
+    Produced by :meth:`LanguageInfo.advisories_for` so every generation surface
+    (the CLI, the MCP ``crc_generate`` tool, a downstream UI) shows the same
+    guidance instead of re-deriving it.
+
+    Attributes:
+        severity: ``"warning"`` (the emitted code is a genuine second-best here)
+            or ``"info"`` (it's fine, but a faster path exists).  Maps to a UI
+            affordance, e.g. Streamlit's ``st.warning`` / ``st.info``.
+        kind: Stable machine-readable tag (``"python-runtime"`` /
+            ``"stdlib-crc32"``) for callers that style or filter by kind.
+        message: One ready-to-render sentence.  Plain text with backticks for
+            code and no other markup, so it reads cleanly in a terminal and
+            renders correctly in a Markdown UI.
+    """
+
+    severity: Literal["info", "warning"]
+    kind: str
+    message: str
+
+
+@dataclass(frozen=True)
 class LanguageInfo:
     """Typed metadata for one target language.
 
@@ -252,6 +278,12 @@ class LanguageInfo:
             output (e.g. "C / C++", "Rust", "TypeScript").  Distinct
             from ``code`` -- the latter is the dispatch key, this is
             for humans.
+        stdlib_crc32: How to reach this target's stdlib / canonical-package
+            IEEE CRC-32, on CPU CRC instructions (e.g. Python's
+            ``zlib.crc32``, Rust's ``crc32fast``), or ``None`` when there
+            isn't one (Verilog / VHDL: the emitted RTL is the implementation).
+            Drives the ``"stdlib-crc32"`` advisory; see
+            :meth:`advisories_for`.
     """
 
     code: str
@@ -264,6 +296,7 @@ class LanguageInfo:
     combiner: Callable
     emoji: str
     display_name: str
+    stdlib_crc32: str | None = None
 
     def variants_for_width(self, width: int) -> tuple[str, ...]:
         """Implementation variants this language supports at a given width.
@@ -333,6 +366,89 @@ class LanguageInfo:
             'table'
         """
         return self.variants_for_width(width)[-1]
+
+    def advisories_for(
+        self, algorithms: Sequence[str | AlgorithmInfo],
+    ) -> tuple[Advisory, ...]:
+        """Informational notes about faster alternatives for a generation.
+
+        Two mutually-exclusive triggers, mirroring the runtime engine's own
+        fast paths:
+
+        * **Python target** (``"warning"``): the emitted Python is interpreted;
+          crcglot's own runtime dispatches to a C extension (and ``zlib.crc32``
+          for IEEE CRC-32), so the package itself is much faster than the
+          generated file.  The note frames the file as the port / no-dependency
+          answer, not the first choice.
+        * **A CRC-32-equivalent algorithm on a compiled target** (``"info"``):
+          the language has a stdlib / canonical-package CRC-32 (typically on CPU
+          CRC instructions; :attr:`stdlib_crc32`).  The emitted code is fine for
+          small messages, but the library wins on large or streaming data.
+
+        Eligibility is by parameter tuple
+        (:func:`crcglot.catalogue.has_faster_alternative`), so it covers
+        ``crc32``, ``crc32-jamcrc``, and custom CRC-32-equivalents alike.  HDL
+        targets, and selections with no fast-path algorithm, get ``()``.
+
+        Args:
+            algorithms: The algorithms being generated -- catalogue names
+                (``str``) and/or custom :class:`AlgorithmInfo` records.
+
+        Returns:
+            Zero or one :class:`Advisory` (the two triggers are exclusive).
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> [a.kind for a in LANGUAGES["c"].advisories_for(["crc32"])]
+            ['stdlib-crc32']
+            >>> [a.kind for a in LANGUAGES["python"].advisories_for(["crc16-modbus"])]
+            ['python-runtime']
+            >>> LANGUAGES["vhdl"].advisories_for(["crc32"])
+            ()
+        """
+        infos = [ALGORITHMS[a] if isinstance(a, str) else a for a in algorithms]
+        names = [a for a in algorithms if isinstance(a, str)]
+        eligible = [i for i in infos if has_faster_alternative(i)]
+
+        if self.code == "python":
+            if names:
+                head = ", ".join(f"`'{n}'`" for n in names[:3])
+                tail = "" if len(names) <= 3 else f" (+{len(names) - 3} more)"
+                call = f"`crcglot.encode_int(data, name)` with name = {head}{tail}"
+            else:
+                call = (
+                    "`crcglot.generic_crc(data, width, poly, init, refin, "
+                    "refout, xorout)`"
+                )
+            speed = (
+                "it dispatches to `zlib.crc32` (CPU CRC instructions), far faster "
+                "than the emitted pure-Python code"
+                if eligible else
+                "it uses the fastest available implementation (a C extension), "
+                "close to C speed for any catalogue algorithm"
+            )
+            message = (
+                f"For Python use cases, prefer the `crcglot` package itself: "
+                f"`pip install crcglot`, then {call}, and {speed}.  Generate the "
+                f"file below only when you need a self-contained Python module "
+                f"(no crcglot install on the target, a locked-down environment)."
+            )
+            return (Advisory("warning", "python-runtime", message),)
+
+        if eligible and self.stdlib_crc32 is not None:
+            extra = (
+                "  (crc32-jamcrc is that value XOR 0xFFFFFFFF.)"
+                if any(i.xorout == 0 for i in eligible) else ""
+            )
+            message = (
+                f"Faster CRC-32 path on {self.display_name}: {self.stdlib_crc32}.  "
+                f"The generated code is fine for small messages, but for large "
+                f"files or streaming throughput prefer that library; it uses CPU "
+                f"CRC instructions where the processor supports them.{extra}"
+            )
+            return (Advisory("info", "stdlib-crc32", message),)
+
+        return ()
 
     def variant_infos_for_width(self, width: int) -> tuple[VariantInfo, ...]:
         """:meth:`variants_for_width` as rich :class:`VariantInfo` records.
@@ -413,6 +529,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_c,
         emoji="⚙️",  # gear
         display_name="C / C++",
+        stdlib_crc32="zlib's `crc32()` (`<zlib.h>`)",
     ),
     "csharp": LanguageInfo(
         code="csharp",
@@ -425,6 +542,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_csharp,
         emoji="\U0001F4A0",  # diamond with a dot
         display_name="C#",
+        stdlib_crc32="`System.IO.Hashing.Crc32` (.NET 6+)",
     ),
     "go": LanguageInfo(
         code="go",
@@ -437,6 +555,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_go,
         emoji="\U0001F6A6",  # vertical traffic light
         display_name="Go",
+        stdlib_crc32="the `hash/crc32` stdlib (`crc32.ChecksumIEEE`)",
     ),
     "java": LanguageInfo(
         code="java",
@@ -449,6 +568,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_java,
         emoji="☕",  # hot beverage (coffee)
         display_name="Java",
+        stdlib_crc32="`java.util.zip.CRC32`",
     ),
     "python": LanguageInfo(
         code="python",
@@ -461,6 +581,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_concat,
         emoji="\U0001F40D",  # snake
         display_name="Python",
+        stdlib_crc32="`zlib.crc32`",
     ),
     "rust": LanguageInfo(
         code="rust",
@@ -473,6 +594,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_concat,
         emoji="\U0001F980",  # crab
         display_name="Rust",
+        stdlib_crc32="the `crc32fast` crate (`crc32fast::hash`)",
     ),
     "typescript": LanguageInfo(
         code="typescript",
@@ -485,6 +607,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_concat,
         emoji="\U0001F537",  # large blue diamond
         display_name="TypeScript",
+        stdlib_crc32="the `crc-32` npm package (`CRC32.buf`)",
     ),
     "verilog": LanguageInfo(
         code="verilog",

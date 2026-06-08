@@ -578,6 +578,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             desc=desc,
             source="custom",
         )
+        advised_algos: list[str | AlgorithmInfo] = [algo]
         # Java: methods are named from the algorithm (custom_name) and the
         # class from the stem, so don't derive the method symbol from the
         # stem; wrap the single result in the stem-named container class.
@@ -621,6 +622,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
+        advised_algos = list(names)
         # ``symbol=`` renames the single emitted function; it can't name
         # many.  With >1 algorithm each uses its catalogue-derived name.
         if symbol_override is not None and len(names) > 1:
@@ -672,6 +674,12 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             result = outputs[0]
         else:
             result = LANGUAGES[lang].combiner(outputs, file_stem or "crcglot")
+
+    # Informational advisories (faster stdlib path, Python-runtime) go to
+    # stderr so a redirected stdout stays a clean source file.
+    for adv in LANGUAGES[lang].advisories_for(advised_algos):
+        prefix = "Warning:" if adv.severity == "warning" else "Note:"
+        print(f"{prefix} {adv.message}", file=sys.stderr)
 
     # ----- Output -----
     if file_stem is not None:

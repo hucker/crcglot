@@ -675,6 +675,18 @@ class TestCrcGenerate:
         assert out["variant"] == "bitwise", "explicit bitwise must be honoured"
         assert "slice" not in out["files"][0]["content"].lower(), "no slice table"
 
+    def test_response_carries_advisories(self):
+        # crc32 on a compiled target -> a stdlib-crc32 info advisory (dict-shaped
+        # for the JSON wire, mirroring LanguageInfo.advisories_for).
+        out = _call("crc_generate", {"language": "rust", "algorithm": "crc32"})
+        kinds = [(a["kind"], a["severity"]) for a in out["advisories"]]
+        assert ("stdlib-crc32", "info") in kinds, f"missing stdlib advisory: {kinds}"
+        # non-crc32 -> none; python -> the use-the-package warning.
+        none = _call("crc_generate", {"language": "c", "algorithm": "crc16-modbus"})
+        assert none["advisories"] == [], "no advisory for crc16"
+        py = _call("crc_generate", {"language": "python", "algorithm": "crc8"})
+        assert py["advisories"][0]["kind"] == "python-runtime", py["advisories"]
+
     def test_c_emits_header_plus_source(self):
         # Act -- C is the only target that ships two files (.h + .c).
         out = _call(

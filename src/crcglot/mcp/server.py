@@ -21,6 +21,7 @@ for MCP -- which makes it composable with any MCP client.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Any, Literal, cast
 
 from mcp.server import FastMCP
@@ -674,7 +675,10 @@ def build_server() -> FastMCP:
             "emits /** @param @return */ for Java; 'jsdoc' emits TSDoc "
             "markup for TypeScript; 'docfx' emits /// <summary> <param> "
             "<returns> XML doc comments for C#.  The returned 'algorithms' "
-            "lists what was generated."
+            "lists what was generated; 'advisories' carries any "
+            "{severity, kind, message} notes about a faster path (e.g. a "
+            "stdlib CRC-32 for the target, or 'use the crcglot package' for a "
+            "Python target) -- surface these to the user."
         ),
     )
     def crc_generate(
@@ -752,6 +756,7 @@ def build_server() -> FastMCP:
                 else info.combiner(outputs, symbol or "crcglot")  # type: ignore[call-arg]
             )
             generated = names
+            advised_algos: list[str | AlgorithmInfo] = list(names)
         else:
             assert custom_params is not None
             cp = custom_params
@@ -801,6 +806,7 @@ def build_server() -> FastMCP:
                 naming=naming_resolved,
             )
             generated = [cust_name]
+            advised_algos = [algo_info]
 
         files: list[dict[str, str]]
         if isinstance(result, tuple):
@@ -817,6 +823,10 @@ def build_server() -> FastMCP:
             "comment_style": comment_style,
             "naming": naming_resolved,
             "algorithms": generated,
+            # Advisory is a dataclass; JSON-project it for the wire (the MCP
+            # result is serialized to JSON over stdio).  asdict keeps the dict
+            # in lockstep with the dataclass's fields.
+            "advisories": [asdict(a) for a in info.advisories_for(advised_algos)],
             "files": files,
         }
 

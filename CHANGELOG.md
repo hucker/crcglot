@@ -29,6 +29,24 @@ implementation.
 Migration: pass `--small` (CLI) or `variant="bitwise"` (library / MCP) to keep
 the old output.
 
+### NEW: generation advisories (`Advisory` + `LanguageInfo.advisories_for`)
+
+A first-class "a faster path exists here" note, shared by every generation
+surface instead of reinvented downstream.  `LANGUAGES[lang].advisories_for(algos)`
+returns frozen `Advisory(severity, kind, message)` records for two cases: a
+**Python target** (warning: prefer the `crcglot` package, whose runtime beats
+emitted pure-Python) and an **IEEE CRC-32 on a compiled target** (info: the
+language's stdlib / canonical-package CRC-32, named in the new
+`LanguageInfo.stdlib_crc32` field, is faster for large data).
+
+- Eligibility is `has_faster_alternative(algo)`, keyed on the parameter tuple via
+  the same table that routes `generic_crc` to `zlib.crc32`.  So it covers
+  `crc32`, `crc32-jamcrc`, and **custom CRC-32-equivalent parameters** that a
+  name check would miss.
+- The **CLI** prints advisories to stderr (stdout stays a clean source file);
+  the **MCP** `crc_generate` response gains an `advisories` array.  New exports:
+  `Advisory`, `has_faster_alternative`.
+
 ### NEW: `crcglot.reverse(frames, …)` + `ReverseResult`
 
 `detect` identifies CRCs that are already in the catalogue; `reverse` recovers a
