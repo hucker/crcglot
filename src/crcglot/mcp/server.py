@@ -151,11 +151,27 @@ def build_server() -> FastMCP:
             "/ custom one, and crc_verify checks a frame against a named "
             "algorithm.  crc_compute gives raw integer CRC values; crc_encode "
             "builds a packet (the inverse of crc_verify); crc_generate emits "
-            "verified source code.  For "
-            "IEEE crc32 and crc32-jamcrc "
-            "specifically, prefer the target language's stdlib (e.g. "
-            "Python's zlib.crc32) -- those algorithms run ~30x faster "
-            "via CPU CRC instructions than any generated code."
+            "verified source code.\n"
+            "\n"
+            "CHOOSING vs MATCHING: if the CRC crosses a boundary you don't "
+            "control -- an existing device, wire protocol, or file format -- you "
+            "must MATCH it (crc_detect, or crc_reverse for a custom one); a "
+            "guessed CRC silently fails to interoperate.  You only get to CHOOSE "
+            "when both ends are yours (a new protocol), and then SIZE the CRC to "
+            "the job rather than reaching for one by reflex: crc32 when overhead "
+            "is cheap and payloads are large or hardware-accelerated (a solid "
+            "general-purpose default); crc16 for small fixed blocks or framed "
+            "serial / field-bus protocols where two bytes per frame matters "
+            "(this is why XMODEM, Modbus, and CAN are 16-bit); crc8 for tiny or "
+            "deeply constrained payloads; or a specific width to match an HDL "
+            "bus.  Wider = stronger detection but more overhead per frame; size "
+            "it to the data you're protecting.  Never pick an arbitrary "
+            "algorithm -- the choice fixes both interoperability and "
+            "error-detection strength.  (The design-a-crc prompt walks this.)\n"
+            "\n"
+            "For IEEE crc32 and crc32-jamcrc specifically, prefer the target "
+            "language's stdlib (e.g. Python's zlib.crc32) -- those algorithms "
+            "run ~30x faster via CPU CRC instructions than any generated code."
         ),
     )
 
@@ -801,6 +817,51 @@ def build_server() -> FastMCP:
     )
     def crc_credits() -> dict[str, str]:
         return {"attribution": ATTRIBUTION}
+
+    # ----- Prompts -----
+
+    @mcp.prompt(
+        name="design-a-crc",
+        title="Design / choose a CRC",
+        description=(
+            "Guide the user to the right CRC for a data link -- match an "
+            "existing one, or choose (default crc32) and generate code.  Use "
+            "this for an open-ended 'I need a CRC' / 'add a checksum to my "
+            "protocol' request."
+        ),
+    )
+    def design_a_crc(use_case: str = "") -> str:
+        """Return a guided prompt that walks the match-vs-choose decision.
+
+        Args:
+            use_case: Optional free-text description of what the user is
+                building (a device, a file format, a new protocol, …).
+
+        Returns:
+            A user-message string steering the model through the workflow.
+        """
+        ctx = f"\n\nWhat I'm building: {use_case}" if use_case.strip() else ""
+        return (
+            "Help me choose and set up a CRC. Work through this in order:\n"
+            "\n"
+            "1. MATCH vs CHOOSE. Am I interoperating with something I do NOT "
+            "control -- an existing device, an on-the-wire protocol, or a file "
+            "format? If yes, I must MATCH its CRC, not invent one: use "
+            "crc_detect on a captured frame, or crc_reverse if the CRC is custom "
+            "/ unknown. A guessed CRC will not interoperate.\n"
+            "2. If both ends are mine (a new protocol), CHOOSE by sizing the CRC "
+            "to the job, not by reflex: crc32 when overhead is cheap and "
+            "payloads are large or hardware-accelerated (a solid general "
+            "default); crc16 for small fixed blocks or framed serial / "
+            "field-bus links where two bytes per frame matters (XMODEM, Modbus, "
+            "and CAN are 16-bit for exactly this reason); crc8 for tiny or "
+            "constrained payloads; or a specific width to match an HDL bus. "
+            "Wider detects more but costs more overhead per frame -- size it to "
+            "the data I'm protecting.\n"
+            "3. Then act: crc_generate to emit verified code in my target "
+            "language, and/or crc_encode / crc_verify to build and check frames."
+            + ctx
+        )
 
     # ----- Resources -----
 

@@ -840,6 +840,35 @@ class TestToolAnnotations:
             assert a.openWorldHint is False, f"{t.name}: openWorldHint set"
 
 
+class TestSteering:
+    """The server steers algorithm SELECTION: ambient guidance in the
+    instructions (match an existing CRC, else default crc32) plus a
+    user-invokable design-a-crc prompt for the open-ended 'I need a CRC' ask."""
+
+    def test_instructions_carry_choose_vs_match_guidance(self):
+        # Act
+        instr = build_server().instructions or ""
+        # Assert -- the two facts a model won't reliably know on its own.
+        assert "MATCH" in instr and "CHOOSE" in instr, "match/choose fork missing"
+        assert "crc32" in instr, "crc32 default not stated"
+
+    def test_design_a_crc_prompt_registered(self):
+        prompts = _run(build_server().list_prompts())
+        names = {p.name for p in prompts}
+        assert "design-a-crc" in names, f"design-a-crc prompt missing from {names}"
+
+    def test_design_a_crc_renders_with_use_case(self):
+        # Act -- render the prompt with a greenfield use case.
+        got = _run(build_server().get_prompt(
+            "design-a-crc", {"use_case": "a new serial link between two MCUs"}))
+        msg = got.messages[0]
+        text = getattr(msg.content, "text", str(msg.content))
+        # Assert -- it walks the fork and interpolates the use case.
+        assert "MATCH vs CHOOSE" in text, "prompt doesn't walk the decision"
+        assert "crc_detect" in text and "crc_reverse" in text, "match path missing"
+        assert "serial link" in text, "use_case not interpolated"
+
+
 # ---------------------------------------------------------------------------
 # Cross-algorithm coverage
 # ---------------------------------------------------------------------------

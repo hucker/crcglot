@@ -223,6 +223,22 @@ The third preempts invalid `crc_generate` calls — the LLM can check
 `variants_by_width["32"]["python"]` before asking for `slice8` on
 Python.
 
+## Prompts
+
+### `design-a-crc(use_case="")`
+
+A user-invokable template for the open-ended *"I need a CRC"* /
+*"add a checksum to my protocol"* ask — the case where someone would
+otherwise grab an arbitrary algorithm.  It expands to a guided message that
+walks the **match-vs-choose** decision: if the CRC must interoperate with
+something you don't control, *match* it (`crc_detect` / `crc_reverse`); if the
+protocol is yours, *choose* by sizing the CRC to the payload and overhead budget
+(`crc32` for large / unconstrained transfers, `crc16` for small framed or serial
+protocols à la XMODEM / Modbus / CAN, `crc8` for tiny payloads) — then
+`crc_generate` / `crc_encode` / `crc_verify`.  The optional `use_case`
+string is folded in.  The same guidance lives ambiently in the server
+instructions, so the model steers correctly even without the explicit prompt.
+
 ## End-to-end example
 
 ```text

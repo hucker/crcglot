@@ -78,6 +78,18 @@ being able to generate code for it.  Underpinning this, the library's `encode` /
 `encode_int` / `encode_text` / `verify` now accept an `AlgorithmInfo` in place
 of a catalogue name (additive — names still work).
 
+### NEW: algorithm-selection steering + `design-a-crc` prompt
+
+The server now steers algorithm **selection**, not just usage.  The instructions
+carry a *choose-vs-match* rule — if the CRC crosses a boundary you don't control,
+match it (`crc_detect` / `crc_reverse`); only for a greenfield protocol do you
+choose, and then by **sizing the CRC to the payload and overhead budget** (crc32
+for large / unconstrained transfers, crc16 for small framed or serial protocols
+like XMODEM / Modbus / CAN, crc8 for tiny payloads) — not by reflex.  A new
+`design-a-crc` MCP prompt (the server's first) makes that an explicit,
+user-invokable template for the open-ended "I need a CRC" request, targeting the
+common failure mode of grabbing an arbitrary CRC with no rationale.
+
 ## v0.17.0 — 2026-06-07
 
 Reveng catalogue completion: the sub-byte, non-byte-aligned, and CRC-24
