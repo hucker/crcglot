@@ -9,7 +9,7 @@ CRC reverse-engineering plus a coherent packet/MCP surface.  Additive over
 ### CHANGED (default behaviour): the fastest variant is now the default
 
 Code generation used to default to `bitwise` (smallest code, slowest).  It now
-defaults to the **fastest variant the target + width support** — slice-by-8 for
+defaults to the **fastest variant the target + width support**: slice-by-8 for
 width 32/64 on compiled languages, table-driven for byte-aligned widths,
 bit-by-bit only where that's the only option (sub-byte widths, Verilog / VHDL).
 Generating *on someone's behalf* shouldn't silently pick the slowest
@@ -32,12 +32,12 @@ the old output.
 ### NEW: `crcglot.reverse(frames, …)` + `ReverseResult`
 
 `detect` identifies CRCs that are already in the catalogue; `reverse` recovers a
-CRC that **isn't** — a vendor's private polynomial — from a handful of
+CRC that **isn't** (a vendor's private polynomial) from a handful of
 `(message, crc)` codewords.  Two tiers: it first tries the catalogue (default
 `std_algo_only=True`, identical to `detect`), and with `std_algo_only=False`
 falls through to an algebraic solve.
 
-- **Clean-room, MIT.** Derived from the linearity of CRCs over GF(2) — the same
+- **Clean-room, MIT.** Derived from the linearity of CRCs over GF(2), the same
   public mathematics CRC RevEng implements, written from first principles, *not*
   from reveng's source (reveng is GPLv3+).  Reuses only crcglot's own engine.
 - **Polynomial** is recovered uniquely (GCD of equal-length difference
@@ -45,7 +45,7 @@ falls through to an algebraic solve.
   are searched or fixed via keyword (a known parameter reduces the codewords
   needed).
 - **Honest about ambiguity.** A generator carrying the `(x+1)` factor (most
-  well-made CRCs do — it's what detects all odd-bit errors) admits several
+  well-made CRCs do; it's what detects all odd-bit errors) admits several
   `(init, xorout)` labellings that are *observationally identical*.  `reverse`
   returns the **complete** equivalence class (a finite, provably-exhaustive
   coset of size `2 ** ambiguity_bits`) with a canonical representative first;
@@ -55,16 +55,16 @@ falls through to an algebraic solve.
   held-out frame it didn't train on (`validated_frames`).  The guarantee, under
   a counterexample-hunting test suite (all 113 catalogue algorithms + a random
   custom-CRC sweep, each validated on unseen messages): a recovered model is
-  **correct on unseen data, or honestly reports none/underdetermined — never
+  **correct on unseen data, or honestly reports none/underdetermined, never
   confidently wrong.**
 
 Scope: the CRC is the trailing field of each codeword; byte-aligned messages;
 width ≤ 64.
 
-### NEW: `crcglot.reverse_packets(packets, …)` — the packet-shaped entry
+### NEW: `crcglot.reverse_packets(packets, …)`, the packet-shaped entry
 
 `reverse` takes the `(message, crc)` split directly; `reverse_packets` takes
-whole captured frames — the **same shapes `detect` accepts** — and peels the CRC
+whole captured frames (the **same shapes `detect` accepts**) and peels the CRC
 off for you.  Binary frames (`bytes`) split at the trailing `crc_bytes`
 (auto-detected when omitted: the largest consistent cut, since CRC register
 feedback can make a smaller cut look valid too).  Text frames
@@ -76,13 +76,13 @@ as hex to a log line / NMEA-style frame recovers with no manual splitting.
 
 The inverse of `encode`: check a frame's trailing CRC against a **known**
 algorithm.  Accepts the same binary or `"data <sep> hexcrc"` text frames; returns
-`{valid, expected, actual, width}` — `expected` vs `actual` shows *how* a bad
+`{valid, expected, actual, width}`; `expected` vs `actual` shows *how* a bad
 frame is wrong.
 
 ### NEW: `crc_reverse` + `crc_verify` MCP tools (8 → 10)
 
-The MCP server gains two tools so its three packet tools — `crc_detect`,
-`crc_reverse`, `crc_verify` — now share **one input shape** (a frame with the
+The MCP server gains two tools so its three packet tools (`crc_detect`,
+`crc_reverse`, `crc_verify`) now share **one input shape** (a frame with the
 CRC at the tail, as hex / base64 / `data <sep> hexcrc` text): `crc_detect` names
 a known CRC, `crc_reverse` recovers an unknown one (wrapping `reverse_packets`,
 returning the full equivalence class with the determinacy / held-out-validation
@@ -93,23 +93,23 @@ fields), and `crc_verify` checks a frame against a named algorithm (wrapping
 ### CHANGED: compute / encode / verify accept a custom polynomial
 
 `crc_compute`, `crc_compute_many`, `crc_encode`, and `crc_verify` now take
-**either** `algorithm` (a catalogue name) **or** `custom_params` — a Rocksoft
+**either** `algorithm` (a catalogue name) **or** `custom_params`, a Rocksoft
 tuple `{width, poly, init, refin, refout, xorout}`, the same shape `crc_generate`
 already accepts and the shape `crc_reverse` returns.  This closes the
 recover → use loop: an agent recovers a vendor's custom CRC with `crc_reverse`,
 then computes / verifies / builds packets with it directly, instead of only
 being able to generate code for it.  Underpinning this, the library's `encode` /
 `encode_int` / `encode_text` / `verify` now accept an `AlgorithmInfo` in place
-of a catalogue name (additive — names still work).
+of a catalogue name (additive; names still work).
 
 ### NEW: algorithm-selection steering + `design-a-crc` prompt
 
 The server now steers algorithm **selection**, not just usage.  The instructions
-carry a *choose-vs-match* rule — if the CRC crosses a boundary you don't control,
+carry a *choose-vs-match* rule: if the CRC crosses a boundary you don't control,
 match it (`crc_detect` / `crc_reverse`); only for a greenfield protocol do you
 choose, and then by **sizing the CRC to the payload and overhead budget** (crc32
 for large / unconstrained transfers, crc16 for small framed or serial protocols
-like XMODEM / Modbus / CAN, crc8 for tiny payloads) — not by reflex.  A new
+like XMODEM / Modbus / CAN, crc8 for tiny payloads), not by reflex.  A new
 `design-a-crc` MCP prompt (the server's first) makes that an explicit,
 user-invokable template for the open-ended "I need a CRC" request, targeting the
 common failure mode of grabbing an arbitrary CRC with no rationale.

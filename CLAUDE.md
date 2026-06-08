@@ -144,7 +144,18 @@ refactor, the Go toolchain detection).
 - **`uvx ruff check src tests` must be 0**
 - **`uvx ty check src tests` must be 0** (the README badge tracks this and turns yellow/red on regression)
 - **Run `uv run python scripts/regenerate_examples.py`** if any generator changed, a new target landed, or the variant matrix changed.  EXAMPLES.md is auto-generated; never hand-edit it.  Always re-run the script before tagging a release so the published gallery matches the shipped generators.
+- **Run `/humanizer` over end-user-facing markdown (see below).**
 - **Run the cruft audit (below).**
+
+## Humanizing end-user prose
+
+Always run `/humanizer` over the **end-user-facing** markdown after editing it —
+`README.md`, `ARCHITECTURE.md`, `BENCHMARKS.md`, `CHANGELOG.md` (not
+`EXAMPLES.md`, which is generated).  These files are read by people evaluating
+the package, and AI tells (em-dash pile-ups, "it's not just X, it's Y"
+constructions, overlong hedged sentences) read as machine-written.  Humanize
+*after* the substantive edits land, so a later content change doesn't reintroduce
+the tells.  Code comments / docstrings are exempt; this is about prose docs.
 
 ## Cruft audit (every release, minimum)
 
