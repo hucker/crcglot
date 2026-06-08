@@ -56,9 +56,10 @@ def encode(
 ) -> bytes:
     """Build a binary packet by appending the CRC to ``data``.
 
-    The CRC occupies ``width // 8`` bytes (1, 2, 4, or 8) in the
-    requested byte order.  Pair with :func:`crcglot.detect.detect` for
-    round-trip identification.
+    The CRC occupies ``ceil(width / 8)`` bytes in the requested byte
+    order -- a sub-byte / non-byte-aligned CRC (e.g. CRC-15 -> 2 bytes) is
+    right-justified and zero-padded.  Pair with
+    :func:`crcglot.detect.detect` for round-trip identification.
 
     Args:
         data: Payload to checksum.  ``bytes`` and ``bytearray`` are both
@@ -83,7 +84,7 @@ def encode(
         data_bytes, algo.width, algo.poly, algo.init,
         algo.refin, algo.refout, algo.xorout,
     )
-    w = algo.width // 8
+    w = (algo.width + 7) // 8  # ceil: zero-padded field for sub-byte widths
     return data_bytes + crc.to_bytes(w, endianness)
 
 
@@ -137,11 +138,11 @@ def encode_text(
         data_bytes, algo.width, algo.poly, algo.init,
         algo.refin, algo.refout, algo.xorout,
     )
-    hex_chars = algo.width // 4
+    hex_chars = (algo.width + 3) // 4  # ceil: CRC-15 -> 4 nibbles
     if endianness == "big":
         crc_hex = f"{crc:0{hex_chars}x}"
     else:
-        w = algo.width // 8
+        w = (algo.width + 7) // 8
         crc_hex = crc.to_bytes(w, "little").hex()
     if uppercase:
         crc_hex = crc_hex.upper()

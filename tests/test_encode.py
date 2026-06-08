@@ -229,8 +229,8 @@ class TestRoundTripBinary:
         packet = encode(CHECK_INPUT_BYTES, name, endianness="little")
         # Act
         result = detect(packet, match="all")
-        # Assert -- width-8 collapses BE/LE.
-        expected_endian = "big" if algo.width == 8 else "little"
+        # Assert -- single-byte CRC fields (width <= 8) collapse BE/LE.
+        expected_endian = "big" if (algo.width + 7) // 8 == 1 else "little"
         actual = {(m.algorithm, m.endianness) for m in result.candidates}
         assert (name, expected_endian) in actual, (
             f"{name} {expected_endian} not found in detect candidates: {actual}"

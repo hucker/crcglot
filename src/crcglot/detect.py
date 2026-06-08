@@ -1,7 +1,7 @@
 """CRC algorithm detection -- brute-force identification.
 
-Given a packet whose tail is a CRC, scan the 72-entry catalogue x
-both byte orders to find which algorithm matches.  Supports binary
+Given a packet whose tail is a CRC, scan the catalogue x both byte
+orders to find which algorithm matches.  Supports binary
 packets (``bytes``/``bytearray``) and text packets (``str``).  A ``str``
 that's a hex-encoded byte string in any common formatting (``"12 34"``,
 ``"0x12,0x34"``, ``xxd``-style ``"AB:CD:EF"``, etc.) is decoded
@@ -85,8 +85,28 @@ def _endians_for(
     return (selector,)
 
 
+def _crc_byte_len(width: int) -> int:
+    """Bytes needed to hold a ``width``-bit CRC field, rounding up.
+
+    The CRC occupies the low ``width`` bits, right-justified and zero-padded
+    into ``ceil(width / 8)`` bytes -- so a 15-bit CRC takes 2 bytes, not the
+    1 that floor division (``width // 8``) would give.  Floor division here
+    silently truncated sub-byte CRCs (and overflowed ``_byte_reversed``).
+    """
+    return (width + 7) // 8
+
+
+def _crc_nibble_len(width: int) -> int:
+    """Hex nibbles needed to hold a ``width``-bit CRC field, rounding up.
+
+    A 15-bit CRC needs ``ceil(15 / 4) = 4`` nibbles (``"059e"``); floor
+    division (``width // 4``) would demand 3 and reject the real hex.
+    """
+    return (width + 3) // 4
+
+
 def _byte_reversed(value: int, width_bits: int) -> int:
-    """Byte-reverse ``value`` at the algorithm's width.
+    """Byte-reverse ``value`` over the CRC field's byte length.
 
     The CRC integer has a canonical big-endian byte form (most-significant
     byte first); a caller whose tool printed the bytes and read them
@@ -95,14 +115,16 @@ def _byte_reversed(value: int, width_bits: int) -> int:
 
     Args:
         value: The CRC integer.
-        width_bits: Algorithm width in bits (always byte-aligned in the
-            catalogue: 8, 16, 32, or 64).
+        width_bits: Algorithm width in bits.  The field spans
+            ``ceil(width / 8)`` bytes, so a sub-byte / non-byte-aligned
+            width (e.g. 15) reverses over its padded byte length rather
+            than overflowing on ``floor`` division.
 
     Returns:
-        ``value`` with its bytes reversed.  For width 8 returns ``value``
-        unchanged (single byte is endianness-invariant).
+        ``value`` with its bytes reversed.  For a single-byte field
+        (width <= 8) returns ``value`` unchanged (endianness-invariant).
     """
-    n_bytes = width_bits // 8
+    n_bytes = _crc_byte_len(width_bits)
     return int.from_bytes(value.to_bytes(n_bytes, "big"), "little")
 
 
@@ -421,7 +443,8 @@ def _check_binary(packet: bytes, algo: AlgorithmInfo, w: int, endian: Endianness
     Args:
         packet: The full packet bytes.
         algo: Algorithm to apply.
-        w: CRC width in bytes (``algo.width // 8``).
+        w: CRC width in bytes, ``ceil(algo.width / 8)`` (a sub-byte /
+            non-byte-aligned CRC occupies its zero-padded byte length).
         endian: How to interpret the trailing CRC bytes.
 
     Returns:
@@ -450,6 +473,11 @@ def _check_text(parsed: _ParsedText, algo: AlgorithmInfo, endian: Endianness) ->
     if endian == "big":
         parsed_int = int(hex_str, 16)
     else:
+        # Little-endian needs a whole number of bytes; an odd-nibble hex
+        # field (a sub-byte / non-byte-aligned width like 11 -> 3 nibbles)
+        # has no byte order to reverse, so it can't match an LE reading.
+        if len(hex_str) % 2 == 1:
+            return False
         parsed_int = int.from_bytes(bytes.fromhex(hex_str), "little")
     computed = generic_crc(
         data, algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout,
@@ -477,7 +505,7 @@ def _matches_for_binary_packet(
     matches: set[tuple[str, Endianness]] = set()
     for name in names:
         algo = ALGORITHMS[name]
-        w = algo.width // 8
+        w = _crc_byte_len(algo.width)
         if len(pb) <= w:
             continue
         for byte_order in _endians_for(endian, dedup=(w == 1)):
@@ -492,8 +520,8 @@ def _matches_for_text_packet(
     """All ``(name, endian)`` pairs that fit one text packet.
 
     Width inference filters early: an algorithm can only match if its
-    width matches the hex string length (``hex_len == width // 4``), so
-    most of the catalogue is rejected without calling ``generic_crc``.
+    field length matches the hex string (``hex_len == ceil(width / 4)``),
+    so most of the catalogue is rejected without calling ``generic_crc``.
 
     Args:
         parsed: Output of :func:`_parse_text`.
@@ -509,9 +537,11 @@ def _matches_for_text_packet(
     _data, _tf, hex_len, _hex_str = parsed
     for name in names:
         algo = ALGORITHMS[name]
-        if algo.width // 4 != hex_len:
+        if _crc_nibble_len(algo.width) != hex_len:
             continue
-        for byte_order in _endians_for(endian, dedup=(hex_len <= 2)):
+        for byte_order in _endians_for(
+            endian, dedup=(hex_len <= 2 or hex_len % 2 == 1)
+        ):
             if _check_text(parsed, algo, byte_order):
                 matches.add((name, byte_order))
     return matches
@@ -796,7 +826,7 @@ def _detect_with_target_crc(
         # Build the (target_int, endianness_label) candidates.
         # Width 1 byte dedups (BE == LE byte-wise).
         targets: list[tuple[int, Endianness]] = []
-        for byte_order in _endians_for(endian, dedup=(w_bits == 8)):
+        for byte_order in _endians_for(endian, dedup=(_crc_byte_len(w_bits) == 1)):
             tgt = (
                 target_crc if byte_order == "big"
                 else _byte_reversed(target_crc, w_bits)
@@ -909,7 +939,7 @@ def detect_iter(
                 data, algo.width, algo.poly, algo.init,
                 algo.refin, algo.refout, algo.xorout,
             )
-            for byte_order in _endians_for(endian, dedup=(algo.width == 8)):
+            for byte_order in _endians_for(endian, dedup=(_crc_byte_len(algo.width) == 1)):
                 tgt = (
                     target_crc if byte_order == "big"
                     else _byte_reversed(target_crc, algo.width)
@@ -948,7 +978,7 @@ def detect_iter(
         pb = bytes(packet)
         for name in names:
             algo = ALGORITHMS[name]
-            w = algo.width // 8
+            w = _crc_byte_len(algo.width)
             if len(pb) <= w:
                 continue
             for byte_order in _endians_for(endian, dedup=(w == 1)):
@@ -962,9 +992,11 @@ def detect_iter(
         _data, _tf, hex_len, _hex_str = parsed
         for name in names:
             algo = ALGORITHMS[name]
-            if algo.width // 4 != hex_len:
+            if _crc_nibble_len(algo.width) != hex_len:
                 continue
-            for byte_order in _endians_for(endian, dedup=(hex_len <= 2)):
+            for byte_order in _endians_for(
+            endian, dedup=(hex_len <= 2 or hex_len % 2 == 1)
+        ):
                 yield Attempt(name, byte_order, _check_text(parsed, algo, byte_order))
 
 
@@ -1002,7 +1034,7 @@ def _detect_first(
         packets_b = [bytes(p) for p in bin_packets]
         for name in names:
             algo = ALGORITHMS[name]
-            w = algo.width // 8
+            w = _crc_byte_len(algo.width)
             if any(len(p) <= w for p in packets_b):
                 continue
             for byte_order in _endians_for(endian, dedup=(w == 1)):
@@ -1030,9 +1062,11 @@ def _detect_first(
     text_format = parsed_packets[0][1]
     for name in names:
         algo = ALGORITHMS[name]
-        if algo.width // 4 != hex_len:
+        if _crc_nibble_len(algo.width) != hex_len:
             continue
-        for byte_order in _endians_for(endian, dedup=(hex_len <= 2)):
+        for byte_order in _endians_for(
+            endian, dedup=(hex_len <= 2 or hex_len % 2 == 1)
+        ):
             if all(_check_text(pp, algo, byte_order) for pp in parsed_packets):
                 return DetectResult(
                     matched=True,

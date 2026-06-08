@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.17.0 — 2026-06-07
+
+Reveng catalogue completion: the sub-byte, non-byte-aligned, and CRC-24
+families.  Additive over 0.16.0 — no public API removed or renamed.
+
+### NEW: 41 algorithms — the full reveng catalogue (72 → 113)
+
+crcglot previously shipped only byte-aligned widths (8/16/32/64).  This release
+adds every remaining reveng model, completing the catalogue:
+
+- **CAN** (CRC-15), **CAN FD** (CRC-17, CRC-21), **FlexRay** (CRC-11, CRC-24)
+- **CRC-24**: BLE, OpenPGP, LTE-A/B, FlexRay-A/B, Interlaken, OS-9
+- **Telecom**: GSM / UMTS / CDMA2000 / DECT / ATM at widths 10–14
+- **Sub-byte**: CRC-3/4/5/6/7 (USB, MMC, RFID EPC, ROHC, DARC, G-704, …)
+
+Every entry is validated against its canonical reveng `check` value and
+compiled + run through all nine target toolchains in the execution suite.
+
+### CHANGED: code generators handle sub-byte widths (bit-by-bit)
+
+The generators now emit correct code for widths below 8.  Sub-byte CRCs are
+**bit-by-bit only** — a 256-entry table to checksum the tiny payloads these run
+on (USB tokens, MMC commands, RFID) is pure overhead, so `variants_for_width`
+advertises only `bitwise` below width 8 (joining the existing slice-by-8
+exclusion).  The bitwise non-reflected loop feeds each byte MSB-first rather
+than the byte-aligned `byte << (width-8)` fold, which underflows for width < 8
+(a compile error in Rust/Go/HDL, undefined behaviour in C).
+
+### CHANGED: `detect`, `encode`, the engine, and streaming handle sub-byte CRCs
+
+Identifying and building packets for a non-byte-aligned CRC now works: the CRC
+field occupies `ceil(width / 8)` bytes (right-justified, zero-padded), compared
+**strictly** so a garbage pad bit is rejected rather than masked away.  Previous
+`floor`-division logic (`width // 8`) truncated sub-byte fields and could
+overflow `detect`'s `target_crc` byte-reversal.  The runtime engine
+(`generic_crc` / `generic_crc_many`) and `CrcStream` route widths below 8 to the
+pure-Python reference (the C extension's domain is `[8, 64]`); results are
+bit-identical.
+
 ## v0.16.0 — 2026-06-07
 
 Batch CRC + MCP ergonomics.  Fully additive over 0.15.1.

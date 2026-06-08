@@ -344,6 +344,21 @@ def _update_loop_csharp(
             "            }",
             "        }",
         ]
+    if w < 8:
+        # Sub-byte non-reflected: bit-by-bit, MSB first.  The byte-aligned
+        # ``b << (w - 8)`` fold is a negative shift for width < 8.
+        return [
+            "        foreach (byte b in data) {",
+            "            for (int j = 7; j >= 0; j--) {",
+            f"                int bit = (b >> j) & 1;",
+            f"                if ((((crc >> {w - 1}) & 1) ^ bit) != 0)",
+            f"                    crc = {_cs_cast(w, f'(crc << 1) ^ {_cs_hex(poly, w)}')};",
+            "                else",
+            f"                    crc = {_cs_cast(w, 'crc << 1')};",
+            f"                crc &= {mask};",
+            "            }",
+            "        }",
+        ]
     shift_left = (
         f"crc = {_cs_cast(w, 'crc << 1')};" if w <= 16 else "crc <<= 1;"
     )
@@ -461,6 +476,11 @@ def generate_csharp_from_entry(
     """
     table, slice8 = _variant_to_flags(variant)
     w = algo.width
+    if w < 8 and table:
+        # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray
+        # table request degrades to bitwise rather than emitting a byte-wise
+        # table update for a register narrower than a byte.
+        table = False
     poly = algo.poly
     init = algo.init
     refin = algo.refin

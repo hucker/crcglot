@@ -461,21 +461,22 @@ class TestAlgorithmMetadata:
     """
 
     def test_size_matches_catalogue(self):
-        # Assert -- 72 algorithms in the catalogue.
-        assert len(ALGORITHMS) == 72, f"expected 72 entries, got {len(ALGORITHMS)}"
+        # Assert -- 113 algorithms: the full reveng catalogue (72 byte-aligned
+        # + 41 sub-byte / non-byte-aligned / CRC-24 reveng models).
+        assert len(ALGORITHMS) == 113, f"expected 113 entries, got {len(ALGORITHMS)}"
 
     def test_count_within_prose_claim(self):
-        """Guard the docs' "more than 70" wording against catalogue growth.
+        """Guard the docs' "more than 100" wording against catalogue growth.
 
-        README and the MCP server description say "more than 70" instead of
+        README and the MCP server description say "more than 100" instead of
         a brittle exact count.  That phrasing reads wrong once the catalogue
-        crosses 80 -- this test trips first so the prose gets bumped
+        crosses 120 -- this test trips first so the prose gets bumped
         deliberately rather than silently going stale.
         """
-        # Assert -- catalogue still fits the "more than 70" claim.
-        assert len(ALGORITHMS) < 80, (
+        # Assert -- catalogue still fits the "more than 100" claim.
+        assert len(ALGORITHMS) < 120, (
             f"catalogue grew to {len(ALGORITHMS)} entries: bump the "
-            f'"More than 70" prose to "More than 80" in README.md and '
+            f'"More than 100" prose to "More than 120" in README.md and '
             "src/crcglot/mcp/server.py, then raise this bound."
         )
 
@@ -487,8 +488,12 @@ class TestAlgorithmMetadata:
         assert isinstance(algo, AlgorithmInfo), (
             f"{name}: expected AlgorithmInfo"
         )
-        assert algo.width in (8, 16, 32, 64), (
-            f"{name}: width {algo.width} not in {{8, 16, 32, 64}}"
+        # Widths span the reveng catalogue: byte-aligned (8/16/32/64) plus
+        # the sub-byte and non-byte-aligned models (3-7, 10-31).  Guard the
+        # plausible range rather than an exact set so a garbage width (0,
+        # negative, > 64) still trips.
+        assert 3 <= algo.width <= 64, (
+            f"{name}: width {algo.width} outside the catalogue range [3, 64]"
         )
         assert isinstance(algo.desc, str), (
             f"{name}: desc must be str (possibly empty), got {type(algo.desc)}"

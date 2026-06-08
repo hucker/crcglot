@@ -136,6 +136,13 @@ def generate_python_from_entry(
     """
     table, _slice8 = _variant_to_flags(variant, allow_slice8=False)
     w = algo.width
+    if w < 8:
+        # Sub-byte CRCs are bit-by-bit only: a 256-entry table to checksum
+        # the tiny payloads these run on is pure overhead, and the byte-wise
+        # table update has no form for a register narrower than a byte.  The
+        # variant matrix advertises bitwise-only for width < 8; a stray
+        # table request degrades to bitwise rather than emitting broken code.
+        table = False
     poly = algo.poly
     init = algo.init
     refin = algo.refin
@@ -216,6 +223,15 @@ def generate_python_from_entry(
         lines.append(f"                crc = (crc >> 1) ^ {_hex(ref_poly, w)}")
         lines.append(f"            else:")
         lines.append(f"                crc >>= 1")
+    elif w < 8:
+        # Sub-byte non-reflected: feed each byte bit-by-bit, MSB first.
+        # The byte-aligned ``byte << (w - 8)`` fold underflows for width < 8.
+        lines.append(f"        for i in range(7, -1, -1):")
+        lines.append(f"            bit = (byte >> i) & 1")
+        lines.append(f"            if ((crc >> {w - 1}) & 1) ^ bit:")
+        lines.append(f"                crc = ((crc << 1) ^ {_hex(poly, w)}) & {mask}")
+        lines.append(f"            else:")
+        lines.append(f"                crc = (crc << 1) & {mask}")
     else:
         lines.append(f"        crc ^= byte << {w - 8}")
         lines.append(f"        for _ in range(8):")

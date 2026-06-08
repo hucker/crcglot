@@ -125,13 +125,24 @@ class _PyBackend:
                 crc ^= byte
                 for _ in range(8):
                     crc = (crc >> 1) ^ ref_poly if crc & 1 else crc >> 1
-        else:
+        elif self._width >= 8:
             poly, msb, mask, shift = self._poly, self._msb, self._mask, self._shift
             for byte in data:
                 crc ^= byte << shift
                 for _ in range(8):
                     crc = (crc << 1) ^ poly if crc & msb else crc << 1
                 crc &= mask
+        else:
+            # Sub-byte non-reflected: bit-by-bit, MSB first (the byte-aligned
+            # ``byte << (width - 8)`` fold underflows for width < 8).
+            poly, msb, mask = self._poly, self._msb, self._mask
+            for byte in data:
+                for i in range(7, -1, -1):
+                    bit = (byte >> i) & 1
+                    if (crc & msb != 0) ^ (bit != 0):
+                        crc = ((crc << 1) ^ poly) & mask
+                    else:
+                        crc = (crc << 1) & mask
         self._state = crc
 
     def digest(self) -> int:
@@ -163,7 +174,9 @@ def _make_backend(
     fast_path = _ZLIB_FAST_PATHS.get(params)
     if fast_path is not None:
         return _ZlibBackend(fast_path(b""))
-    if _CCrcStream is not None:
+    # The C extension's domain is width in [8, 64]; sub-byte CRCs fall back
+    # to the pure-Python backend, which handles any width (bit-identical).
+    if _CCrcStream is not None and 8 <= width <= 64:
         return _CCrcStream(
             width=width, poly=poly, init=init,
             refin=refin, refout=refout, xorout=xorout,

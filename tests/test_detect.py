@@ -34,14 +34,16 @@ def _binary_packet(
 ) -> bytes:
     """Build a known-good binary packet for the given algorithm."""
     algo = ALGORITHMS[name]
-    w = algo.width // 8
+    # ceil: a sub-byte / non-byte-aligned CRC is right-justified, zero-padded
+    # into ceil(width/8) bytes (e.g. CRC-15 -> 2 bytes).
+    w = (algo.width + 7) // 8
     return CHECK_INPUT_BYTES + algo.check.to_bytes(w, endianness)
 
 
 def _text_packet(name: str, sep: str = " ", leader: str = "", upper: bool = False) -> str:
     """Build a canonical text packet for the given algorithm."""
     algo = ALGORITHMS[name]
-    hex_chars = algo.width // 4
+    hex_chars = (algo.width + 3) // 4  # ceil: CRC-15 -> 4 nibbles ("059e")
     crc_hex = f"{algo.check:0{hex_chars}x}"
     if upper:
         crc_hex = crc_hex.upper()
@@ -78,11 +80,89 @@ class TestBinaryRoundTrip:
 
         # Assert
         actual = {(m.algorithm, m.endianness) for m in result.candidates}
-        # Width-8 algorithms have BE==LE; everyone else must match LE explicitly.
-        expected_endian = "big" if algo.width == 8 else "little"
+        # Single-byte CRC fields (width <= 8, incl. the sub-byte 3-7) have
+        # BE==LE and dedup to "big"; wider fields must match LE explicitly.
+        single_byte = (algo.width + 7) // 8 == 1
+        expected_endian = "big" if single_byte else "little"
         assert result.matched, f"binary LE detect failed for {name}: result={result}"
         assert (name, expected_endian) in actual, (
             f"expected ({name!r}, {expected_endian!r}) in {actual}"
+        )
+
+
+class TestSubByteDetect:
+    """Detection of sub-byte / non-byte-aligned CRCs: the field occupies
+    ceil(width/8) bytes, compared strictly (zero pad bits are evidence,
+    not masked away).  Guards the ceil/strict-compare fixes and the
+    target_crc byte-reversal that used to overflow on these widths."""
+
+    # crc15-can (15b), crc11-flexray (11b, odd-nibble), crc24-openpgp (24b,
+    # byte-aligned-but-new), crc5-usb (5b, single-byte field, reflected).
+    SAMPLES = ["crc15-can", "crc11-flexray", "crc24-openpgp", "crc5-usb"]
+
+    # Only non-byte-aligned widths have a pad bit to corrupt (a byte-aligned
+    # width like CRC-24 fills its bytes exactly), so this test parametrizes
+    # over the sub-byte/non-byte-aligned samples only -- no skips.
+    @pytest.mark.parametrize(
+        "name", [s for s in SAMPLES if ALGORITHMS[s].width % 8 != 0]
+    )
+    def test_garbage_pad_bit_is_rejected(self, name: str) -> None:
+        # Arrange -- a non-byte-aligned CRC with a high pad bit forced on
+        # (a value that doesn't fit the width) must NOT be claimed as a
+        # match: strict compare rejects it, masking would falsely accept.
+        algo = ALGORITHMS[name]
+        w = (algo.width + 7) // 8
+        dirty = CHECK_INPUT_BYTES + (algo.check | (1 << algo.width)).to_bytes(w, "big")
+
+        # Act
+        result = detect(dirty, algorithms=name)
+
+        # Assert
+        assert not result.matched, (
+            f"{name}: garbage pad bit must be rejected, got {result.candidates}"
+        )
+
+    @pytest.mark.parametrize("name", SAMPLES)
+    def test_target_crc_default_endian_does_not_crash(self, name: str) -> None:
+        # Arrange -- the default endian="both" byte-reverses the target at
+        # the field's byte length; a sub-byte width used to overflow here.
+        algo = ALGORITHMS[name]
+
+        # Act -- must not raise, and must identify the algorithm.
+        result = detect(CHECK_INPUT_BYTES, target_crc=algo.check, algorithms=name)
+
+        # Assert
+        assert result.matched, f"target_crc detect failed for {name}: {result}"
+        assert result.algorithm == name, (
+            f"expected {name!r}, got {result.algorithm!r}"
+        )
+
+    def test_full_catalogue_target_crc_no_overflow(self) -> None:
+        # Arrange / Act -- a full-catalogue target_crc scan (default both
+        # endian) reaches the sub-byte entries; this used to raise
+        # OverflowError and poison every default detect(..., target_crc=...).
+        target = ALGORITHMS["crc16-modbus"].check
+        result = detect(CHECK_INPUT_BYTES, target_crc=target)
+
+        # Assert
+        assert result.matched, "full-catalogue target_crc scan should match crc16-modbus"
+
+    def test_odd_nibble_text_matches_big_only(self) -> None:
+        # Arrange -- crc11-flexray is 3 hex nibbles; LE across 1.5 bytes is
+        # undefined, so it must match big-endian and never crash on fromhex.
+        algo = ALGORITHMS["crc11-flexray"]
+        packet = f"{CHECK_INPUT_TEXT} {algo.check:03x}"
+
+        # Act
+        result = detect(packet, mode="text", algorithms="crc11-flexray", match="all")
+
+        # Assert
+        endians = {(m.algorithm, m.endianness) for m in result.candidates}
+        assert ("crc11-flexray", "big") in endians, (
+            f"expected big-endian crc11-flexray match, got {endians}"
+        )
+        assert ("crc11-flexray", "little") not in endians, (
+            f"odd-nibble width must not yield a little-endian match, got {endians}"
         )
 
 

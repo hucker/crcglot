@@ -103,7 +103,7 @@ def build_server() -> FastMCP:
     mcp = FastMCP(
         "crcglot",
         instructions=(
-            "crcglot exposes the reveng CRC catalogue (more than 70 algorithms), "
+            "crcglot exposes the reveng CRC catalogue (more than 100 algorithms), "
             "a multi-language code generator (C / C# / Go / Python / Rust "
             "/ TypeScript / Verilog / VHDL), and a runtime CRC engine.  "
             "Use crc_list / crc_info to browse; crc_detect to identify "
@@ -122,8 +122,8 @@ def build_server() -> FastMCP:
         annotations=_READONLY,
         name="crc_list",
         description=(
-            "Browse the crcglot CRC algorithm catalogue.  Returns up to "
-            "70 named algorithms from the reveng catalogue (crc32, "
+            "Browse the crcglot CRC algorithm catalogue.  Returns more than "
+            "100 named algorithms from the reveng catalogue (crc32, "
             "crc16-modbus, crc8-cdma2000, ...).  Use this when the user "
             "mentions a CRC by partial name or family, or to disambiguate "
             "before crc_generate.  Filter with a shell glob like "

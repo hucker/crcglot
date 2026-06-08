@@ -283,6 +283,22 @@ def _update_loop_rust(
             "        }",
             "    }",
         ]
+    if w < 8:
+        # Sub-byte non-reflected: bit-by-bit, MSB first.  The byte-aligned
+        # ``byte << (w - 8)`` fold is a negative shift for width < 8, which
+        # Rust rejects at compile time (arithmetic_overflow).
+        return [
+            "    for &byte in data {",
+            "        for j in (0..8).rev() {",
+            f"            let bit = ((byte >> j) & 1) as {rtype};",
+            f"            if (((crc >> {w - 1}) & 1) ^ bit) != 0 {{",
+            f"                crc = ((crc << 1) ^ {_hex(poly, w)}) & {mask};",
+            "            } else {",
+            f"                crc = (crc << 1) & {mask};",
+            "            }",
+            "        }",
+            "    }",
+        ]
     return [
         "    for &byte in data {",
         f"        crc ^= (byte as {rtype}) << {w - 8};",
@@ -365,6 +381,11 @@ def generate_rust_from_entry(
     """
     table, slice8 = _variant_to_flags(variant)
     w = algo.width
+    if w < 8 and table:
+        # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray
+        # table request degrades to bitwise rather than emitting code Rust
+        # rejects (``u8 >> 8`` is a compile-time overflow).
+        table = False
     poly = algo.poly
     init = algo.init
     refin = algo.refin

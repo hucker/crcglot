@@ -206,7 +206,19 @@ def generate_verilog_from_entry(
         f"        logic [{w - 1}:0] crc;",
         f"        crc = state;",
     ]
-    if refin:
+    if refin and w < 8:
+        # Sub-byte reflected: bit-by-bit, LSB first.  The byte (8 bits) is
+        # wider than the register, so it can't be zero-extended/XORed whole
+        # ({(w-8){1'b0}} is a negative replication for width < 8).
+        lines += [
+            f"        for (int j = 0; j < 8; j++) begin",
+            f"            if (crc[0] ^ byte_in[j])",
+            f"                crc = (crc >> 1) ^ {_sv_lit(poly_val, w)};",
+            f"            else",
+            f"                crc = crc >> 1;",
+            f"        end",
+        ]
+    elif refin:
         # Reflected: XOR byte into low byte, then right-shift loop.
         if w == 8:
             # For w=8 the resize is trivial; no shift needed for the XOR.
@@ -223,6 +235,16 @@ def generate_verilog_from_entry(
             f"                crc = (crc >> 1) ^ {_sv_lit(poly_val, w)};",
             f"            else",
             f"                crc = crc >> 1;",
+            f"        end",
+        ]
+    elif w < 8:
+        # Sub-byte non-reflected: bit-by-bit, MSB first.
+        lines += [
+            f"        for (int j = 7; j >= 0; j--) begin",
+            f"            if (crc[{w - 1}] ^ byte_in[j])",
+            f"                crc = (crc << 1) ^ {_sv_lit(poly_val, w)};",
+            f"            else",
+            f"                crc = crc << 1;",
             f"        end",
         ]
     else:

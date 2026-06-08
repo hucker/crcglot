@@ -259,7 +259,21 @@ def generate_vhdl_from_entry(
         f"            byte := unsigned("
         f"d((n - i)*8 - 1 downto (n - i - 1)*8));",
     ]
-    if refin:
+    if refin and w < 8:
+        # Sub-byte reflected: bit-by-bit, LSB first.  resize(byte, w) would
+        # truncate the 8-bit byte to a narrower register and silently lose
+        # the high bits, so the byte must be folded in one bit at a time.
+        lines += [
+            f"            for j in 0 to 7 loop",
+            f"                if (crc(0) xor byte(j)) = '1' then",
+            f"                    crc := shift_right(crc, 1) xor "
+            f"{_vhdl_lit(poly_val, w)};",
+            f"                else",
+            f"                    crc := shift_right(crc, 1);",
+            f"                end if;",
+            f"            end loop;",
+        ]
+    elif refin:
         lines += [
             f"            crc := crc xor resize(byte, {w});",
             f"            for j in 0 to 7 loop",
@@ -268,6 +282,19 @@ def generate_vhdl_from_entry(
             f"{_vhdl_lit(poly_val, w)};",
             f"                else",
             f"                    crc := shift_right(crc, 1);",
+            f"                end if;",
+            f"            end loop;",
+        ]
+    elif w < 8:
+        # Sub-byte non-reflected: bit-by-bit, MSB first.  shift_left by
+        # (w - 8) is a negative shift amount for width < 8.
+        lines += [
+            f"            for j in 7 downto 0 loop",
+            f"                if (crc({w - 1}) xor byte(j)) = '1' then",
+            f"                    crc := shift_left(crc, 1) xor "
+            f"{_vhdl_lit(poly_val, w)};",
+            f"                else",
+            f"                    crc := shift_left(crc, 1);",
             f"                end if;",
             f"            end loop;",
         ]

@@ -227,6 +227,22 @@ def _update_loop_go(
             "        }",
             "    }",
         ]
+    if w < 8:
+        # Sub-byte non-reflected: bit-by-bit, MSB first.  The byte-aligned
+        # ``b << (w - 8)`` fold is a negative shift count for width < 8,
+        # which Go rejects at compile time.
+        return [
+            "    for _, b := range data {",
+            "        for j := 7; j >= 0; j-- {",
+            f"            bit := {gtype}((b >> uint(j)) & 1)",
+            f"            if (((crc >> {w - 1}) & 1) ^ bit) != 0 {{",
+            f"                crc = ((crc << 1) ^ {_hex(poly, w)}) & {mask}",
+            "            } else {",
+            f"                crc = (crc << 1) & {mask}",
+            "            }",
+            "        }",
+            "    }",
+        ]
     return [
         "    for _, b := range data {",
         f"        crc ^= {gtype}(b) << {w - 8}",
@@ -328,6 +344,11 @@ def generate_go_from_entry(
     """
     table, slice8 = _variant_to_flags(variant)
     w = algo.width
+    if w < 8 and table:
+        # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray
+        # table request degrades to bitwise rather than emitting a byte-wise
+        # table update for a register narrower than a byte.
+        table = False
     poly = algo.poly
     init = algo.init
     refin = algo.refin

@@ -147,7 +147,8 @@ def _update_loop_java(w: int, poly: int, refin: bool, table: bool) -> list[str]:
     """Emit the per-byte main-loop lines for the update method.
 
     Bytes are zero-extended (``& 0xFF``); right shifts are logical
-    (``>>>``); widths 8 / 16 mask their left-shifts, 32 / 64 wrap natively.
+    (``>>>``); widths below 32 mask their left-shifts to width, while 32
+    (int) and 64 (long) wrap natively.
     """
     if table:
         if w == 8:
@@ -165,7 +166,14 @@ def _update_loop_java(w: int, poly: int, refin: bool, table: bool) -> list[str]:
                 f"            crc = CRC_TABLE[{cast}((crc ^ (b & 0xFF)) & 0xFF)] ^ (crc >>> 8);",
                 "        }",
             ]
-        left = "((crc << 8) & 0xFFFF)" if w == 16 else "(crc << 8)"
+        # Mask the left-shift to width for any w < 32 (8, 16, and the
+        # non-byte-aligned widths like 10/24): Java ``int`` is 32 bits, so
+        # only widths 32 (int) and 64 (long) wrap natively -- everything
+        # narrower accumulates overflow bits without an explicit mask.
+        left = (
+            f"((crc << 8) & {_java_hex((1 << w) - 1, w)})" if w < 32
+            else "(crc << 8)"
+        )
         return [
             "        for (byte b : data) {",
             f"            crc = CRC_TABLE[{cast}(((crc >>> {w - 8}) ^ (b & 0xFF)) & 0xFF)] ^ {left};",
@@ -185,6 +193,21 @@ def _update_loop_java(w: int, poly: int, refin: bool, table: bool) -> list[str]:
             "        }",
         ]
     # bitwise, non-reflected
+    if w < 8:
+        # Sub-byte non-reflected: bit-by-bit, MSB first.  The byte-aligned
+        # ``(b & 0xFF) << (w - 8)`` fold is a negative shift for width < 8.
+        wmask = _java_hex((1 << w) - 1, w)
+        return [
+            "        for (byte b : data) {",
+            "            for (int j = 7; j >= 0; j--) {",
+            f"                int bit = ((b & 0xFF) >>> j) & 1;",
+            f"                if ((((crc >>> {w - 1}) & 1) ^ bit) != 0)",
+            f"                    crc = ((crc << 1) ^ {_java_hex(poly, w)}) & {wmask};",
+            "                else",
+            f"                    crc = (crc << 1) & {wmask};",
+            "            }",
+            "        }",
+        ]
     if w == 8:
         b_aligned = "(b & 0xFF)"
     elif w == 64:
@@ -200,10 +223,11 @@ def _update_loop_java(w: int, poly: int, refin: bool, table: bool) -> list[str]:
         "                else",
         "                    crc <<= 1;",
     ]
-    if w == 8:
-        lines.append("                crc &= 0xFF;")
-    elif w == 16:
-        lines.append("                crc &= 0xFFFF;")
+    # Mask to width for any w < 32 (8, 16, and non-byte-aligned 10..31, 24).
+    # Java ``int`` is 32 bits: only widths 32 (int) and 64 (long) wrap
+    # natively; narrower widths accumulate overflow bits without a mask.
+    if w < 32:
+        lines.append(f"                crc &= {_java_hex((1 << w) - 1, w)};")
     lines.append("            }")
     lines.append("        }")
     return lines
@@ -423,6 +447,11 @@ def generate_java_from_entry(
     """
     table, slice8 = _variant_to_flags(variant)
     w = algo.width
+    if w < 8 and table:
+        # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray
+        # table request degrades to bitwise rather than emitting a byte-wise
+        # table update for a register narrower than a byte.
+        table = False
     poly = algo.poly
     refin = algo.refin
     refout = algo.refout

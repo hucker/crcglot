@@ -1,6 +1,6 @@
 """CRC catalogue + generic compute engine.
 
-64+ named algorithms from the reveng catalogue (Greg Cook,
+100+ named algorithms from the reveng catalogue (Greg Cook,
 https://reveng.sourceforge.io/crc-catalogue/all.htm) plus
 generic Rocksoft/Williams CRC computation for any custom
 ``(width, poly, init, refin, refout, xorout)`` tuple.
@@ -148,7 +148,10 @@ def generic_crc(
     fast_path = _ZLIB_FAST_PATHS.get((width, poly, init, refin, refout, xorout))
     if fast_path is not None:
         return fast_path(data)
-    if _c_generic_crc is not None:
+    # The C extension's domain is width in [8, 64]; sub-byte CRCs (e.g.
+    # crc5-usb, crc7-rohc) fall back to the reference loop, which handles
+    # any width.  Bit-identical either way.
+    if _c_generic_crc is not None and 8 <= width <= 64:
         return _c_generic_crc(data, width, poly, init, refin, refout, xorout)
     return _generic_crc_python(data, width, poly, init, refin, refout, xorout)
 
@@ -193,7 +196,9 @@ def generic_crc_many(
     fast_path = _ZLIB_FAST_PATHS.get((width, poly, init, refin, refout, xorout))
     if fast_path is not None:
         return [fast_path(b) for b in buffers]
-    if _c_crc_many is not None:
+    # C extension domain is width in [8, 64]; sub-byte CRCs fall back to the
+    # reference loop (bit-identical).  See generic_crc.
+    if _c_crc_many is not None and 8 <= width <= 64:
         return _c_crc_many(
             list(buffers), width, poly, init, refin, refout, xorout
         )
@@ -233,8 +238,10 @@ def _generic_crc_python(
                     crc = (crc >> 1) ^ ref_poly
                 else:
                     crc >>= 1
-    else:
-        # Normal algorithm: process MSB-first
+    elif width >= 8:
+        # Normal algorithm: process MSB-first, byte aligned to the register
+        # top.  Valid only for width >= 8 -- the shift below underflows
+        # otherwise.
         msb_mask = 1 << (width - 1)
         for byte in data:
             crc ^= byte << (width - 8)
@@ -244,6 +251,19 @@ def _generic_crc_python(
                 else:
                     crc <<= 1
             crc &= (1 << width) - 1
+    else:
+        # Sub-byte non-reflected widths: feed each byte bit-by-bit, MSB
+        # first.  The byte-aligned ``byte << (width - 8)`` form above would
+        # shift by a negative amount when width < 8.
+        mask = (1 << width) - 1
+        msb_mask = 1 << (width - 1)
+        for byte in data:
+            for i in range(7, -1, -1):
+                bit = (byte >> i) & 1
+                if ((crc & msb_mask) != 0) ^ (bit != 0):
+                    crc = ((crc << 1) ^ poly) & mask
+                else:
+                    crc = (crc << 1) & mask
     if refout != refin:
         crc = _reflect(crc, width)
     # Mask to ``width`` bits so the result stays a CRC value even if a
@@ -300,6 +320,176 @@ class AlgorithmInfo:
 # check = CRC of b"123456789" - used as test vectors.
 #
 ALGORITHMS: dict[str, AlgorithmInfo] = {
+    # ---- CRC-3 (2 algorithms) ----
+    "crc3-gsm": AlgorithmInfo(
+        width=3,
+        poly=0x3,
+        init=0x0,
+        refin=False,
+        refout=False,
+        xorout=0x7,
+        check=0x4,
+        desc="GSM cellular (3GPP TS 45.003)",
+        source="reveng",
+    ),
+    "crc3-rohc": AlgorithmInfo(
+        width=3,
+        poly=0x3,
+        init=0x7,
+        refin=True,
+        refout=True,
+        xorout=0x0,
+        check=0x6,
+        desc="RObust Header Compression (RFC 3095)",
+        source="reveng",
+    ),
+    # ---- CRC-4 (2 algorithms) ----
+    "crc4-g-704": AlgorithmInfo(
+        width=4,
+        poly=0x3,
+        init=0x0,
+        refin=True,
+        refout=True,
+        xorout=0x0,
+        check=0x7,
+        desc="ITU-T G.704 E1/T1 framing",
+        source="reveng",
+    ),
+    "crc4-interlaken": AlgorithmInfo(
+        width=4,
+        poly=0x3,
+        init=0xF,
+        refin=False,
+        refout=False,
+        xorout=0xF,
+        check=0xB,
+        desc="Interlaken chip-to-chip protocol",
+        source="reveng",
+    ),
+    # ---- CRC-5 (3 algorithms) ----
+    "crc5-epc-c1g2": AlgorithmInfo(
+        width=5,
+        poly=0x09,
+        init=0x09,
+        refin=False,
+        refout=False,
+        xorout=0x00,
+        check=0x00,
+        desc="EPC Class-1 Gen-2 UHF RFID",
+        source="reveng",
+    ),
+    "crc5-g-704": AlgorithmInfo(
+        width=5,
+        poly=0x15,
+        init=0x00,
+        refin=True,
+        refout=True,
+        xorout=0x00,
+        check=0x07,
+        desc="ITU-T G.704 framing (5-bit)",
+        source="reveng",
+    ),
+    "crc5-usb": AlgorithmInfo(
+        width=5,
+        poly=0x05,
+        init=0x1F,
+        refin=True,
+        refout=True,
+        xorout=0x1F,
+        check=0x19,
+        desc="USB token/SOF packets",
+        source="reveng",
+    ),
+    # ---- CRC-6 (5 algorithms) ----
+    "crc6-cdma2000-a": AlgorithmInfo(
+        width=6,
+        poly=0x27,
+        init=0x3F,
+        refin=False,
+        refout=False,
+        xorout=0x00,
+        check=0x0D,
+        desc="CDMA2000 control channel A",
+        source="reveng",
+    ),
+    "crc6-cdma2000-b": AlgorithmInfo(
+        width=6,
+        poly=0x07,
+        init=0x3F,
+        refin=False,
+        refout=False,
+        xorout=0x00,
+        check=0x3B,
+        desc="CDMA2000 control channel B",
+        source="reveng",
+    ),
+    "crc6-darc": AlgorithmInfo(
+        width=6,
+        poly=0x19,
+        init=0x00,
+        refin=True,
+        refout=True,
+        xorout=0x00,
+        check=0x26,
+        desc="DARC (Data Radio Channel, 6-bit)",
+        source="reveng",
+    ),
+    "crc6-g-704": AlgorithmInfo(
+        width=6,
+        poly=0x03,
+        init=0x00,
+        refin=True,
+        refout=True,
+        xorout=0x00,
+        check=0x06,
+        desc="ITU-T G.704 framing (6-bit)",
+        source="reveng",
+    ),
+    "crc6-gsm": AlgorithmInfo(
+        width=6,
+        poly=0x2F,
+        init=0x00,
+        refin=False,
+        refout=False,
+        xorout=0x3F,
+        check=0x13,
+        desc="GSM cellular (6-bit)",
+        source="reveng",
+    ),
+    # ---- CRC-7 (3 algorithms) ----
+    "crc7-mmc": AlgorithmInfo(
+        width=7,
+        poly=0x09,
+        init=0x00,
+        refin=False,
+        refout=False,
+        xorout=0x00,
+        check=0x75,
+        desc="MMC/SD card commands",
+        source="reveng",
+    ),
+    "crc7-rohc": AlgorithmInfo(
+        width=7,
+        poly=0x4F,
+        init=0x7F,
+        refin=True,
+        refout=True,
+        xorout=0x00,
+        check=0x53,
+        desc="RObust Header Compression (RFC 3095)",
+        source="reveng",
+    ),
+    "crc7-umts": AlgorithmInfo(
+        width=7,
+        poly=0x45,
+        init=0x00,
+        refin=False,
+        refout=False,
+        xorout=0x00,
+        check=0x61,
+        desc="UMTS/WCDMA 3G (7-bit)",
+        source="reveng",
+    ),
     # ---- CRC-8 (21 algorithms) ----
     "crc8": AlgorithmInfo(
         width=8,
@@ -530,6 +720,166 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x00,
         check=0x25,
         desc="WCDMA/UMTS 3G mobile embedded",
+        source="reveng",
+    ),
+    # ---- CRC-10 (3 algorithms) ----
+    "crc10-atm": AlgorithmInfo(
+        width=10,
+        poly=0x233,
+        init=0x000,
+        refin=False,
+        refout=False,
+        xorout=0x000,
+        check=0x199,
+        desc="ATM AAL3/4, ITU-T I.610",
+        source="reveng",
+    ),
+    "crc10-cdma2000": AlgorithmInfo(
+        width=10,
+        poly=0x3D9,
+        init=0x3FF,
+        refin=False,
+        refout=False,
+        xorout=0x000,
+        check=0x233,
+        desc="CDMA2000 forward link",
+        source="reveng",
+    ),
+    "crc10-gsm": AlgorithmInfo(
+        width=10,
+        poly=0x175,
+        init=0x000,
+        refin=False,
+        refout=False,
+        xorout=0x3FF,
+        check=0x12A,
+        desc="GSM cellular (10-bit)",
+        source="reveng",
+    ),
+    # ---- CRC-11 (2 algorithms) ----
+    "crc11-flexray": AlgorithmInfo(
+        width=11,
+        poly=0x385,
+        init=0x01A,
+        refin=False,
+        refout=False,
+        xorout=0x000,
+        check=0x5A3,
+        desc="FlexRay automotive bus",
+        source="reveng",
+    ),
+    "crc11-umts": AlgorithmInfo(
+        width=11,
+        poly=0x307,
+        init=0x000,
+        refin=False,
+        refout=False,
+        xorout=0x000,
+        check=0x061,
+        desc="UMTS/WCDMA 3G (11-bit)",
+        source="reveng",
+    ),
+    # ---- CRC-12 (4 algorithms) ----
+    "crc12-cdma2000": AlgorithmInfo(
+        width=12,
+        poly=0xF13,
+        init=0xFFF,
+        refin=False,
+        refout=False,
+        xorout=0x000,
+        check=0xD4D,
+        desc="CDMA2000 forward link (12-bit)",
+        source="reveng",
+    ),
+    "crc12-dect": AlgorithmInfo(
+        width=12,
+        poly=0x80F,
+        init=0x000,
+        refin=False,
+        refout=False,
+        xorout=0x000,
+        check=0xF5B,
+        desc="DECT cordless telephony (X-CRC-12)",
+        source="reveng",
+    ),
+    "crc12-gsm": AlgorithmInfo(
+        width=12,
+        poly=0xD31,
+        init=0x000,
+        refin=False,
+        refout=False,
+        xorout=0xFFF,
+        check=0xB34,
+        desc="GSM cellular (12-bit)",
+        source="reveng",
+    ),
+    "crc12-umts": AlgorithmInfo(
+        width=12,
+        poly=0x80F,
+        init=0x000,
+        refin=False,
+        refout=True,
+        xorout=0x000,
+        check=0xDAF,
+        desc="UMTS/3GPP (refout only)",
+        source="reveng",
+    ),
+    # ---- CRC-13 (1 algorithm) ----
+    "crc13-bbc": AlgorithmInfo(
+        width=13,
+        poly=0x1CF5,
+        init=0x0000,
+        refin=False,
+        refout=False,
+        xorout=0x0000,
+        check=0x04FA,
+        desc="BBC Radio Data System datacast",
+        source="reveng",
+    ),
+    # ---- CRC-14 (2 algorithms) ----
+    "crc14-darc": AlgorithmInfo(
+        width=14,
+        poly=0x0805,
+        init=0x0000,
+        refin=True,
+        refout=True,
+        xorout=0x0000,
+        check=0x082D,
+        desc="DARC (Data Radio Channel, 14-bit)",
+        source="reveng",
+    ),
+    "crc14-gsm": AlgorithmInfo(
+        width=14,
+        poly=0x202D,
+        init=0x0000,
+        refin=False,
+        refout=False,
+        xorout=0x3FFF,
+        check=0x30AE,
+        desc="GSM cellular (14-bit)",
+        source="reveng",
+    ),
+    # ---- CRC-15 (2 algorithms) ----
+    "crc15-can": AlgorithmInfo(
+        width=15,
+        poly=0x4599,
+        init=0x0000,
+        refin=False,
+        refout=False,
+        xorout=0x0000,
+        check=0x059E,
+        desc="CAN bus frame CRC",
+        source="reveng",
+    ),
+    "crc15-mpt1327": AlgorithmInfo(
+        width=15,
+        poly=0x6815,
+        init=0x0000,
+        refin=False,
+        refout=False,
+        xorout=0x0001,
+        check=0x2566,
+        desc="MPT-1327 trunked radio",
         source="reveng",
     ),
     # ---- CRC-16 (31 algorithms) ----
@@ -872,6 +1222,143 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         xorout=0x0000,
         check=0x31C3,
         desc="XMODEM, ZMODEM, ACORN, LTE",
+        source="reveng",
+    ),
+    # ---- CRC-17 (1 algorithm) ----
+    "crc17-can-fd": AlgorithmInfo(
+        width=17,
+        poly=0x1685B,
+        init=0x00000,
+        refin=False,
+        refout=False,
+        xorout=0x00000,
+        check=0x04F03,
+        desc="CAN FD (<=16-byte payload)",
+        source="reveng",
+    ),
+    # ---- CRC-21 (1 algorithm) ----
+    "crc21-can-fd": AlgorithmInfo(
+        width=21,
+        poly=0x102899,
+        init=0x000000,
+        refin=False,
+        refout=False,
+        xorout=0x000000,
+        check=0x0ED841,
+        desc="CAN FD (>16-byte payload)",
+        source="reveng",
+    ),
+    # ---- CRC-24 (8 algorithms) ----
+    "crc24-ble": AlgorithmInfo(
+        width=24,
+        poly=0x00065B,
+        init=0x555555,
+        refin=True,
+        refout=True,
+        xorout=0x000000,
+        check=0xC25A56,
+        desc="Bluetooth Low Energy data CRC",
+        source="reveng",
+    ),
+    "crc24-flexray-a": AlgorithmInfo(
+        width=24,
+        poly=0x5D6DCB,
+        init=0xFEDCBA,
+        refin=False,
+        refout=False,
+        xorout=0x000000,
+        check=0x7979BD,
+        desc="FlexRay header CRC (preset A)",
+        source="reveng",
+    ),
+    "crc24-flexray-b": AlgorithmInfo(
+        width=24,
+        poly=0x5D6DCB,
+        init=0xABCDEF,
+        refin=False,
+        refout=False,
+        xorout=0x000000,
+        check=0x1F23B8,
+        desc="FlexRay header CRC (preset B)",
+        source="reveng",
+    ),
+    "crc24-interlaken": AlgorithmInfo(
+        width=24,
+        poly=0x328B63,
+        init=0xFFFFFF,
+        refin=False,
+        refout=False,
+        xorout=0xFFFFFF,
+        check=0xB4F3E6,
+        desc="Interlaken chip-to-chip (24-bit)",
+        source="reveng",
+    ),
+    "crc24-lte-a": AlgorithmInfo(
+        width=24,
+        poly=0x864CFB,
+        init=0x000000,
+        refin=False,
+        refout=False,
+        xorout=0x000000,
+        check=0xCDE703,
+        desc="LTE PDCP / transport block A",
+        source="reveng",
+    ),
+    "crc24-lte-b": AlgorithmInfo(
+        width=24,
+        poly=0x800063,
+        init=0x000000,
+        refin=False,
+        refout=False,
+        xorout=0x000000,
+        check=0x23EF52,
+        desc="LTE transport block B",
+        source="reveng",
+    ),
+    "crc24-openpgp": AlgorithmInfo(
+        width=24,
+        poly=0x864CFB,
+        init=0xB704CE,
+        refin=False,
+        refout=False,
+        xorout=0x000000,
+        check=0x21CF02,
+        desc="OpenPGP ASCII armor (RFC 4880)",
+        source="reveng",
+    ),
+    "crc24-os-9": AlgorithmInfo(
+        width=24,
+        poly=0x800063,
+        init=0xFFFFFF,
+        refin=False,
+        refout=False,
+        xorout=0xFFFFFF,
+        check=0x200FA5,
+        desc="OS-9 RTOS module CRC",
+        source="reveng",
+    ),
+    # ---- CRC-30 (1 algorithm) ----
+    "crc30-cdma": AlgorithmInfo(
+        width=30,
+        poly=0x2030B9C7,
+        init=0x3FFFFFFF,
+        refin=False,
+        refout=False,
+        xorout=0x3FFFFFFF,
+        check=0x04C34ABF,
+        desc="CDMA mobile (3GPP2 C.S0024)",
+        source="reveng",
+    ),
+    # ---- CRC-31 (1 algorithm) ----
+    "crc31-philips": AlgorithmInfo(
+        width=31,
+        poly=0x04C11DB7,
+        init=0x7FFFFFFF,
+        refin=False,
+        refout=False,
+        xorout=0x7FFFFFFF,
+        check=0x0CE9E46C,
+        desc="Philips data transmission",
         source="reveng",
     ),
     # ---- CRC-32 (13 algorithms) ----

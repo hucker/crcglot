@@ -209,6 +209,22 @@ def _update_loop_ts(
             "        }",
             "    }",
         ]
+    if w < 8:
+        # Sub-byte non-reflected: bit-by-bit, MSB first.  The byte-aligned
+        # ``byte << (w - 8)`` fold is a negative shift for width < 8.
+        wmask = _hex((1 << w) - 1, w)
+        return [
+            "    for (const byte of data) {",
+            "        for (let j = 7; j >= 0; j--) {",
+            f"            const bit = (byte >>> j) & 1;",
+            f"            if ((((crc >>> {w - 1}) & 1) ^ bit) !== 0) {{",
+            f"                crc = ((crc << 1) ^ {_hex(poly, w)}) & {wmask};",
+            "            } else {",
+            f"                crc = (crc << 1) & {wmask};",
+            "            }",
+            "        }",
+            "    }",
+        ]
     # Non-reflected bitwise.  Width 32 needs `>>> 0` after the XOR to
     # stay in uint32; smaller widths mask explicitly.
     coerce = ">>> 0" if w == 32 else f"& {_hex((1 << w) - 1, w)}"
@@ -408,6 +424,11 @@ def generate_typescript_from_entry(
     """
     table, slice8 = _variant_to_flags(variant)
     w = algo.width
+    if w < 8 and table:
+        # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a stray
+        # table request degrades to bitwise rather than emitting a byte-wise
+        # table update for a register narrower than a byte.
+        table = False
     poly = algo.poly
     init = algo.init
     refin = algo.refin

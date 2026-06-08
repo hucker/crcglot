@@ -47,6 +47,13 @@ pytestmark = pytest.mark.skipif(
 _CHECK_INPUT = b"123456789"
 
 
+# The C extension's supported width domain is [8, 64]; sub-byte CRCs are
+# handled by the pure-Python reference instead (``generic_crc`` dispatches
+# widths below 8 there).  Tests that call ``_c`` directly over the catalogue
+# scan this filtered list rather than the full catalogue.
+_C_EXT_ALGOS = sorted(n for n, a in ALGORITHMS.items() if 8 <= a.width <= 64)
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Parity: every catalogue algorithm via both engines
 # ─────────────────────────────────────────────────────────────────────
@@ -65,7 +72,7 @@ class TestCExtensionParityWithPython:
     in either implementation surfaces as a real failure.
     """
 
-    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    @pytest.mark.parametrize("name", _C_EXT_ALGOS)
     def test_c_matches_python_and_reveng(self, name):
         # Arrange
         algo = ALGORITHMS[name]
@@ -251,7 +258,7 @@ class TestCrcStream:
     """The incremental CrcStream object: chunked updates must match the
     one-shot result, digest() is non-destructive, reset()/copy() behave."""
 
-    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    @pytest.mark.parametrize("name", _C_EXT_ALGOS)
     def test_chunked_matches_oneshot(self, name):
         # Arrange -- feed "123456789" split at byte 4.
         algo = ALGORITHMS[name]
@@ -268,7 +275,7 @@ class TestCrcStream:
             f"{name}: streamed {streamed:#x} != check {expected:#x}"
         )
 
-    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    @pytest.mark.parametrize("name", _C_EXT_ALGOS)
     def test_splittability_invariant(self, name):
         # Arrange -- the same input split three different ways (incl.
         # empty chunks) must all produce the catalogue check value.
@@ -449,10 +456,10 @@ class TestCExtensionTableCache:
     """
 
     def test_all_catalogue_algorithms_one_process(self):
-        # Act + Assert -- every catalogue algorithm, in-process, so the
-        # cache fills past CACHE_CAP (72 algorithms > 64).  Each must
-        # still match the pure-Python engine.
-        for name, algo in ALGORITHMS.items():
+        # Act + Assert -- every C-extension-domain (width 8..64) algorithm,
+        # in-process, each matching the pure-Python engine.
+        for name in _C_EXT_ALGOS:
+            algo = ALGORITHMS[name]
             args = (
                 _CHECK_INPUT, algo.width, algo.poly, algo.init,
                 algo.refin, algo.refout, algo.xorout,
@@ -507,7 +514,7 @@ class TestCExtensionConcurrency:
     def test_concurrent_distinct_algorithms_stay_correct(self):
         # Arrange -- the whole catalogue, hammered from many threads; each
         # call builds its own table, so this stresses concurrent build/free.
-        names = sorted(ALGORITHMS)
+        names = _C_EXT_ALGOS
         errors: list = []
 
         def worker() -> None:

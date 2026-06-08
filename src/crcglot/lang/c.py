@@ -269,6 +269,22 @@ def _update_loop_c(
             "        }",
             "    }",
         ]
+    if w < 8:
+        # Sub-byte non-reflected: feed each byte bit-by-bit, MSB first.
+        # The byte-aligned ``data[i] << (w - 8)`` fold shifts by a negative
+        # amount for width < 8 (undefined behaviour in C).
+        return [
+            "    for (size_t i = 0; i < len; i++) {",
+            "        for (int j = 7; j >= 0; j--) {",
+            f"            int bit = (data[i] >> j) & 1;",
+            f"            if (((crc >> {w - 1}) & 1) ^ bit)",
+            f"                crc = (crc << 1) ^ {_hex(poly, w)};",
+            "            else",
+            "                crc <<= 1;",
+            f"            crc &= {mask};",
+            "        }",
+            "    }",
+        ]
     # Cast to ``ctype`` (not uint8_t) before shifting: for w=64, shifting
     # a uint8_t (promoted to int) by 56 is undefined behaviour because
     # int is only 32 bits.  Casting to the destination type keeps the
@@ -459,6 +475,11 @@ def generate_c_from_entry(
     """
     table, slice8 = _variant_to_flags(variant)
     w = algo.width
+    if w < 8 and table:
+        # Sub-byte CRCs are bit-by-bit only (see variants_for_width); a
+        # stray table request degrades to bitwise rather than emitting a
+        # byte-wise table update for a register narrower than a byte.
+        table = False
     poly = algo.poly
     init = algo.init
     refin = algo.refin

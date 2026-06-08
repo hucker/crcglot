@@ -269,15 +269,24 @@ class LanguageInfo:
         """Implementation variants this language supports at a given width.
 
         Identical to ``self.variants`` ordered by :data:`VARIANT_ORDER`,
-        except ``"slice8"`` is filtered out when ``width`` is anything
-        other than 32 or 64 -- the slice-by-8 implementation chunks the
-        input 8 bytes at a time and only makes sense at those widths,
-        so the generator raises ``ValueError`` for narrower CRCs.
-        Surfacing the rule here lets dropdowns and other UI code avoid
+        with two width-based exclusions:
+
+        * ``"slice8"`` is filtered out when ``width`` is anything other
+          than 32 or 64 -- the slice-by-8 implementation chunks the input
+          8 bytes at a time and only makes sense at those widths.
+        * ``"table"`` is filtered out for sub-byte widths (``width < 8``).
+          A 256-entry lookup to checksum the tiny payloads these CRCs run
+          on (USB tokens, MMC commands, RFID, CAN control fields) is pure
+          overhead -- the table build dwarfs the CRC -- and the byte-wise
+          table update has no well-defined form when the register is
+          narrower than a byte.  Sub-byte CRCs are bit-by-bit only.
+
+        The generators raise ``ValueError`` for an excluded variant, so
+        surfacing the rule here lets dropdowns and other UI code avoid
         offering options that would error.
 
         Args:
-            width: CRC width in bits (e.g. ``8``, ``16``, ``32``, ``64``).
+            width: CRC width in bits (e.g. ``5``, ``8``, ``16``, ``32``).
 
         Returns:
             Supported variants in canonical order.
@@ -288,13 +297,14 @@ class LanguageInfo:
             ('bitwise', 'table', 'slice8')
             >>> LANGUAGES["c"].variants_for_width(16)
             ('bitwise', 'table')
-            >>> LANGUAGES["python"].variants_for_width(32)
-            ('bitwise', 'table')
+            >>> LANGUAGES["c"].variants_for_width(5)
+            ('bitwise',)
         """
         return tuple(
             v for v in VARIANT_ORDER
             if v in self.variants
             and not (v == "slice8" and width not in (32, 64))
+            and not (v == "table" and width < 8)
         )
 
     def variant_infos_for_width(self, width: int) -> tuple[VariantInfo, ...]:
