@@ -89,6 +89,30 @@ little-endian (and vice versa); the two are independent.
 
 [det]: ../src/crcglot/detect.py
 
+### `crc_reverse(codewords, std_algo_only=False, ...)`
+
+Recover the parameters of an **unknown / custom** CRC from `(message, crc)`
+codewords — the recovery counterpart to `crc_detect`, which only identifies
+CRCs already in the catalogue.  Use it when a device's CRC isn't any known
+algorithm.  `codewords` is a list of `{message_hex | message_b64, crc}`; supply
+several **varied** frames — varied in *content* (so the polynomial converges)
+and in *length* (to separate `init` from `xorout`); ~4+ is typical, more is
+better.  Fix any known parameter (`width` / `refin` / `refout` / `poly` /
+`init` / `xorout`) to reduce how many codewords are needed.
+
+Returns `{status, candidates, catalogue_name, ambiguity_bits,
+validated_frames, note}`.  `status` is `catalogue` (matched a known algorithm),
+`unique`, `equivalent` (several `(init, xorout)` labellings are observationally
+identical — **all** are returned, a complete and provably-exhaustive set of
+size `2 ** ambiguity_bits`; the polynomial is always unique),
+`underdetermined`, or `none`.  Every returned model is self-verified against the
+engine and validated against a held-out frame: a recovered model is correct on
+unseen data, or honestly reports underdetermined — never confidently wrong.
+Clean-room (derived from CRC linearity over GF(2), not from reveng).  Mirrors
+[`crcglot.reverse`][rev].
+
+[rev]: ../src/crcglot/reverse.py
+
 ### `crc_encode(algorithm, data_text | data_b64, ...)`
 
 Append a freshly-computed CRC to data and return the packet.  Pairs
@@ -153,7 +177,7 @@ Read-only JSON snapshots the LLM can ingest once and reason from.
 | `crcglot://languages.json` | Per-target metadata (extensions, supported variants, emoji) |
 | `crcglot://variants.json` | `variants_for_width(width)` cross-product for widths 8/16/32/64 |
 
-The third pre-empts invalid `crc_generate` calls — the LLM can check
+The third preempts invalid `crc_generate` calls — the LLM can check
 `variants_by_width["32"]["python"]` before asking for `slice8` on
 Python.
 

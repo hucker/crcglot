@@ -37,6 +37,14 @@ falls through to an algebraic solve.
 Scope: the CRC is the trailing field of each codeword; byte-aligned messages;
 width ≤ 64.
 
+### NEW: `crc_reverse` MCP tool
+
+The MCP server gains a 9th tool, `crc_reverse`, wrapping `crcglot.reverse` so
+LLM clients can recover a custom CRC from `(message, crc)` codewords — the
+recovery counterpart to `crc_detect` (catalogue lookup).  Read-only annotated
+like the rest; returns the full equivalence class with the determinacy /
+held-out-validation fields.  See [docs/MCP.md](docs/MCP.md).
+
 ## v0.17.0 — 2026-06-07
 
 Reveng catalogue completion: the sub-byte, non-byte-aligned, and CRC-24

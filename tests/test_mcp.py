@@ -24,7 +24,7 @@ import sys
 
 import pytest
 
-from crcglot import ALGORITHMS, LANGUAGES
+from crcglot import ALGORITHMS, LANGUAGES, generic_crc
 from crcglot.mcp.server import build_server
 
 
@@ -416,6 +416,73 @@ class TestCrcComputeMany:
 
 
 # ---------------------------------------------------------------------------
+# crc_reverse
+# ---------------------------------------------------------------------------
+
+
+class TestCrcReverse:
+    """`crc_reverse` recovers an UNKNOWN / custom CRC's parameters from
+    codewords -- the recovery counterpart to crc_detect."""
+
+    @staticmethod
+    def _codewords(width, poly, init, refin, refout, xorout, *, hexmode=True):
+        import random
+        rng = random.Random(1)
+        out = []
+        for length in [8] * 12 + [9, 11, 13, 17]:
+            m = bytes(rng.randrange(256) for _ in range(length))
+            c = generic_crc(m, width, poly, init, refin, refout, xorout)
+            if hexmode:
+                out.append({"message_hex": m.hex(), "crc": c})
+            else:
+                out.append({"message_b64": base64.b64encode(m).decode(), "crc": c})
+        return out
+
+    def test_recovers_custom_crc(self):
+        # Arrange -- a custom poly NOT in the catalogue.
+        cws = self._codewords(16, 0x1009, 0x1234, False, False, 0x5678)
+        # Act
+        out = _call("crc_reverse", {"codewords": cws})
+        # Assert -- recovered; the polynomial is exact; the true (init, xorout)
+        # is in the returned class.
+        assert out["status"] in ("unique", "equivalent"), f"status {out['status']}"
+        assert out["candidates"], "no candidates returned"
+        assert out["candidates"][0]["poly"] == 0x1009, "polynomial not recovered"
+        pairs = {(c["init"], c["xorout"]) for c in out["candidates"]}
+        assert (0x1234, 0x5678) in pairs, f"true (init, xorout) missing from {pairs}"
+
+    def test_equivalent_class_returned_complete(self):
+        # poly 0x8005's generator carries (x+1) -> 2 identical (init, xorout) sets.
+        cws = self._codewords(16, 0x8005, 0x1234, False, False, 0x5678)
+        out = _call("crc_reverse", {"codewords": cws})
+        assert out["status"] == "equivalent", f"status {out['status']}"
+        assert out["ambiguity_bits"] == 1, f"ambiguity_bits {out['ambiguity_bits']}"
+        assert len(out["candidates"]) == 2, f"{len(out['candidates'])} candidates"
+
+    def test_catalogue_passthrough(self):
+        # A known algorithm -> the catalogue tier names it.
+        a = ALGORITHMS["crc16-modbus"]
+        cws = self._codewords(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        out = _call("crc_reverse", {"codewords": cws})
+        assert out["status"] == "catalogue", f"status {out['status']}"
+        assert out["catalogue_name"] == "crc16-modbus", out["catalogue_name"]
+
+    def test_base64_messages_and_fixed_width(self):
+        cws = self._codewords(16, 0x1009, 0x1234, False, False, 0x5678, hexmode=False)
+        out = _call("crc_reverse", {"codewords": cws, "width": 16})
+        assert out["candidates"][0]["poly"] == 0x1009, "poly via b64 + fixed width"
+        assert out["candidates"][0]["width"] == 16, "width"
+
+    def test_empty_codewords_rejected(self):
+        with pytest.raises(Exception, match="non-empty"):
+            _call("crc_reverse", {"codewords": []})
+
+    def test_missing_message_rejected(self):
+        with pytest.raises(Exception, match="exactly one"):
+            _call("crc_reverse", {"codewords": [{"crc": 5}]})
+
+
+# ---------------------------------------------------------------------------
 # crc_generate
 # ---------------------------------------------------------------------------
 
@@ -616,7 +683,7 @@ class TestToolAnnotations:
         tools = _run(mcp.list_tools())
 
         # Assert -- the whole surface, so a new tool can't slip through.
-        assert len(tools) == 8, f"expected 8 tools, got {len(tools)}"
+        assert len(tools) == 9, f"expected 9 tools, got {len(tools)}"
         for t in tools:
             a = t.annotations
             assert a is not None, f"{t.name}: missing annotations"

@@ -37,6 +37,7 @@ from crcglot import (
     encode_text,
     generic_crc,
     generic_crc_many,
+    reverse,
 )
 from crcglot.mcp._wire import (
     algorithm_to_dict,
@@ -107,9 +108,11 @@ def build_server() -> FastMCP:
             "a multi-language code generator (C / C# / Go / Python / Rust "
             "/ TypeScript / Verilog / VHDL), and a runtime CRC engine.  "
             "Use crc_list / crc_info to browse; crc_detect to identify "
-            "the CRC of a captured packet; crc_compute for raw integer "
-            "CRC values; crc_encode to build a packet; crc_generate to "
-            "emit verified source code.  For IEEE crc32 and crc32-jamcrc "
+            "the CRC of a captured packet against the catalogue; crc_reverse "
+            "to recover an UNKNOWN / custom CRC's parameters from message-CRC "
+            "pairs; crc_compute for raw integer CRC values; crc_encode to "
+            "build a packet; crc_generate to emit verified source code.  For "
+            "IEEE crc32 and crc32-jamcrc "
             "specifically, prefer the target language's stdlib (e.g. "
             "Python's zlib.crc32) -- those algorithms run ~30x faster "
             "via CPU CRC instructions than any generated code."
@@ -386,6 +389,107 @@ def build_server() -> FastMCP:
             "results": [
                 {"crc": c, "crc_hex": f"0x{c:0{hex_w}X}"} for c in results
             ],
+        }
+
+    # ----- crc_reverse -----
+
+    @mcp.tool(
+        annotations=_READONLY,
+        name="crc_reverse",
+        description=(
+            "Reverse-engineer the parameters of an UNKNOWN / custom CRC from "
+            "(message, crc) codewords -- the recovery counterpart to "
+            "crc_detect (which only identifies CRCs already in the catalogue). "
+            "Use this when a device's CRC is NOT any known algorithm: supply "
+            "several codewords and it solves the Rocksoft/Williams parameters "
+            "algebraically over GF(2).\n"
+            "\n"
+            "Each codeword is an object {message_hex | message_b64, crc} -- the "
+            "message bytes (one of hex or base64) and the integer CRC it "
+            "produced.  Supply SEVERAL VARIED frames: varied in CONTENT (so the "
+            "polynomial converges) and in LENGTH (to separate init from "
+            "xorout); ~4+ is typical and more is better.  Fix any known "
+            "parameter (width / refin / refout / poly / init / xorout) to "
+            "reduce how many codewords are needed.\n"
+            "\n"
+            "Returns 'status': 'catalogue' (matched a known algorithm), "
+            "'unique' (recovered, one parameter set), 'equivalent' (recovered "
+            "and verified, but several (init, xorout) labellings are "
+            "observationally identical -- ALL are returned in 'candidates', a "
+            "complete and provably-exhaustive set of size 2**ambiguity_bits; "
+            "the polynomial is always unique), 'underdetermined' (supply more "
+            "varied frames), or 'none'.  Every returned model is self-verified "
+            "against the engine, and 'validated_frames' reports a held-out "
+            "generalisation check.  Guarantee: a recovered model is correct on "
+            "unseen data, or honestly reports underdetermined -- never "
+            "confidently wrong.  std_algo_only=True restricts to the catalogue "
+            "tier (identical to crc_detect on these pairs)."
+        ),
+    )
+    def crc_reverse(
+        codewords: list[dict[str, Any]],
+        std_algo_only: bool = False,
+        width: int | None = None,
+        refin: bool | None = None,
+        refout: bool | None = None,
+        poly: int | None = None,
+        init: int | None = None,
+        xorout: int | None = None,
+        validate: bool = True,
+    ) -> dict[str, Any]:
+        import base64 as _b64
+
+        if not codewords:
+            raise ValueError(
+                "codewords must be a non-empty list of "
+                "{message_hex|message_b64, crc}"
+            )
+        frames: list[tuple[bytes, int]] = []
+        for i, cw in enumerate(codewords):
+            if "crc" not in cw:
+                raise ValueError(f"codewords[{i}]: missing 'crc'")
+            raw_crc = cw["crc"]
+            crc = int(raw_crc, 0) if isinstance(raw_crc, str) else int(raw_crc)
+            mh, mb = cw.get("message_hex"), cw.get("message_b64")
+            if (mh is None) == (mb is None):
+                raise ValueError(
+                    f"codewords[{i}]: supply exactly one of "
+                    "message_hex or message_b64"
+                )
+            try:
+                if mh is not None:
+                    msg = bytes.fromhex(mh)
+                else:
+                    assert mb is not None  # narrowed by the check above
+                    msg = _b64.b64decode(mb, validate=True)
+            except Exception as e:
+                raise ValueError(f"codewords[{i}]: bad message bytes: {e}") from e
+            frames.append((msg, crc))
+
+        result = reverse(
+            frames, std_algo_only=std_algo_only, width=width,
+            refin=refin, refout=refout, poly=poly, init=init, xorout=xorout,
+            validate=validate,
+        )
+
+        def _model(info: AlgorithmInfo) -> dict[str, Any]:
+            hw = (info.width + 3) // 4
+            return {
+                "width": info.width,
+                "poly": info.poly, "poly_hex": f"0x{info.poly:0{hw}X}",
+                "init": info.init, "init_hex": f"0x{info.init:0{hw}X}",
+                "refin": info.refin, "refout": info.refout,
+                "xorout": info.xorout, "xorout_hex": f"0x{info.xorout:0{hw}X}",
+                "check": info.check, "check_hex": f"0x{info.check:0{hw}X}",
+            }
+
+        return {
+            "status": result.status,
+            "catalogue_name": result.catalogue_name,
+            "ambiguity_bits": result.ambiguity_bits,
+            "validated_frames": result.validated_frames,
+            "candidates": [_model(c) for c in result.candidates],
+            "note": result.note,
         }
 
     # ----- crc_generate -----
