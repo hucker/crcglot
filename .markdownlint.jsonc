@@ -1,0 +1,20 @@
+{
+  // MD060 (table-column-style: aligned) wants table pipes to line up in a
+  // monospace column. It can't be satisfied for rows containing emoji: emoji
+  // are wide / multi-code-point glyphs (the gear in "C++ ⚙️" is U+2699 + a
+  // U+FE0F variation selector), so the formatter's width model and the
+  // linter's never agree and the auto-fixer can't converge. Pipe alignment is
+  // invisible in rendered Markdown (GitHub ignores pipe padding).
+  "MD060": false,
+
+  // MD013 (line-length): the docs are written one-paragraph-per-line (no hard
+  // wrapping — diff-friendly, matching the codebase's long-line docstrings),
+  // so prose lines run long by design. Line length doesn't affect how Markdown
+  // renders, so the check is pure cost here.
+  "MD013": false,
+
+  // MD024 (no-duplicate-heading): allow repeated section headings (### NEW:,
+  // ### CHANGED:) as long as they're under different parents — i.e. one set
+  // per release in CHANGELOG.md. siblings_only keeps catching true duplicates.
+  "MD024": { "siblings_only": true }
+}
