@@ -144,6 +144,35 @@ refactor, the Go toolchain detection).
 - **`uvx ruff check src tests` must be 0**
 - **`uvx ty check src tests` must be 0** (the README badge tracks this and turns yellow/red on regression)
 - **Run `uv run python scripts/regenerate_examples.py`** if any generator changed, a new target landed, or the variant matrix changed.  EXAMPLES.md is auto-generated; never hand-edit it.  Always re-run the script before tagging a release so the published gallery matches the shipped generators.
+- **Run the cruft audit (below).**
+
+## Cruft audit (every release, minimum)
+
+Cruft accumulates because **tests assert behaviour, not labels** — when a
+feature's implementation is removed or changed, correctness assertions keep
+passing while the names, docstrings, and comments around them silently rot.
+The green suite hides it.  So a passing test run is *not* evidence the prose
+is current.  Before each release, sweep for:
+
+- **Stale counts.**  Any hardcoded algorithm count in a comment, docstring,
+  section header (`# ---- CRC-8 (21 algorithms) ----`), README prose, or test
+  docstring.  Prefer age-proof phrasing ("every catalogue entry", "100+") over
+  a brittle exact number.  Quick scan: `grep -rnE "[0-9]+ (algorithms|entries)" src tests README.md docs`.
+- **References to removed/renamed things.**  Comments or test names citing a
+  mechanism that no longer exists (e.g. the removed C-extension table cache:
+  `CACHE_CAP`, `TableCache`, "cache-hit/overflow"; a test named
+  `..._use_cache` that no longer exercises a cache).  When you delete a
+  feature, grep the tests/docs for its vocabulary and rename what survives.
+- **Dead install extras / flags / paths.**  Cross-check README/docs install
+  commands against `pyproject.toml` (e.g. `crcglot[fast]` referenced an extra
+  that was never defined).  `grep -rnE "crcglot\[[a-z]+\]"` and confirm each
+  extra exists.
+- **Docstrings that contradict the code.**  Width lists that say "8/16/32/64"
+  where sub-byte/non-byte-aligned widths now exist; examples that no longer run.
+- **Unnecessary suppressions.**  Audit every `# type: ignore`, `# ty: ignore`,
+  `# noqa`, `# pragma: no cover` — is it still needed?  (Keep the paired
+  `# type: ignore[...]  # ty: ignore[...]` form: ruff/mypy and `ty` are
+  separate checkers and the project must stay clean under both.)
 
 ## Project shape
 

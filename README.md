@@ -344,7 +344,7 @@ Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_encode` · `crc_compute`
 
 Beyond *generating* code, crcglot can *compute* CRCs at runtime — and it's fast.
 
-> **Performance, stated honestly:** with the C extension, crcglot computes any of the more than 100 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (the wheel / `crcglot[fast]`), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
+> **Performance, stated honestly:** with the C extension, crcglot computes any of the more than 100 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer — on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (it ships in the prebuilt wheel), and they hold for bulk/streaming data — many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
 
 At runtime there's **no variant choice to make** — the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
 
@@ -354,10 +354,10 @@ Under the hood it dispatches three ways (you never select among them):
 2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s, ~2,000× over pure Python.
 3. **No extension built → pure Python**: always works, just slow.
 
-The extension ships in the prebuilt wheels (`pip install crcglot` gets it on common platforms).  To force it / pull the build deps explicitly:
+The extension ships in the prebuilt wheels — `pip install crcglot` (or `uv tool install crcglot`) gets it on common platforms, with no extra to enable.  To force a build from source instead of using a prebuilt wheel:
 
 ```bash
-uv tool install "crcglot[fast]"     # or: pip install "crcglot[fast]"
+pip install --no-binary crcglot crcglot
 ```
 
 It's a single abi3 wheel per platform (CPython 3.11+), and crcglot stays fully functional in pure Python if no wheel matches your platform.

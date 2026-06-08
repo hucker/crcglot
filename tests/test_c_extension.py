@@ -444,15 +444,16 @@ class TestCrcMany:
             _c.c_crc_many([b""], 4, 0x3, 0x0, False, False, 0x0)
 
 
-class TestCExtensionTableCache:
-    """Exercise the (width, poly, refin) lookup-table cache.
+class TestCExtensionStatelessBuilds:
+    """Stress the stateless per-call table build/free path.
 
-    The parameterized catalogue parity tests run under pytest-xdist
-    (split across workers), so no single process necessarily sees more
-    than ``CACHE_CAP`` distinct algorithms.  These tests run many
-    distinct polynomials in ONE process to hit cache-hit, cache-fill,
-    and cache-overflow (build-and-free) paths -- the last is otherwise
-    untested.
+    The C extension keeps no table cache -- every ``c_generic_crc`` call
+    builds its lookup table(s) from scratch and frees them before
+    returning (see ``_c.c``: "There is NO shared table cache").  These
+    tests hammer that build/free path within a SINGLE process -- across
+    the whole catalogue and across hundreds of distinct polynomials -- to
+    catch any leak or build/free bug that the per-worker parametrized
+    parity tests (split across xdist workers) wouldn't concentrate.
     """
 
     def test_all_catalogue_algorithms_one_process(self):
@@ -470,17 +471,18 @@ class TestCExtensionTableCache:
                 f"{name}: C ({actual:#x}) != Python ({expected:#x})"
             )
 
-    def test_repeated_calls_same_algorithm_use_cache(self):
-        # Act -- many calls for one algorithm; tables built once, reused.
-        # Correctness is the observable; the cache hit is internal.
+    def test_repeated_calls_same_algorithm_stay_correct(self):
+        # Act -- many calls for one algorithm; each builds and frees its
+        # own table.  Correctness is the observable; stability across calls
+        # proves the build/free path leaves no corrupting state behind.
         params = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
         results = {_c.c_generic_crc(_CHECK_INPUT, *params) for _ in range(100)}
         # Assert -- all identical, and correct.
         assert results == {0xCBF43926}, f"unstable/incorrect: {results}"
 
-    def test_many_distinct_polys_overflow_cache(self):
-        # Arrange -- 200 distinct width-32 polynomials, well past
-        # CACHE_CAP=64, forcing the build-and-free overflow path.
+    def test_many_distinct_polys_build_and_free(self):
+        # Arrange -- 200 distinct width-32 polynomials, each forcing a fresh
+        # table build and free in one process (stresses build/free churn).
         # Act + Assert -- each agrees with the Python engine.
         for k in range(200):
             poly = (0x04C11DB7 ^ (k * 0x9E3779B1)) & 0xFFFFFFFF

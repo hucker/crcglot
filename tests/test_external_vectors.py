@@ -159,8 +159,8 @@ class TestEveryAlgorithmReproducesCatalogueCheck:
     This is the single-input cross-check.  It already runs implicitly
     through ``test_catalogue.py::TestCustomCrcChainAgainstRevengTruth``
     for the seven algorithms in ``_REVENG_CHECK_VALUES``, but we run
-    it here parametrised over *all 72 entries* so the entire catalogue
-    is held to the same standard.
+    it here parametrised over *every catalogue entry* so the entire
+    catalogue is held to the same standard.
     """
 
     @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))

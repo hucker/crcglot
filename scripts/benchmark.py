@@ -716,7 +716,7 @@ crcglot has **two** performance stories, and the table below shows both in one
 place:
 
 - **Generated source** (the per-language rows): complete, zero-dependency CRC
-  for any of the ~70 catalogue algorithms in nine languages, verified by
+  for any of the 100+ catalogue algorithms in nine languages, verified by
   execution.  Portable source with nothing to link -- fast enough for every
   CRC need short of a heavily CPU-constrained hot path.
 - **The package's own runtime** (the two **Python (runtime)** rows): crcglot
@@ -797,7 +797,7 @@ the two **Python (runtime)** rows in the table above show:
 
 - **crc32** -> the `generic_crc` dispatcher hands it to `zlib.crc32`, silicon
   speed for free.
-- **the other ~70 algorithms** -> the **compiled C extension** (`crcglot._c`,
+- **the rest of the catalogue** -> the **compiled C extension** (`crcglot._c`,
   slice-by-8 in C) runs them at ~1 GB/s from Python -- roughly a thousandfold
   over the pure-Python engine.  This is why there is C in a pure-stdlib
   package: the Python build has a fast path for *every* algorithm, not just the
@@ -806,7 +806,7 @@ the two **Python (runtime)** rows in the table above show:
 The **generated** source (the per-language rows) is the second product: a
 complete, dependency-free CRC you can drop into firmware, an air-gapped build,
 or a language with no CRC library at all.  For crc32 it is the one thing you
-would not reach for -- use the stdlib -- but for the ~70 algorithms with no
+would not reach for -- use the stdlib -- but for the other algorithms with no
 hardware shortcut, the generated table / slice-by-8 *is* the fast path, because
 there is nothing faster to borrow.
 

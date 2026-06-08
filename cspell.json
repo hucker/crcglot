@@ -102,6 +102,7 @@
         "mycrcs",
         "mycustom",
         "nlen",
+        "noqa",
         "nrsc",
         "nsec",
         "numeric",
