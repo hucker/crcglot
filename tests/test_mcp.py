@@ -897,6 +897,22 @@ class TestSteering:
         assert "crc_detect" in text and "crc_reverse" in text, "match path missing"
         assert "serial link" in text, "use_case not interpolated"
 
+    def test_design_a_crc_walks_implementation_choice(self):
+        # Act -- render the prompt (use case is optional for this step).
+        got = _run(build_server().get_prompt("design-a-crc", {}))
+        text = getattr(got.messages[0].content, "text", str(got.messages[0].content))
+        # Assert -- the bitwise / table / external throughput ladder is walked,
+        # sized to payload x frequency, with the external crc32 rung named.
+        assert "CHOOSE THE IMPLEMENTATION" in text, "implementation step missing"
+        assert "variant='bitwise'" in text, "bitwise rung not steered"
+        assert "payload x frequency" in text, "size/frequency heuristic missing"
+        assert "crc32" in text and "stdlib" in text, "external hardware path missing"
+        # The per-variant fact is sourced from VariantInfo, not restated here.
+        from crcglot import variant_info
+        assert variant_info("bitwise").description.rstrip(".") in text, (
+            "bitwise blurb should come from VariantInfo, keeping one source of truth"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Cross-algorithm coverage

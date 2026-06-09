@@ -39,6 +39,7 @@ from crcglot import (
     generic_crc,
     generic_crc_many,
     reverse_packets,
+    variant_info,
     verify,
 )
 from crcglot.mcp._wire import (
@@ -640,7 +641,12 @@ def build_server() -> FastMCP:
             "tables, fastest, width 32/64 only, not on Python / Verilog / "
             "VHDL).  The default is fast, not small: pass variant='bitwise' "
             "for the smallest code (embedded / tiny MCUs).  When the user "
-            "hasn't said which they want, it's worth asking small-vs-fast.  "
+            "hasn't said, size the choice to payload x frequency: bitwise for "
+            "tiny / infrequent payloads or code-constrained targets, the fast "
+            "default once throughput matters, and for very large data on an "
+            "algorithm both ends control prefer crc32 via the stdlib hardware "
+            "path (see advisories / PERFORMANCE STEER below); ask if unsure.  "
+            "The design-a-crc prompt walks this.  "
             "Every emitted file embeds a _self_test() against the reveng "
             "canonical vector for b'123456789'.\n"
             "\n"
@@ -866,6 +872,10 @@ def build_server() -> FastMCP:
             A user-message string steering the model through the workflow.
         """
         ctx = f"\n\nWhat I'm building: {use_case}" if use_case.strip() else ""
+        # Per-variant facts come from the VariantInfo records so this prompt
+        # never restates a speed/size claim that lives in crcglot proper.
+        bitwise_desc = variant_info("bitwise").description.rstrip(".")
+        table_desc = variant_info("table").description.rstrip(".")
         return (
             "Help me choose and set up a CRC. Work through this in order:\n"
             "\n"
@@ -874,16 +884,31 @@ def build_server() -> FastMCP:
             "format? If yes, I must MATCH its CRC, not invent one: use "
             "crc_detect on a captured frame, or crc_reverse if the CRC is custom "
             "/ unknown. A guessed CRC will not interoperate.\n"
-            "2. If both ends are mine (a new protocol), CHOOSE by sizing the CRC "
-            "to the job, not by reflex: crc32 when overhead is cheap and "
-            "payloads are large or hardware-accelerated (a solid general "
-            "default); crc16 for small fixed blocks or framed serial / "
-            "field-bus links where two bytes per frame matters (XMODEM, Modbus, "
-            "and CAN are 16-bit for exactly this reason); crc8 for tiny or "
-            "constrained payloads; or a specific width to match an HDL bus. "
+            "2. CHOOSE THE ALGORITHM (only if both ends are mine -- a new "
+            "protocol). Size the CRC to the job, not by reflex: crc32 when "
+            "overhead is cheap and payloads are large or hardware-accelerated (a "
+            "solid general default); crc16 for small fixed blocks or framed "
+            "serial / field-bus links where two bytes per frame matters (XMODEM, "
+            "Modbus, and CAN are 16-bit for exactly this reason); crc8 for tiny "
+            "or constrained payloads; or a specific width to match an HDL bus. "
             "Wider detects more but costs more overhead per frame -- size it to "
             "the data I'm protecting.\n"
-            "3. Then act: crc_generate to emit verified code in my target "
+            "3. CHOOSE THE IMPLEMENTATION (bitwise / table / external). This is a "
+            "speed-vs-size call that's independent of the algorithm above -- "
+            "every variant computes the same CRC value, so it never affects "
+            "interop. Size it to payload x frequency:\n"
+            f"   - bitwise (variant='bitwise'): {bitwise_desc}. Pick it for tiny "
+            "or infrequent payloads, or a code-size-constrained target (MCU / "
+            "bootloader) where the table's footprint isn't worth it.\n"
+            f"   - the default (leave variant unset = auto, the fastest the "
+            f"target supports): {table_desc}, or slice-by-8 on a 32/64-bit "
+            "compiled target. This is the right call once throughput matters.\n"
+            "   - external (very large data AND both ends are mine): prefer "
+            "crc32 and the target language's stdlib / hardware-CRC path "
+            "(zlib.crc32, a CPU CRC intrinsic, the crc32fast crate) -- ~30x "
+            "faster than any generated code. crc_generate emits an advisory "
+            "pointing to it when the algorithm qualifies.\n"
+            "4. Then act: crc_generate to emit verified code in my target "
             "language, and/or crc_encode / crc_verify to build and check frames."
             + ctx
         )
