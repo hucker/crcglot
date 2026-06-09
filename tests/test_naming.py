@@ -32,7 +32,7 @@ _EXPECTED = {
     "java": ("camel", {"camel", "pascal"}),
     "python": ("snake", {"snake"}),
     "rust": ("snake", {"snake"}),
-    "typescript": ("camel", {"snake", "camel", "pascal"}),
+    "typescript": ("camel", {"camel", "pascal"}),
     "verilog": ("snake", {"snake"}),
     "vhdl": ("snake", {"snake"}),
 }

@@ -29,6 +29,17 @@ implementation.
 Migration: pass `--small` (CLI) or `variant="bitwise"` (library / MCP) to keep
 the old output.
 
+### FIXED: TypeScript no longer offers `snake_case` naming
+
+TypeScript advertised all three naming conventions, but `snake_case` function
+names are non-idiomatic in TypeScript and a linter flags them.  TypeScript now
+offers `camel` and `pascal` only (default `camel`), matching Java and the
+per-language contract that each target exposes only the conventions its
+ecosystem uses.  `crcglot ts crc32 --naming snake` and
+`generate_typescript(..., naming="snake")` now raise instead of emitting
+`snake_case`; pass `camel` (the default) or `pascal`, or an explicit `symbol=`
+for a verbatim name.
+
 ### NEW: generation advisories (`Advisory` + `LanguageInfo.advisories_for`)
 
 A first-class "a faster path exists here" note, shared by every generation

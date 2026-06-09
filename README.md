@@ -120,7 +120,7 @@ The generated public functions read like hand-written code in each target: Go an
 | C# 💠               | `pascal` | `pascal`, `camel`          |
 | Go 🚦               | `pascal` | `pascal`, `camel`          |
 | Java ☕             | `camel`  | `camel`, `pascal`          |
-| TypeScript 🔷       | `camel`  | `camel`, `snake`, `pascal` |
+| TypeScript 🔷       | `camel`  | `camel`, `pascal`          |
 | Rust 🦀             | `snake`  | `snake`                    |
 | Python 🐍           | `snake`  | `snake`                    |
 | Verilog 🔧 / VHDL 🔌 | `snake`  | `snake`                    |
