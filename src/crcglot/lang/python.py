@@ -69,6 +69,58 @@ def _format_table_python(table: list[int], width: int) -> str:
     return "\n".join(lines)
 
 
+def _update_loop_python(
+    w: int, poly: int, refin: bool, mask: str, table: bool
+) -> list[str]:
+    """Emit the per-byte main-loop lines for the update function.
+
+    Returns the ``for byte in data:`` loop (header included), branching on the
+    five forms the algorithm can take: table reflected / non-reflected, bitwise
+    reflected, sub-byte non-reflected, and byte-wide non-reflected.  The caller
+    wraps the result with ``crc = state`` and ``return crc``.  Mirrors
+    ``_update_loop_go`` / ``_update_loop_c``.  The ``_TABLE`` placeholder is
+    rewritten to the per-symbol name once, at the assembly point in the caller.
+    """
+    lines = ["    for byte in data:"]
+    if table:
+        if refin:
+            lines.append("        crc = _TABLE[(crc ^ byte) & 0xFF] ^ (crc >> 8)")
+        else:
+            # Split the table index into its own statement: inlined, the
+            # per-symbol table name (``_crcglot_table_<symbol>``) pushes the
+            # update past ruff's 88-column limit and the formatter wraps it.
+            # ``(tbl ^ (crc << 8)) & mask`` == ``tbl ^ ((crc << 8) & mask)``
+            # because masking distributes over XOR (tbl is already masked).
+            lines.append(f"        idx = ((crc >> {w - 8}) ^ byte) & 0xFF")
+            lines.append(f"        crc = (_TABLE[idx] ^ (crc << 8)) & {mask}")
+    elif refin:
+        ref_poly = _reflect(poly, w)
+        lines.append("        crc ^= byte")
+        lines.append("        for _ in range(8):")
+        lines.append("            if crc & 1:")
+        lines.append(f"                crc = (crc >> 1) ^ {_hex(ref_poly, w)}")
+        lines.append("            else:")
+        lines.append("                crc >>= 1")
+    elif w < 8:
+        # Sub-byte non-reflected: feed each byte bit-by-bit, MSB first.
+        # The byte-aligned ``byte << (w - 8)`` fold underflows for width < 8.
+        lines.append("        for i in range(7, -1, -1):")
+        lines.append("            bit = (byte >> i) & 1")
+        lines.append(f"            if ((crc >> {w - 1}) & 1) ^ bit:")
+        lines.append(f"                crc = ((crc << 1) ^ {_hex(poly, w)}) & {mask}")
+        lines.append("            else:")
+        lines.append(f"                crc = (crc << 1) & {mask}")
+    else:
+        lines.append(f"        crc ^= byte << {w - 8}")
+        lines.append("        for _ in range(8):")
+        lines.append(f"            if crc & {_hex(1 << (w - 1), w)}:")
+        lines.append(f"                crc = (crc << 1) ^ {_hex(poly, w)}")
+        lines.append("            else:")
+        lines.append("                crc <<= 1")
+        lines.append(f"            crc &= {mask}")
+    return lines
+
+
 def _self_test_python(names, check, width, style, docs) -> list[str]:
     """Emit a Python self-test function returning True on success.
 
@@ -222,43 +274,7 @@ def generate_python_from_entry(
     lines.append(f"def {names['update']}(state: int, data: bytes) -> int:")
     lines += style.doc_block(docs["update"], indent=4)
     lines.append(f"    crc = state")
-    lines.append(f"    for byte in data:")
-    if table:
-        if refin:
-            lines.append(f"        crc = _TABLE[(crc ^ byte) & 0xFF] ^ (crc >> 8)")
-        else:
-            # Split the table index into its own statement: inlined, the
-            # per-symbol table name (``_crcglot_table_<symbol>``) pushes the
-            # update past ruff's 88-column limit and the formatter wraps it.
-            # ``(tbl ^ (crc << 8)) & mask`` == ``tbl ^ ((crc << 8) & mask)``
-            # because masking distributes over XOR (tbl is already masked).
-            lines.append(f"        idx = ((crc >> {w - 8}) ^ byte) & 0xFF")
-            lines.append(f"        crc = (_TABLE[idx] ^ (crc << 8)) & {mask}")
-    elif refin:
-        ref_poly = _reflect(poly, w)
-        lines.append(f"        crc ^= byte")
-        lines.append(f"        for _ in range(8):")
-        lines.append(f"            if crc & 1:")
-        lines.append(f"                crc = (crc >> 1) ^ {_hex(ref_poly, w)}")
-        lines.append(f"            else:")
-        lines.append(f"                crc >>= 1")
-    elif w < 8:
-        # Sub-byte non-reflected: feed each byte bit-by-bit, MSB first.
-        # The byte-aligned ``byte << (w - 8)`` fold underflows for width < 8.
-        lines.append(f"        for i in range(7, -1, -1):")
-        lines.append(f"            bit = (byte >> i) & 1")
-        lines.append(f"            if ((crc >> {w - 1}) & 1) ^ bit:")
-        lines.append(f"                crc = ((crc << 1) ^ {_hex(poly, w)}) & {mask}")
-        lines.append(f"            else:")
-        lines.append(f"                crc = (crc << 1) & {mask}")
-    else:
-        lines.append(f"        crc ^= byte << {w - 8}")
-        lines.append(f"        for _ in range(8):")
-        lines.append(f"            if crc & {_hex(1 << (w - 1), w)}:")
-        lines.append(f"                crc = (crc << 1) ^ {_hex(poly, w)}")
-        lines.append(f"            else:")
-        lines.append(f"                crc <<= 1")
-        lines.append(f"            crc &= {mask}")
+    lines.extend(_update_loop_python(w, poly, refin, mask, table))
     lines.append(f"    return crc")
     lines.append("")
     lines.append("")
