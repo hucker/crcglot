@@ -673,8 +673,14 @@ def build_server() -> FastMCP:
             "string (e.g. 'crc32 crc16-modbus crc8') -- multiple names "
             "bundle into ONE file (one .h + one .c for C), each keeping its "
             "catalogue-derived function names; per-symbol tables keep the "
-            "bundle collision-free.  'symbol' renames the single emitted "
-            "function and is rejected with more than one algorithm.  The "
+            "bundle collision-free.  'name' renames a single CRC -- it replaces "
+            "the algorithm name as the base and is CASED per target (Rust "
+            "my_widget, Java class MyWidget + MyWidget.java, C# MyWidget); this "
+            "is the usual 'call it X' knob (single CRC only).  'symbol' is the "
+            "escape hatch: emit that identifier VERBATIM, un-recased (single "
+            "CRC, not for Java).  Each returned file carries a ready 'filename' "
+            "(crcglot owns the per-target naming; Java/C# name the file after "
+            "the class) -- write content to filename as-is.  The "
             "chosen 'variant' must be legal for every algorithm's width "
             "(slice8 is width 32/64 only).  'comment_style' selects the "
             "documentation style of the emitted comments: 'plain' (default) "
@@ -711,6 +717,7 @@ def build_server() -> FastMCP:
         algorithm: str | list[str] | None = None,
         variant: VARIANT_ENUM = "auto",
         symbol: str | None = None,
+        name: str | None = None,
         custom_params: dict[str, Any] | None = None,
         comment_style: COMMENT_STYLE_ENUM = "plain",
         naming: NAMING_ENUM | None = None,
@@ -766,20 +773,6 @@ def build_server() -> FastMCP:
                         f"variant={variant!r} is not valid for {n!r} (width {w}) "
                         f"in language={language!r}; valid here: {list(valid_variants)}"
                     )
-            outputs = [
-                info.generator(  # type: ignore[call-arg]
-                    n,
-                    symbol=(symbol if len(names) == 1 else None),
-                    variant=variant,
-                    comment_style=comment_style,
-                    naming=naming_resolved,
-                )
-                for n in names
-            ]
-            result = (
-                outputs[0] if len(names) == 1
-                else info.combiner(outputs, symbol or "crcglot")  # type: ignore[call-arg]
-            )
             generated = names
             advised_algos: list[str | AlgorithmInfo] = list(names)
         else:
@@ -822,26 +815,30 @@ def build_server() -> FastMCP:
                 desc=desc,
                 source="custom",
             )
-            result = info.generator_from_entry(  # type: ignore[call-arg]
-                cust_name,
-                algo_info,
-                symbol=symbol,
-                variant=variant,
-                comment_style=comment_style,
-                naming=naming_resolved,
-            )
-            generated = [cust_name]
+            generated = [name or cust_name]
             advised_algos = [algo_info]
 
-        files: list[dict[str, str]]
-        if isinstance(result, tuple):
-            # C: (header, source).
-            files = [
-                {"extension": info.extensions[0], "content": result[0]},
-                {"extension": info.extensions[1], "content": result[1]},
-            ]
-        else:
-            files = [{"extension": info.extensions[0], "content": result}]
+        # crcglot owns naming + filenames: one call returns ready-to-write,
+        # correctly-named files (Java's class == file, C's .h/.c pair).  Pass the
+        # already-resolved concrete variant so the reported value matches.
+        gfiles = info.generate_files(
+            algorithm=(names if algorithm is not None else None),
+            custom=(algo_info if custom_params is not None else None),
+            variant=variant,
+            comment_style=comment_style,
+            naming=naming_resolved,
+            name=(name if algorithm is not None else (name or cust_name)),
+            symbol=symbol,
+        )
+        files = [
+            {
+                "filename": f.filename,
+                "extension": f.filename[f.filename.rfind(".") :],
+                "content": f.content,
+                "role": f.role,
+            }
+            for f in gfiles
+        ]
         return {
             "language": language,
             "variant": variant,

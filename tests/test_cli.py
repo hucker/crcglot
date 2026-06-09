@@ -7,9 +7,10 @@ argv list -- no subprocess.  ``capsys`` captures stdout/stderr;
 
 Coverage targets the public surface (subcommands, options, error
 paths, both output modes) plus the small helpers (_parse_int,
-_parse_bool, _symbol_from_stem, _parse_kv_tokens) which are unit-tested
-directly because their behavior is the contract for every codegen
-invocation.
+_parse_bool, _parse_kv_tokens) which are unit-tested directly because
+their behavior is the contract for every codegen invocation.  Filename
+/ identifier sanitizing now lives in crcglot (LanguageInfo.validate_symbol),
+exercised here and in test_generate_files.py.
 
 All tests are fast (no toolchain calls); the CRC generators are
 already execution-verified in test_{c,rust,vhdl,python}_gen.py.
@@ -21,11 +22,11 @@ import json
 
 import pytest
 
+from crcglot import LANGUAGES
 from crcglot.cli import (
     _parse_bool,
     _parse_int,
     _parse_kv_tokens,
-    _symbol_from_stem,
     build_parser,
     main,
 )
@@ -78,9 +79,11 @@ class TestParseBool:
             _parse_bool(value)
 
 
-class TestSymbolFromStem:
-    """``_symbol_from_stem`` produces valid C/Rust/Python identifiers
-    from arbitrary file paths/stems by replacing - and . with _."""
+class TestValidateSymbol:
+    """``LanguageInfo.validate_symbol`` sanitizes a stem to a valid identifier
+    base (basename, ``-`` / ``.`` -> ``_``).  crcglot owns this now -- the CLI's
+    private ``_symbol_from_stem`` moved here.  Strict (filename == class)
+    targets additionally reject a stem that can't be a legal class name."""
 
     @pytest.mark.parametrize("stem,expected", [
         ("mycrc", "mycrc"),
@@ -90,7 +93,13 @@ class TestSymbolFromStem:
         ("a-b.c-d", "a_b_c_d"),
     ])
     def test_basenames_and_substitutions(self, stem, expected):
-        assert _symbol_from_stem(stem) == expected
+        assert LANGUAGES["rust"].validate_symbol(stem) == expected
+
+    def test_pascal_target_rejects_illegal_class(self):
+        # Java's file == class, so a stem that PascalCases to an illegal
+        # identifier (leading digit) is rejected up front.
+        with pytest.raises(ValueError, match="not a legal"):
+            LANGUAGES["java"].validate_symbol("3bad")
 
 
 class TestParseKvTokens:
@@ -318,13 +327,13 @@ class TestCodegenFile:
         assert out.count("Wrote") == 2
 
     def test_file_with_dash_in_stem(self, tmp_path, monkeypatch):
-        """file= preserves dashes in the path but symbol is sanitized
-        from the stem (- and . become _)."""
+        """file= is sanitized to a valid identifier (- and . become _) for
+        BOTH the filename and the in-code symbol, so they match (a dashed
+        Python file name wouldn't be importable as a module anyway)."""
         monkeypatch.chdir(tmp_path)
         rc = main(["python", "crc16-modbus", "file=my-crc"])
         assert rc == 0
-        body = (tmp_path / "my-crc.py").read_text()
-        # Symbol derived from stem: my-crc -> my_crc
+        body = (tmp_path / "my_crc.py").read_text()
         assert "def my_crc(" in body
 
     def test_empty_file_value_returns_2(self, capsys):
@@ -833,18 +842,19 @@ class TestCodegenCustom:
         body = (tmp_path / "outname.py").read_text()
         assert "def explicit_sym(" in body
 
-    def test_custom_symbol_from_file_when_no_explicit(self, tmp_path, monkeypatch):
-        """When symbol= is absent but file= is given, symbol comes from
-        the file stem (not name=)."""
+    def test_name_sets_functions_file_sets_filename(self, tmp_path, monkeypatch):
+        """name= sets the in-code identifier (cased); file= independently sets
+        the filename.  They are separate knobs: functions follow name=, the
+        file follows file=."""
         monkeypatch.chdir(tmp_path)
         rc = main([
             "python", "--custom",
             "width=16", "poly=0x8005",
-            "name=catalogue_name", "file=from_file",
+            "name=mycrc", "file=from_file",
         ])
         assert rc == 0
         body = (tmp_path / "from_file.py").read_text()
-        assert "def from_file(" in body
+        assert "def mycrc(" in body, "functions follow name="
 
     def test_custom_symbol_from_name_when_no_file(self, capsys):
         """No file= and no symbol=: symbol falls back to the custom name=."""

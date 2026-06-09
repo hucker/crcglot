@@ -23,9 +23,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Callable, Literal, cast
 
-from crcglot._helpers import combine_concat
+from crcglot._helpers import _func_name, combine_concat
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, has_faster_alternative
 
 if TYPE_CHECKING:
@@ -239,6 +239,70 @@ class Advisory:
 
 
 @dataclass(frozen=True)
+class GeneratedFile:
+    """One emitted source file, ready to write verbatim.
+
+    The unit :meth:`LanguageInfo.generate_files` returns -- a complete file with
+    the name it should be saved as, so a CLI / MCP / UI just writes ``content``
+    to ``filename`` without re-deriving any per-language naming rule.
+
+    Attributes:
+        filename: Name to save as, extension included (e.g. ``"crc16_xmodem.rs"``,
+            ``"Crc16Xmodem.java"``, ``"crc16_xmodem.h"``).  For Java / C# this is
+            the public class name -- the file *must* be called this.
+        content: The complete source, never abridged.
+        role: ``""`` for a sole file, or ``"header"`` / ``"source"`` to label
+            C's two-file output for a UI.
+    """
+
+    filename: str
+    content: str
+    role: str = ""
+
+
+# Java reserves these; a container class can't be named one of them.  Used by
+# :meth:`LanguageInfo.validate_symbol` for the strict (filename == class) targets.
+_JAVA_KEYWORDS: frozenset[str] = frozenset({
+    "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+    "class", "const", "continue", "default", "do", "double", "else", "enum",
+    "extends", "final", "finally", "float", "for", "goto", "if", "implements",
+    "import", "instanceof", "int", "interface", "long", "native", "new",
+    "package", "private", "protected", "public", "return", "short", "static",
+    "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
+    "transient", "try", "void", "volatile", "while", "true", "false", "null",
+})
+
+
+def _is_legal_class_identifier(s: str) -> bool:
+    """True iff ``s`` is usable as a Java/C# class name (and not a keyword)."""
+    if not s or not (s[0].isalpha() or s[0] in "_$"):
+        return False
+    if not all(c.isalnum() or c in "_$" for c in s):
+        return False
+    return s not in _JAVA_KEYWORDS
+
+
+def _sanitize_base(s: str) -> str:
+    """Mangle an arbitrary stem into a snake-style identifier base.
+
+    Basename only (drop any path), then ``-`` / ``.`` -> ``_`` -- the same rule
+    the CLI's ``file=`` shortcut has always used.
+    """
+    from pathlib import PurePath
+
+    return PurePath(s).name.replace("-", "_").replace(".", "_")
+
+
+def _pascal_base(base_snake: str) -> str:
+    """PascalCase a snake base: ``crc16_xmodem`` -> ``Crc16Xmodem``.
+
+    Matches ``crc_function_names(base, "pascal")["oneshot"]`` and the C#
+    generator's ``_cs_pascal_class`` so the filename agrees with the class.
+    """
+    return "".join(t[:1].upper() + t[1:].lower() for t in base_snake.split("_") if t)
+
+
+@dataclass(frozen=True)
 class LanguageInfo:
     """Typed metadata for one target language.
 
@@ -297,6 +361,10 @@ class LanguageInfo:
     emoji: str
     display_name: str
     stdlib_crc32: str | None = None
+    #: How a stem becomes the output filename (and, for ``"pascal"``, the public
+    #: class).  ``"snake"`` for most targets; ``"pascal"`` for C# / Java, whose
+    #: file is named after a PascalCase class.
+    filename_case: Literal["snake", "pascal"] = "snake"
 
     def variants_for_width(self, width: int) -> tuple[str, ...]:
         """Implementation variants this language supports at a given width.
@@ -366,6 +434,184 @@ class LanguageInfo:
             'table'
         """
         return self.variants_for_width(width)[-1]
+
+    def validate_symbol(self, stem: str) -> str:
+        """Sanitize a desired name/stem to this target's identifier base.
+
+        Returns the snake-style base (``-`` / ``.`` -> ``_``, path stripped).
+        For targets whose file is named after a class (C# / Java,
+        ``filename_case == "pascal"``), it also verifies the resulting
+        PascalCase class is a legal identifier, raising ``ValueError`` if not --
+        so a UI can validate a field before generating.
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> LANGUAGES["rust"].validate_symbol("my-crc")
+            'my_crc'
+        """
+        base = _sanitize_base(stem)
+        if self.filename_case == "pascal" and not _is_legal_class_identifier(
+            _pascal_base(base)
+        ):
+            raise ValueError(
+                f"{stem!r} yields class {_pascal_base(base)!r}, not a legal "
+                f"{self.display_name} class name (start with a letter; use "
+                f"letters / digits / _; not a reserved word)"
+            )
+        return base
+
+    def generate_files(
+        self,
+        algorithm: str | Sequence[str] | None = None,
+        *,
+        custom: AlgorithmInfo | None = None,
+        variant: str = "auto",
+        comment_style: str = "plain",
+        naming: str | None = None,
+        name: str | None = None,
+        symbol: str | None = None,
+        file_stem: str | None = None,
+    ) -> tuple[GeneratedFile, ...]:
+        """Generate complete, correctly-named source file(s) for this target.
+
+        The one call a CLI / MCP / UI needs: pass configuration, get back
+        ready-to-write :class:`GeneratedFile`s.  crcglot owns every naming
+        decision -- the filename(s) and the in-code class/module renamed to
+        match (Java's class *must* equal the file; C is a ``.h`` / ``.c`` pair).
+
+        Args:
+            algorithm: A catalogue name, or several to bundle into one file.
+                Mutually exclusive with ``custom``.
+            custom: A custom :class:`AlgorithmInfo` (a recovered / Rocksoft
+                tuple) instead of a catalogue entry.
+            variant: ``"auto"`` (fastest the target + width supports) or an
+                explicit ``"bitwise"`` / ``"table"`` / ``"slice8"``.
+            comment_style: Forwarded to the generator.
+            naming: Forwarded to the generator; defaults to the language's
+                idiomatic convention.
+            name: Rename this CRC -- replaces the algorithm name as the base for
+                functions / class / filename, **cased per target** (the common
+                "call it X" knob).  Single CRC only.
+            symbol: Emit this identifier **verbatim** (escape hatch); single CRC,
+                not valid for Java.
+            file_stem: Override only the filename stem (and, for Java, the
+                class); defaults to the ``name`` / algorithm-derived stem.
+
+        Returns:
+            One :class:`GeneratedFile` (two for C: header + source).
+
+        Raises:
+            ValueError: bad ``algorithm`` / ``custom`` combination,
+                ``symbol`` / ``name`` with a bundle, ``symbol`` for Java, or a
+                stem that can't be a legal class name for a strict target.
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> [f.filename for f in LANGUAGES["c"].generate_files("crc16-xmodem")]
+            ['crc16_xmodem.h', 'crc16_xmodem.c']
+            >>> LANGUAGES["java"].generate_files("crc16-xmodem")[0].filename
+            'Crc16Xmodem.java'
+            >>> LANGUAGES["rust"].generate_files("crc32", name="my-widget")[0].filename
+            'my_widget.rs'
+        """
+        if (algorithm is None) == (custom is None):
+            raise ValueError("supply exactly one of algorithm or custom")
+        naming_resolved = naming_convention_for(
+            self.code, naming or self.default_naming
+        )
+
+        # Work list: [(display_name, AlgorithmInfo), ...].
+        if custom is not None:
+            items = [(_sanitize_base(name) if name else "crc_custom", custom)]
+        else:
+            assert algorithm is not None  # guaranteed by the xor check above
+            names = [algorithm] if isinstance(algorithm, str) else list(algorithm)
+            names = list(dict.fromkeys(names))
+            unknown = [n for n in names if n not in ALGORITHMS]
+            if unknown:
+                raise ValueError(
+                    f"unknown algorithm {unknown[0]!r}; use crc_list to browse"
+                )
+            items = [(n, ALGORITHMS[n]) for n in names]
+        multi = len(items) > 1
+        if multi and symbol is not None:
+            raise ValueError("symbol= names one function; omit it for a bundle")
+        if multi and name is not None:
+            raise ValueError("name= renames one CRC; omit it for a bundle")
+        if self.code == "java" and symbol is not None:
+            raise ValueError(
+                "symbol= is not used for Java (methods are named after the "
+                "algorithm, the class after name= / file_stem); use name="
+            )
+
+        # The single identifier the code AND the filename derive from.
+        display0 = items[0][0]
+        if multi:
+            base = (
+                _sanitize_base(name) if name
+                else _sanitize_base(file_stem) if file_stem
+                else "crcglot"
+            )
+        elif symbol is not None:
+            base = symbol
+        elif name is not None:
+            base = _sanitize_base(name)
+        elif file_stem is not None:
+            base = _sanitize_base(file_stem)
+        else:
+            base = _func_name(display0)
+
+        # file_stem (when given) names the file independently of the in-code
+        # base -- so `file=out symbol=foo` writes out.* with a foo() inside.
+        # For Java the class follows the file (it must match); for C the
+        # header/#include follow the in-code base, so don't diverge them there.
+        file_base = _sanitize_base(file_stem) if file_stem else base
+
+        def _gen(disp, algo, *, sym=None, nm=None):
+            return self.generator_from_entry(
+                nm if nm is not None else disp, algo, symbol=sym,
+                variant=variant, comment_style=comment_style, naming=naming_resolved,
+            )
+
+        if multi:
+            outputs = [_gen(d, a) for d, a in items]
+            if self.code == "java":
+                result = combine_java(outputs, stem=_pascal_base(file_base))
+            else:
+                result = self.combiner(outputs, file_base)
+        else:
+            disp, algo = items[0]
+            if self.code == "java":
+                # Methods follow name= when given, else the algorithm; the class
+                # (and file) is the PascalCase file_base via the combiner.
+                result = combine_java(
+                    [_gen(disp, algo, nm=name)], stem=_pascal_base(file_base)
+                )
+            elif symbol is not None:
+                result = _gen(disp, algo, sym=symbol)
+            elif name is not None:
+                result = _gen(disp, algo, nm=name)
+            elif file_stem is not None:
+                result = _gen(disp, algo, sym=base)  # verbatim, like the CLI's file=
+            else:
+                result = _gen(disp, algo)
+
+        # The generator fields are typed only as ``Callable``, so the result is
+        # untyped here; it is a string (or a header/source pair for C).
+        result = cast("str | tuple[str, str]", result)
+        stem = _pascal_base(file_base) if self.filename_case == "pascal" else file_base
+        if self.filename_case == "pascal" and not _is_legal_class_identifier(stem):
+            raise ValueError(
+                f"{(name or file_stem or display0)!r} yields class {stem!r}, "
+                f"not a legal {self.display_name} class name"
+            )
+        exts = self.extensions
+        if isinstance(result, tuple):  # C: (header, source)
+            return tuple(
+                GeneratedFile(f"{stem}{ext}", content, role)
+                for content, ext, role in zip(result, exts, ("header", "source"))
+            )
+        return (GeneratedFile(f"{stem}{exts[0]}", result),)
 
     def advisories_for(
         self, algorithms: Sequence[str | AlgorithmInfo],
@@ -543,6 +789,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         emoji="\U0001F4A0",  # diamond with a dot
         display_name="C#",
         stdlib_crc32="`System.IO.Hashing.Crc32` (.NET 6+)",
+        filename_case="pascal",  # file is named after the public class
     ),
     "go": LanguageInfo(
         code="go",
@@ -569,6 +816,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         emoji="☕",  # hot beverage (coffee)
         display_name="Java",
         stdlib_crc32="`java.util.zip.CRC32`",
+        filename_case="pascal",  # file MUST be named after the public class
     ),
     "python": LanguageInfo(
         code="python",
@@ -634,3 +882,53 @@ LANGUAGES: dict[str, LanguageInfo] = {
         display_name="VHDL",
     ),
 }
+
+
+def generate_files(
+    language: str,
+    algorithm: str | Sequence[str] | None = None,
+    *,
+    custom: AlgorithmInfo | None = None,
+    variant: str = "auto",
+    comment_style: str = "plain",
+    naming: str | None = None,
+    name: str | None = None,
+    symbol: str | None = None,
+    file_stem: str | None = None,
+) -> tuple[GeneratedFile, ...]:
+    """Generate complete, correctly-named source file(s) for ``language``.
+
+    The consumer-facing front door to :meth:`LanguageInfo.generate_files`:
+    configure once, read finished files out.  crcglot owns the filename and the
+    in-code class/module naming; the caller just writes each
+    :class:`GeneratedFile`'s ``content`` to its ``filename``.
+
+    Args:
+        language: A key of :data:`LANGUAGES` (e.g. ``"rust"``).
+        algorithm: A catalogue name or list of names; see
+            :meth:`LanguageInfo.generate_files` for the full keyword set
+            (``custom`` / ``variant`` / ``comment_style`` / ``naming`` /
+            ``name`` / ``symbol`` / ``file_stem``).
+
+    Returns:
+        One :class:`GeneratedFile` (two for C: header + source).
+
+    Raises:
+        ValueError: unknown ``language``, or any error from
+            :meth:`LanguageInfo.generate_files`.
+
+    Examples:
+        >>> from crcglot import generate_files
+        >>> generate_files("rust", "crc16-xmodem")[0].filename
+        'crc16_xmodem.rs'
+        >>> generate_files("java", "crc32", name="my-widget")[0].filename
+        'MyWidget.java'
+    """
+    if language not in LANGUAGES:
+        raise ValueError(
+            f"unknown language {language!r}; one of {sorted(LANGUAGES)}"
+        )
+    return LANGUAGES[language].generate_files(
+        algorithm, custom=custom, variant=variant, comment_style=comment_style,
+        naming=naming, name=name, symbol=symbol, file_stem=file_stem,
+    )

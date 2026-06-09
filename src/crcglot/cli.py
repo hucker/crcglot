@@ -61,43 +61,6 @@ def _parse_bool(value: str) -> bool:
     raise ValueError(f"expected true/false (got {value!r})")
 
 
-def _symbol_from_stem(file_stem: str) -> str:
-    """Derive a valid C/Rust/Python identifier from a file path / stem."""
-    base = Path(file_stem).name
-    return base.replace("-", "_").replace(".", "_")
-
-
-_JAVA_KEYWORDS = frozenset({
-    "abstract", "assert", "boolean", "break", "byte", "case", "catch",
-    "char", "class", "const", "continue", "default", "do", "double", "else",
-    "enum", "extends", "final", "finally", "float", "for", "goto", "if",
-    "implements", "import", "instanceof", "int", "interface", "long",
-    "native", "new", "package", "private", "protected", "public", "return",
-    "short", "static", "strictfp", "super", "switch", "synchronized", "this",
-    "throw", "throws", "transient", "try", "void", "volatile", "while",
-    "true", "false", "null",
-})
-
-
-def _is_legal_java_identifier(s: str) -> bool:
-    """True iff ``s`` is usable as a Java class name.
-
-    Java ties the public class name to the file name, so the stem can't be
-    mangled the way other languages' symbols can -- it must already be a
-    legal identifier (and not a reserved word).
-    """
-    if not s or not (s[0].isalpha() or s[0] in "_$"):
-        return False
-    if not all(c.isalnum() or c in "_$" for c in s):
-        return False
-    return s not in _JAVA_KEYWORDS
-
-
-def _java_container_name(file_stem: str | None) -> str:
-    """Java container class name: the file stem's basename, or ``CrcGlot``."""
-    return Path(file_stem).name if file_stem else "CrcGlot"
-
-
 def _parse_kv_tokens(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
     """Split a list of CLI tokens into ``key=value`` pairs vs bare tokens."""
     kv: dict[str, str] = {}
@@ -109,27 +72,6 @@ def _parse_kv_tokens(tokens: list[str]) -> tuple[dict[str, str], list[str]]:
         else:
             bare.append(tok)
     return kv, bare
-
-
-def _write_files(
-    result: str | tuple[str, str],
-    lang: str,
-    file_stem: str,
-    cwd: Path,
-) -> list[Path]:
-    """Write generator output to disk.  C returns (header, source); others one string."""
-    extensions = LANGUAGES[lang].extensions
-    written: list[Path] = []
-    if isinstance(result, tuple):
-        for content, ext in zip(result, extensions):
-            path = cwd / f"{file_stem}{ext}"
-            path.write_text(str(content), encoding="utf-8")
-            written.append(path)
-    else:
-        path = cwd / f"{file_stem}{extensions[0]}"
-        path.write_text(str(result), encoding="utf-8")
-        written.append(path)
-    return written
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
@@ -410,54 +352,6 @@ def _cmd_credits(args: argparse.Namespace) -> int:
     return 0
 
 
-def _resolve_variant(
-    *,
-    small: bool,
-    fast: bool,
-    table: bool,
-    slice8: bool,
-    lang: str,
-    width: int,
-) -> tuple[str, str | None]:
-    """Map the chosen CLI flags to a ``variant`` string for the generator.
-
-    ``--small`` / ``--fast`` are the intent front door; ``--table`` /
-    ``--slice8`` are expert overrides.  ``--fast`` -- and **no selector at
-    all**, since the default is the fastest implementation, not the
-    smallest -- picks the fastest the (language, width) actually supports:
-    slice-by-8 for width 32/64 on languages that emit it, table-driven for
-    byte-aligned widths, bit-by-bit for sub-byte widths.  ``--small`` is the
-    explicit opt-in to bit-by-bit (smallest code, zero RAM table).
-
-    Returns ``(variant, note)``; ``note`` is an optional stderr message
-    for the explicit-``--slice8`` -> table fallback on languages that
-    don't emit slice-by-8.  ``LANGUAGES[lang].variants`` /
-    ``fastest_variant_for_width`` are the single source of truth.
-    """
-    variants = LANGUAGES[lang].variants
-    # --fast, or no selector at all: the default is now fastest, not smallest.
-    if fast or not (small or table or slice8):
-        return (LANGUAGES[lang].fastest_variant_for_width(width), None)
-    if table:
-        return ("table", None)
-    if slice8:
-        if "slice8" in variants:
-            return ("slice8", None)
-        if lang == "python":
-            note = (
-                "Note: --slice8 is slower than --table in CPython "
-                "(measured 0.79x); using --table instead."
-            )
-        else:
-            note = (
-                f"Note: --slice8 is not implemented for {lang}; "
-                f"using --table instead."
-            )
-        return ("table", note)
-    # --small: explicit bit-by-bit.
-    return ("bitwise", None)
-
-
 def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
     """Generate source code for the given language."""
     # At most one variant selector.  Intent flags (--small/--fast) and
@@ -478,9 +372,6 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             file=sys.stderr,
         )
         return 2
-    # Variant resolution is deferred to _resolve_variant in the custom /
-    # catalogue paths below, because --fast depends on the algorithm
-    # width (slice-by-8 only applies to width 32/64).
 
     # Build kv dict from positional tokens (for --custom path: width=N
     # poly=X ..., plus file=STEM / symbol=NAME in any path).
@@ -495,28 +386,36 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         print("Error: symbol= requires a value", file=sys.stderr)
         return 2
 
-    if lang == "java":
-        # Java puts every algorithm's methods in one container class named
-        # after file=STEM (Java requires class name == file name); methods
-        # are named after their algorithm, so symbol= has no role.
-        if symbol_override is not None:
-            print(
-                "Error: symbol= is not used for Java -- methods are named "
-                "after their algorithm and the class after file=STEM; omit it.",
-                file=sys.stderr,
-            )
-            return 2
-        if file_stem is not None and not _is_legal_java_identifier(
-            _java_container_name(file_stem)
-        ):
-            print(
-                f"Error: file={file_stem!r} yields class name "
-                f"{_java_container_name(file_stem)!r}, which is not a legal "
-                f"Java identifier (the public class name must equal the file "
-                f"name). Start with a letter; use only letters/digits/_.",
-                file=sys.stderr,
-            )
-            return 2
+    name_override = kv.get("name")
+    if name_override == "":
+        print("Error: name= requires a value", file=sys.stderr)
+        return 2
+
+    # Map the variant selector flags to one variant string for generate_files.
+    # slice-by-8 on a language that doesn't emit it falls back to table (the one
+    # width-independent fallback); width-illegal variants surface from the
+    # generator.  Everything else ("auto") resolves to the fastest per width.
+    note: str | None = None
+    if args.small:
+        variant_arg = "bitwise"
+    elif args.table:
+        variant_arg = "table"
+    elif args.slice8 and "slice8" not in LANGUAGES[lang].variants:
+        variant_arg = "table"
+        note = (
+            "Note: --slice8 is slower than --table in CPython (measured 0.79x); "
+            "using --table instead." if lang == "python"
+            else f"Note: --slice8 is not implemented for {lang}; using --table instead."
+        )
+    elif args.slice8:
+        variant_arg = "slice8"
+    else:
+        variant_arg = "auto"
+    if note:
+        print(note, file=sys.stderr)
+
+    gen_algorithm: list[str] | None = None
+    gen_custom: AlgorithmInfo | None = None
 
     if args.custom:
         # ----- Custom Rocksoft/Williams parameters -----
@@ -554,20 +453,12 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
-        variant, note = _resolve_variant(
-            small=args.small, fast=args.fast,
-            table=args.table, slice8=args.slice8,
-            lang=lang, width=width,
-        )
-        if note:
-            print(note, file=sys.stderr)
         check = generic_crc(b"123456789", width, poly, init, refin, refout, xorout)
-        custom_name = kv.get("name") or "crc_custom"
         desc = kv.get("desc") or (
             f"Custom CRC-{width} (poly=0x{poly:X}, init=0x{init:X}, "
             f"refin={refin}, refout={refout}, xorout=0x{xorout:X})"
         )
-        algo = AlgorithmInfo(
+        gen_custom = AlgorithmInfo(
             width=width,
             poly=poly,
             init=init,
@@ -578,30 +469,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             desc=desc,
             source="custom",
         )
-        advised_algos: list[str | AlgorithmInfo] = [algo]
-        # Java: methods are named from the algorithm (custom_name) and the
-        # class from the stem, so don't derive the method symbol from the
-        # stem; wrap the single result in the stem-named container class.
-        if lang == "java":
-            symbol = None
-        else:
-            symbol = (
-                symbol_override
-                or (_symbol_from_stem(file_stem) if file_stem else None)
-                or _symbol_from_stem(custom_name)
-            )
-        try:
-            result = LANGUAGES[lang].generator_from_entry(
-                custom_name, algo, symbol=symbol, variant=variant,
-                comment_style=args.comment, naming=args.naming,
-            )
-            if lang == "java":
-                result = LANGUAGES[lang].combiner(
-                    [result], _java_container_name(file_stem)
-                )
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 2
+        advised_algos: list[str | AlgorithmInfo] = [gen_custom]
     else:
         # ----- Catalogue lookup (one or more algorithms) -----
         if not bare:
@@ -632,48 +500,24 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
-        outputs = []
-        notes_seen: set[str] = set()
-        try:
-            for nm in names:
-                # --fast resolves per width, so resolve inside the loop;
-                # print any fallback note at most once across the bundle.
-                variant, note = _resolve_variant(
-                    small=args.small, fast=args.fast,
-                    table=args.table, slice8=args.slice8,
-                    lang=lang, width=ALGORITHMS[nm].width,
-                )
-                if note and note not in notes_seen:
-                    print(note, file=sys.stderr)
-                    notes_seen.add(note)
-                # Single algo keeps today's stem->symbol behaviour; for a
-                # bundle each algo defaults to its own (unique) name.  Java
-                # always uses the algorithm name (the class, not the methods,
-                # carries the stem) and routes through its container combiner.
-                if len(names) == 1 and lang != "java":
-                    sym = (
-                        symbol_override
-                        or (_symbol_from_stem(file_stem) if file_stem else None)
-                    )
-                else:
-                    sym = None
-                outputs.append(
-                    LANGUAGES[lang].generator(
-                        nm, symbol=sym, variant=variant,
-                        comment_style=args.comment, naming=args.naming,
-                    )
-                )
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 2
-        if lang == "java":
-            result = LANGUAGES[lang].combiner(
-                outputs, _java_container_name(file_stem)
-            )
-        elif len(names) == 1:
-            result = outputs[0]
-        else:
-            result = LANGUAGES[lang].combiner(outputs, file_stem or "crcglot")
+        gen_algorithm = names
+
+    # crcglot owns naming + filenames: one call returns ready-to-write,
+    # correctly-named files (Java's class == file, C's .h/.c pair).
+    try:
+        gfiles = LANGUAGES[lang].generate_files(
+            gen_algorithm,
+            custom=gen_custom,
+            variant=variant_arg,
+            comment_style=args.comment,
+            naming=args.naming,
+            name=name_override,
+            symbol=symbol_override,
+            file_stem=file_stem,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
 
     # Informational advisories (faster stdlib path, Python-runtime) go to
     # stderr so a redirected stdout stays a clean source file.
@@ -683,19 +527,17 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
 
     # ----- Output -----
     if file_stem is not None:
-        written = _write_files(result, lang, file_stem, Path.cwd())
-        for p in written:
-            print(f"Wrote {p}")
+        for f in gfiles:
+            path = Path.cwd() / f.filename
+            path.write_text(f.content, encoding="utf-8")
+            print(f"Wrote {path}")
         return 0
 
-    # Stdout: C returns (header, source) -> emit both separated by a banner.
-    if isinstance(result, tuple):
-        header, source = result
-        sys.stdout.write(header)
-        sys.stdout.write("\n")
-        sys.stdout.write(source)
-    else:
-        sys.stdout.write(result)
+    # Stdout: emit each file's content (C: header then source).
+    for i, f in enumerate(gfiles):
+        if i:
+            sys.stdout.write("\n")
+        sys.stdout.write(f.content)
     sys.stdout.write("\n")
     return 0
 

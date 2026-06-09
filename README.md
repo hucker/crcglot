@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-5354%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-5389%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -130,7 +130,7 @@ crcglot go crc32 --naming camel          # crc32Update instead of Crc32Update
 crcglot c crc32 --naming pascal          # Crc32Update; the CRC32_H guard stays SCREAMING_SNAKE
 ```
 
-Only the public function/method names are re-cased; header guards, table symbols, package names, and class names keep their own fixed idiom.  An explicit `symbol=NAME` is emitted verbatim, bypassing `--naming`.  As with `--comment`, `crcglot rust crc32 --naming=pascal` is rejected (Rust is snake-only); the matrix is derived from `LANGUAGES[code].naming`, nothing hardcodes it.  The same `{name, label, description}` records are served over MCP in `crcglot://languages.json` (each language's `naming` + `default_naming`).
+Only the public function/method names are re-cased; header guards, table symbols, package names, and class names keep their own fixed idiom.  An explicit `name=NAME` renames the CRC and is cased per language (so it follows `--naming`); `symbol=NAME` is the escape hatch, emitted verbatim and bypassing `--naming`.  As with `--comment`, `crcglot rust crc32 --naming=pascal` is rejected (Rust is snake-only); the matrix is derived from `LANGUAGES[code].naming`, nothing hardcodes it.  The same `{name, label, description}` records are served over MCP in `crcglot://languages.json` (each language's `naming` + `default_naming`).
 
 ## CLI reference
 
@@ -209,11 +209,12 @@ Generate source code for the chosen target language.  Pick your intent; crcglot 
 | `--comment=STYLE`     | Documentation style for the generated comments (default `plain`).  See [Documentation comments](#documentation-comments).                                                     |
 | `--naming=CONVENTION` | Casing of the public function/method names (`snake` / `camel` / `pascal`).  Defaults to each language's idiomatic convention.  See [Naming conventions](#naming-conventions). |
 | `file=STEM`           | Write to disk (extension picked per language; see below).  Omit for stdout.                                                                                                   |
-| `symbol=NAME`         | Override the emitted function name (emitted verbatim, bypassing `--naming`).  Default: derived from algorithm, or from `file=STEM` if given.                                  |
+| `name=NAME`           | Rename the CRC: replaces the algorithm name as the base for the functions / class / filename, **cased per language** (`name=my-widget` → `my_widget.rs`, `MyWidget.java`, `MyWidget.cs`).  Single algorithm only.                |
+| `symbol=NAME`         | Escape hatch: emit this exact identifier **verbatim**, bypassing `--naming`.  Single algorithm; not for Java.  Prefer `name=` for the usual "call it X" case.                  |
 
-File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; Java `.java`; TypeScript `.ts`.  (For Java, every algorithm shares one container class named after `STEM`, so the stem must be a valid Java identifier.)
+File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; Java `.java`; TypeScript `.ts`.  For Java and C# the file is named after the public class (PascalCase of `name=` / the algorithm, or of `STEM`), so the stem must yield a legal class identifier; `STEM` is otherwise sanitized to a valid identifier (`file=my-crc` → `my_crc.rs`).
 
-**Bundle several algorithms into one file** by naming more than one: `crcglot c crc32 crc16-modbus crc8 file=mycrcs` writes a single `mycrcs.h` / `mycrcs.c` containing all three (one `.go` / `.rs` / `.cs` / … for the other languages).  Each algorithm keeps its own catalogue-derived function names (`crc32`, `crc16_modbus`, …) and the tables are namespaced per symbol, so they never collide.  `symbol=` is rejected with more than one algorithm (it names a single function); duplicates are de-duplicated; an unknown name aborts the whole bundle.
+**Bundle several algorithms into one file** by naming more than one: `crcglot c crc32 crc16-modbus crc8 file=mycrcs` writes a single `mycrcs.h` / `mycrcs.c` containing all three (one `.go` / `.rs` / `.cs` / … for the other languages).  Each algorithm keeps its own catalogue-derived function names (`crc32`, `crc16_modbus`, …) and the tables are namespaced per symbol, so they never collide.  `name=` and `symbol=` rename a single CRC, so both are rejected with more than one algorithm; duplicates are de-duplicated; an unknown name aborts the whole bundle.
 
 **Expert overrides** (you usually don't need these, since `--fast` chooses for you): `--table` forces the 256-entry single-table form, and `--slice8` forces the 8-table form.  They exist for the rare case where you want the *middle* of the size/speed curve explicitly, e.g. a RAM-constrained target where the 1 KiB table is fine but slice-by-8's 8 KiB isn't.  `--slice8` is CRC-32/64 + compiled targets only.
 
@@ -241,7 +242,7 @@ crcglot c --custom width=16 poly=0x1234 init=0xFFFF \
 | `refin=B`   | no       | Default `false`.  Accepts `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off`. |
 | `refout=B`  | no       | Default `false`.  Same boolean syntax.                                  |
 | `xorout=X`  | no       | Default 0.                                                              |
-| `name=NAME` | no       | Default `crc_custom`.  Used in generated comments.                      |
+| `name=NAME` | no       | Default `crc_custom`.  Names the functions / class / filename (cased per language) and labels the comments. |
 | `desc=TEXT` | no       | Free-form description in comments.                                      |
 
 The check value for the custom parameters is computed automatically (`generic_crc(b"123456789", ...)`) and embedded into the generated `_self_test()`.

@@ -6,6 +6,31 @@ CRC reverse-engineering plus a coherent packet/MCP surface.  Additive over
 0.17.0 **except** the code-generation default, which now favours speed over size
 (see the first entry).
 
+### NEW: `generate_files()` — crcglot owns output naming
+
+Generation now hands back ready-to-write, correctly-named files instead of bare
+source strings, so the CLI, the MCP `crc_generate` tool, and any UI stop
+re-deriving per-language filename rules.  `crcglot.generate_files(language,
+algorithm, ...)` (and `LanguageInfo.generate_files`) return a tuple of
+`GeneratedFile(filename, content, role)`.  crcglot owns the naming: the
+filename(s) per target (C's `.h`/`.c` pair; PascalCase for C#/Java), and the
+in-code class renamed to match (Java's public class *must* equal the file).
+
+- `name=` renames a CRC and is **cased per target** (`name="my-widget"` →
+  `my_widget.rs`, `MyWidget.java`, `MyWidget.cs`) — the "call it X" knob,
+  exposed on the CLI (`name=`), the package, and MCP (`crc_generate` `name`).
+- `symbol=` remains the verbatim escape hatch; `file_stem` names the file
+  independently of the in-code identifier.
+- `LanguageInfo.validate_symbol(stem)` sanitizes/validates a desired name for a
+  UI (rejecting a stem that can't be a legal Java/C# class).
+- `crc_generate` results now carry a `filename` per file.
+
+Migration / behaviour note: a single-algorithm **Java** generation now defaults
+its class and file to the PascalCase algorithm name (e.g. `Crc16Xmodem.java`)
+instead of the generic `CrcGlot`; `file=` stems are now sanitized to a valid
+identifier for the filename (e.g. `file=my-crc` → `my_crc.rs`), matching the
+in-code symbol.  The low-level `generate_<lang>` functions are unchanged.
+
 ### CHANGED (default behaviour): the fastest variant is now the default
 
 Code generation used to default to `bitwise` (smallest code, slowest).  It now
