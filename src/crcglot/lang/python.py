@@ -50,15 +50,22 @@ from crcglot.comments import (
 
 
 def _format_table_python(table: list[int], width: int) -> str:
-    """Format a lookup table as a Python tuple literal named ``_TABLE``."""
+    """Format a lookup table as a Python tuple literal named ``_TABLE``.
+
+    The 8-values-per-row layout is wrapped in ``# fmt: off`` / ``# fmt: on``
+    so ``ruff format`` (and Black) leave it intact.  Without the guard the
+    magic trailing comma forces a 256-line one-element-per-row explosion,
+    which makes generated modules awkward to read and review.
+    """
     hex_w = (width + 3) // 4
-    lines = ["_TABLE = ("]
+    lines = ["# fmt: off", "_TABLE = ("]
     for row in range(0, 256, 8):
         vals = ", ".join(
             f"0x{table[i]:0{hex_w}X}" for i in range(row, min(row + 8, 256))
         )
         lines.append(f"    {vals},")
     lines.append(")")
+    lines.append("# fmt: on")
     return "\n".join(lines)
 
 
@@ -74,7 +81,7 @@ def _self_test_python(names, check, width, style, docs) -> list[str]:
     return [
         f"def {names['self_test']}() -> bool:",
         *style.doc_block(docs["self_test"], indent=4),
-        f"    return {names['oneshot']}(b'123456789') == {_hex(check, width)}",
+        f'    return {names["oneshot"]}(b"123456789") == {_hex(check, width)}',
     ]
 
 
@@ -189,12 +196,18 @@ def generate_python_from_entry(
 
     lines: list[str] = []
     lines += style.file_header(meta, usage)
-    lines.append("")
 
-    # Table literal (table-driven variant only).
+    # Table literal (table-driven variant only).  Two trailing blank lines
+    # separate the module docstring (or the table) from the first top-level
+    # ``def`` -- the spacing ``ruff format`` enforces, so generated modules
+    # are already-formatted and survive a format pass unchanged.
     if table:
+        lines.append("")
         tbl = _build_table(w, poly, refin)
         lines.append(_format_table_python(tbl, w))
+        lines.append("")
+        lines.append("")
+    else:
         lines.append("")
         lines.append("")
 
@@ -214,9 +227,13 @@ def generate_python_from_entry(
         if refin:
             lines.append(f"        crc = _TABLE[(crc ^ byte) & 0xFF] ^ (crc >> 8)")
         else:
-            lines.append(
-                f"        crc = _TABLE[((crc >> {w - 8}) ^ byte) & 0xFF] ^ (crc << 8) & {mask}"
-            )
+            # Split the table index into its own statement: inlined, the
+            # per-symbol table name (``_crcglot_table_<symbol>``) pushes the
+            # update past ruff's 88-column limit and the formatter wraps it.
+            # ``(tbl ^ (crc << 8)) & mask`` == ``tbl ^ ((crc << 8) & mask)``
+            # because masking distributes over XOR (tbl is already masked).
+            lines.append(f"        idx = ((crc >> {w - 8}) ^ byte) & 0xFF")
+            lines.append(f"        crc = (_TABLE[idx] ^ (crc << 8)) & {mask}")
     elif refin:
         ref_poly = _reflect(poly, w)
         lines.append(f"        crc ^= byte")
@@ -264,9 +281,12 @@ def generate_python_from_entry(
     # ----- <oneshot>(data) one-shot wrapper -----
     lines.append(f"def {names['oneshot']}(data: bytes) -> int:")
     lines += style.doc_block(docs["oneshot"], indent=4)
-    lines.append(
-        f"    return {names['finalize']}({names['update']}({names['init']}(), data))"
-    )
+    # Intermediate state rather than a nested one-liner: for long-named
+    # algorithms the fully-nested call exceeds ruff's 88-column limit and the
+    # formatter wraps it.  Stepwise is also closer to the streaming idiom.
+    lines.append(f"    state = {names['init']}()")
+    lines.append(f"    state = {names['update']}(state, data)")
+    lines.append(f"    return {names['finalize']}(state)")
     lines.append("")
     lines.append("")
 
