@@ -29,13 +29,13 @@ algorithm**.  The two strongest authorities we have:
    primary source (ANSI/ASHRAE 135 Annex G.1 / G.3.2) is paywalled.
 
 The reveng ``check`` cross-check at ``b"123456789"`` is also
-parametrised here over *every* catalogue entry -- a redundant but
+parametrized here over *every* catalogue entry -- a redundant but
 useful belt-and-braces against silent regression in
 ``test_catalogue.py``.
 
 A regression here means the engine produces a value that disagrees
 with an external authority.  That's the strongest "is the math right"
-signal we can write without paying for ASHRAE or licencing AUTOSAR.
+signal we can write without paying for ASHRAE or licensing AUTOSAR.
 """
 
 from __future__ import annotations
@@ -66,13 +66,13 @@ def _build_input_set() -> list[tuple[str, bytes]]:
     return [
         ("empty", b""),
         ("one_zero", b"\x00"),
-        ("one_ff", b"\xFF"),
+        ("one_ff", b"\xff"),
         ("123456789", b"123456789"),
         ("ascii_short", b"The quick brown fox"),
         ("zeros_8", b"\x00" * 8),
         ("zeros_64", b"\x00" * 64),
-        ("ones_8", b"\xFF" * 8),
-        ("ones_64", b"\xFF" * 64),
+        ("ones_8", b"\xff" * 8),
+        ("ones_64", b"\xff" * 64),
         ("seq_256", bytes(range(256))),
         ("deadbeef_4", bytes.fromhex("DEADBEEF")),
         ("nullbytes_1k", b"\x00" * 1024),
@@ -93,14 +93,21 @@ class TestEngineAgainstZlibCrc32:
     single-input reveng ``check`` test.
     """
 
-    @pytest.mark.parametrize("label,data", _ZLIB_INPUTS, ids=lambda v: v if isinstance(v, str) else "")
+    @pytest.mark.parametrize(
+        "label,data", _ZLIB_INPUTS, ids=lambda v: v if isinstance(v, str) else ""
+    )
     def test_crc32_matches_zlib(self, label: str, data: bytes):
         # Arrange
         algo = ALGORITHMS["crc32"]
         # Act
         actual = generic_crc(
-            data, algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
+            data,
+            algo.width,
+            algo.poly,
+            algo.init,
+            algo.refin,
+            algo.refout,
+            algo.xorout,
         )
         expected = zlib.crc32(data) & 0xFFFFFFFF
         # Assert
@@ -110,15 +117,22 @@ class TestEngineAgainstZlibCrc32:
             f"engine=0x{actual:08X}, zlib=0x{expected:08X}"
         )
 
-    @pytest.mark.parametrize("label,data", _ZLIB_INPUTS, ids=lambda v: v if isinstance(v, str) else "")
+    @pytest.mark.parametrize(
+        "label,data", _ZLIB_INPUTS, ids=lambda v: v if isinstance(v, str) else ""
+    )
     def test_crc32_jamcrc_matches_zlib_xor(self, label: str, data: bytes):
         # Arrange -- JAMCRC is IEEE-32 with xorout=0 instead of 0xFFFFFFFF,
         # i.e. zlib.crc32(data) XOR 0xFFFFFFFF.
         algo = ALGORITHMS["crc32-jamcrc"]
         # Act
         actual = generic_crc(
-            data, algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
+            data,
+            algo.width,
+            algo.poly,
+            algo.init,
+            algo.refin,
+            algo.refout,
+            algo.xorout,
         )
         expected = (zlib.crc32(data) ^ 0xFFFFFFFF) & 0xFFFFFFFF
         # Assert
@@ -128,14 +142,19 @@ class TestEngineAgainstZlibCrc32:
         )
 
     def test_engine_handles_million_bytes(self):
-        # Arrange -- a longer input than any of the parametrised cases,
+        # Arrange -- a longer input than any of the parametrized cases,
         # to catch any buffer / chunking bug in the slice-by-8 path.
         data = bytes((i * 31 + 17) & 0xFF for i in range(1_000_000))
         algo = ALGORITHMS["crc32"]
         # Act
         actual = generic_crc(
-            data, algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
+            data,
+            algo.width,
+            algo.poly,
+            algo.init,
+            algo.refin,
+            algo.refout,
+            algo.xorout,
         )
         expected = zlib.crc32(data) & 0xFFFFFFFF
         # Assert
@@ -159,7 +178,7 @@ class TestEveryAlgorithmReproducesCatalogueCheck:
     This is the single-input cross-check.  It already runs implicitly
     through ``test_catalogue.py::TestCustomCrcChainAgainstRevengTruth``
     for the seven algorithms in ``_REVENG_CHECK_VALUES``, but we run
-    it here parametrised over *every catalogue entry* so the entire
+    it here parametrized over *every catalogue entry* so the entire
     catalogue is held to the same standard.
     """
 
@@ -169,8 +188,13 @@ class TestEveryAlgorithmReproducesCatalogueCheck:
         algo = ALGORITHMS[name]
         # Act
         actual = generic_crc(
-            b"123456789", algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
+            b"123456789",
+            algo.width,
+            algo.poly,
+            algo.init,
+            algo.refin,
+            algo.refout,
+            algo.xorout,
         )
         # Assert
         assert actual == algo.check, (
@@ -237,10 +261,10 @@ _BACNET_INPUTS = [
     ("empty", b""),
     ("123456789", b"123456789"),
     ("single_55", b"\x55"),
-    ("single_aa", b"\xAA"),
+    ("single_aa", b"\xaa"),
     ("short_frame", bytes.fromhex("550101020304")),  # plausible MS/TP header octets
     ("zeros_8", b"\x00" * 8),
-    ("ones_8", b"\xFF" * 8),
+    ("ones_8", b"\xff" * 8),
     ("seq_16", bytes(range(16))),
 ]
 
@@ -253,14 +277,21 @@ class TestCrc8BacnetAgainstReferenceImpl:
     surfaces a disagreement.
     """
 
-    @pytest.mark.parametrize("label,data", _BACNET_INPUTS, ids=lambda v: v if isinstance(v, str) else "")
+    @pytest.mark.parametrize(
+        "label,data", _BACNET_INPUTS, ids=lambda v: v if isinstance(v, str) else ""
+    )
     def test_engine_matches_reference(self, label: str, data: bytes):
         # Arrange
         algo = ALGORITHMS["crc8-bacnet"]
         # Act
         actual = generic_crc(
-            data, algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
+            data,
+            algo.width,
+            algo.poly,
+            algo.init,
+            algo.refin,
+            algo.refout,
+            algo.xorout,
         )
         expected = _bacnet_calc_crc8_header(data)
         # Assert
@@ -276,14 +307,21 @@ class TestCrc32BacnetAgainstReferenceImpl:
     Appendix C (which inlines ANSI/ASHRAE 135 Annex G.3.2).
     """
 
-    @pytest.mark.parametrize("label,data", _BACNET_INPUTS, ids=lambda v: v if isinstance(v, str) else "")
+    @pytest.mark.parametrize(
+        "label,data", _BACNET_INPUTS, ids=lambda v: v if isinstance(v, str) else ""
+    )
     def test_engine_matches_reference(self, label: str, data: bytes):
         # Arrange
         algo = ALGORITHMS["crc32-bacnet"]
         # Act
         actual = generic_crc(
-            data, algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
+            data,
+            algo.width,
+            algo.poly,
+            algo.init,
+            algo.refin,
+            algo.refout,
+            algo.xorout,
         )
         expected = _bacnet_calc_crc32k_data(data)
         # Assert
@@ -312,15 +350,27 @@ class TestCrc32BacnetAgainstReferenceImpl:
 # Note: RFCs print the CRC as 4 on-wire bytes LSB-first; the integer
 # below is those bytes interpreted little-endian, matching crcglot.
 _VECTORS_CRC32_ISCSI_RFC7143 = [
-    (b"\x00" * 32,                          0x8A9136AA),
-    (b"\xff" * 32,                          0x62A8AB43),
-    (bytes(range(0x00, 0x20)),              0x46DD794E),
-    (bytes(range(0x1F, -1, -1)),            0x113FDB5C),
-    (bytes.fromhex(
-        "01c00000" "00000000" "00000000" "00000000"
-        "14000000" "00000400" "00000014" "00000018"
-        "28000000" "00000000" "02000000" "00000000"
-    ),                                      0xD9963A56),
+    (b"\x00" * 32, 0x8A9136AA),
+    (b"\xff" * 32, 0x62A8AB43),
+    (bytes(range(0x00, 0x20)), 0x46DD794E),
+    (bytes(range(0x1F, -1, -1)), 0x113FDB5C),
+    (
+        bytes.fromhex(
+            "01c00000"
+            "00000000"
+            "00000000"
+            "00000000"
+            "14000000"
+            "00000400"
+            "00000014"
+            "00000018"
+            "28000000"
+            "00000000"
+            "02000000"
+            "00000000"
+        ),
+        0xD9963A56,
+    ),
 ]
 
 # Source: AUTOSAR_SWS_CRCLibrary R22-11, Tables 7.2 / 7.4 / 7.6 / 7.8 /
@@ -328,51 +378,96 @@ _VECTORS_CRC32_ISCSI_RFC7143 = [
 # https://github.com/richhaar/autosar-crc/blob/main/src/main.test.js
 # (test names explicitly cite "AUTOSAR table").
 _AUTOSAR_INPUTS_RAW_HEX = [
-    "00000000", "F20183", "0FAA0055", "00FF5511",
-    "332255AABBCCDDEEFF", "926B55", "FFFFFFFF",
+    "00000000",
+    "F20183",
+    "0FAA0055",
+    "00FF5511",
+    "332255AABBCCDDEEFF",
+    "926B55",
+    "FFFFFFFF",
 ]
 _AUTOSAR_INPUTS = [bytes.fromhex(h) for h in _AUTOSAR_INPUTS_RAW_HEX]
 
-_VECTORS_CRC8_SAE_J1850_AUTOSAR = list(zip(
-    _AUTOSAR_INPUTS,
-    [0x59, 0x37, 0x79, 0xB8, 0xCB, 0x8C, 0x74],
-))
-_VECTORS_CRC8_AUTOSAR = list(zip(
-    _AUTOSAR_INPUTS,
-    [0x12, 0xC2, 0xC6, 0x77, 0x11, 0x33, 0x6C],
-))
-_VECTORS_CRC16_IBM_3740_AUTOSAR = list(zip(
-    _AUTOSAR_INPUTS,
-    [0x84C0, 0xD374, 0x2023, 0xB8F9, 0xF53F, 0x0745, 0x1D0F],
-))
-_VECTORS_CRC16_ARC_AUTOSAR = list(zip(
-    _AUTOSAR_INPUTS,
-    [0x0000, 0xC2E1, 0x0BE3, 0x6CCF, 0xAE98, 0xE24E, 0x9401],
-))
-_VECTORS_CRC32_AUTOSAR = list(zip(
-    _AUTOSAR_INPUTS,
-    [0x2144DF1C, 0x24AB9D77, 0xB6C9B287, 0x32A06212,
-     0xB0AE863D, 0x9CDEA29B, 0xFFFFFFFF],
-))
-_VECTORS_CRC32_AUTOSAR_P4 = list(zip(
-    _AUTOSAR_INPUTS,
-    [0x6FB32240, 0x4F721A25, 0x20662DF8, 0x9BD7996E,
-     0xA65A343D, 0xEE688A78, 0xFFFFFFFF],
-))
-_VECTORS_CRC64_XZ_AUTOSAR = list(zip(
-    _AUTOSAR_INPUTS,
-    [0xF4A586351E1B9F4B, 0x319C27668164F1C6, 0x54C5D0F7667C1575,
-     0xA63822BE7E0704E6, 0x701ECEB219A8E5D5, 0x5FAA96A9B59F3E4E,
-     0xFFFFFFFF00000000],
-))
+_VECTORS_CRC8_SAE_J1850_AUTOSAR = list(
+    zip(
+        _AUTOSAR_INPUTS,
+        [0x59, 0x37, 0x79, 0xB8, 0xCB, 0x8C, 0x74],
+    )
+)
+_VECTORS_CRC8_AUTOSAR = list(
+    zip(
+        _AUTOSAR_INPUTS,
+        [0x12, 0xC2, 0xC6, 0x77, 0x11, 0x33, 0x6C],
+    )
+)
+_VECTORS_CRC16_IBM_3740_AUTOSAR = list(
+    zip(
+        _AUTOSAR_INPUTS,
+        [0x84C0, 0xD374, 0x2023, 0xB8F9, 0xF53F, 0x0745, 0x1D0F],
+    )
+)
+_VECTORS_CRC16_ARC_AUTOSAR = list(
+    zip(
+        _AUTOSAR_INPUTS,
+        [0x0000, 0xC2E1, 0x0BE3, 0x6CCF, 0xAE98, 0xE24E, 0x9401],
+    )
+)
+_VECTORS_CRC32_AUTOSAR = list(
+    zip(
+        _AUTOSAR_INPUTS,
+        [
+            0x2144DF1C,
+            0x24AB9D77,
+            0xB6C9B287,
+            0x32A06212,
+            0xB0AE863D,
+            0x9CDEA29B,
+            0xFFFFFFFF,
+        ],
+    )
+)
+_VECTORS_CRC32_AUTOSAR_P4 = list(
+    zip(
+        _AUTOSAR_INPUTS,
+        [
+            0x6FB32240,
+            0x4F721A25,
+            0x20662DF8,
+            0x9BD7996E,
+            0xA65A343D,
+            0xEE688A78,
+            0xFFFFFFFF,
+        ],
+    )
+)
+_VECTORS_CRC64_XZ_AUTOSAR = list(
+    zip(
+        _AUTOSAR_INPUTS,
+        [
+            0xF4A586351E1B9F4B,
+            0x319C27668164F1C6,
+            0x54C5D0F7667C1575,
+            0xA63822BE7E0704E6,
+            0x701ECEB219A8E5D5,
+            0x5FAA96A9B59F3E4E,
+            0xFFFFFFFF00000000,
+        ],
+    )
+)
 
 
 # Lookup: name -> (vectors, source_label)
 _PUBLISHED_VECTOR_SUITES = {
     "crc32-iscsi": (_VECTORS_CRC32_ISCSI_RFC7143, "RFC 7143 / RFC 3720"),
-    "crc8-sae-j1850": (_VECTORS_CRC8_SAE_J1850_AUTOSAR, "AUTOSAR SWS_CRCLibrary Table 7.2"),
+    "crc8-sae-j1850": (
+        _VECTORS_CRC8_SAE_J1850_AUTOSAR,
+        "AUTOSAR SWS_CRCLibrary Table 7.2",
+    ),
     "crc8-autosar": (_VECTORS_CRC8_AUTOSAR, "AUTOSAR SWS_CRCLibrary Table 7.4"),
-    "crc16-ibm-3740": (_VECTORS_CRC16_IBM_3740_AUTOSAR, "AUTOSAR SWS_CRCLibrary Table 7.6"),
+    "crc16-ibm-3740": (
+        _VECTORS_CRC16_IBM_3740_AUTOSAR,
+        "AUTOSAR SWS_CRCLibrary Table 7.6",
+    ),
     "crc16-arc": (_VECTORS_CRC16_ARC_AUTOSAR, "AUTOSAR SWS_CRCLibrary Table 7.8"),
     "crc32": (_VECTORS_CRC32_AUTOSAR, "AUTOSAR SWS_CRCLibrary Table 7.10"),
     "crc32-autosar": (_VECTORS_CRC32_AUTOSAR_P4, "AUTOSAR SWS_CRCLibrary Table 7.12"),
@@ -385,7 +480,9 @@ def _published_vector_cases():
     out = []
     for name, (vectors, label) in _PUBLISHED_VECTOR_SUITES.items():
         for data, expected in vectors:
-            short = data.hex() if len(data) <= 16 else f"{data.hex()[:14]}...{len(data)}B"
+            short = (
+                data.hex() if len(data) <= 16 else f"{data.hex()[:14]}...{len(data)}B"
+            )
             out.append((name, label, short, data, expected))
     return out
 
@@ -394,7 +491,7 @@ _PUBLISHED_CASES = _published_vector_cases()
 
 
 class TestEngineAgainstPublishedVectors:
-    """Parametrised cross-check against vectors that real specifications
+    """Parametrized cross-check against vectors that real specifications
     publish.  Where these disagree with the engine, the failure is the
     interesting result -- either the engine has a bug, the catalogue
     parameters are subtly wrong (the bug that surfaced for crc8-bacnet
@@ -419,8 +516,13 @@ class TestEngineAgainstPublishedVectors:
         algo = ALGORITHMS[name]
         # Act
         actual = generic_crc(
-            data, algo.width, algo.poly, algo.init,
-            algo.refin, algo.refout, algo.xorout,
+            data,
+            algo.width,
+            algo.poly,
+            algo.init,
+            algo.refin,
+            algo.refout,
+            algo.xorout,
         )
         # Assert
         hex_w = (algo.width + 3) // 4
