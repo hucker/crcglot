@@ -399,10 +399,13 @@ def reverse(
 
     Args:
         frames: The codewords as ``(message_bytes, crc_int)`` pairs.  For the
-            algebraic tier, supply **several varied** frames -- varied in
-            *content* (so the polynomial GCD converges) and in *length* (to
-            separate ``init`` from ``xorout``); a single frame suffices only for
-            a catalogue match.
+            algebraic tier, supply at least **two frames of the same length**
+            (their difference cancels ``init``/``xorout`` and is what pins the
+            polynomial), each varied in *content*, **plus** some frames of
+            *other lengths* (to separate ``init`` from ``xorout``).  Frames that
+            are all distinct lengths cannot recover the polynomial -- a common
+            surprise, since "more varied" intuitively suggests varying length.
+            A single frame suffices only for a catalogue match.
         std_algo_only: When ``True`` (default), only attempt the catalogue match
             (identical to :func:`detect` on these pairs).  ``False`` falls
             through to algebraic recovery of a custom algorithm.
@@ -462,11 +465,32 @@ def reverse(
     # ----- Tier 2: algebraic recovery -----
     solved = _solve_dials(codewords, width, refin, refout, poly, init, xorout)
     if solved is None:
-        return ReverseResult(
-            status="underdetermined",
-            note="could not pin the polynomial -- supply more frames, varied in "
-                 "content (and in length to separate init/xorout).",
-        )
+        # The polynomial step GCDs *same-length* difference codewords (a
+        # same-length difference cancels init/xorout).  All-distinct lengths
+        # therefore yield no usable pair -- the most common reason recovery
+        # stalls, and counterintuitive because "more varied" reads as "vary the
+        # length".  Name it precisely.  (When the caller fixed ``poly`` the GCD
+        # step is skipped, so this guidance doesn't apply -- the solve that
+        # failed was init/xorout.)
+        lengths = [len(m) for m, _ in codewords]
+        all_distinct = len(set(lengths)) == len(lengths)
+        if poly is not None:
+            note = ("could not solve init/xorout for the supplied polynomial -- "
+                    "supply more frames, varied in content and length.")
+        elif all_distinct:
+            note = (
+                f"could not pin the polynomial: all {len(codewords)} frames have "
+                "distinct lengths, but the polynomial step needs at least two "
+                "frames of the SAME length -- their difference cancels "
+                "init/xorout, leaving a multiple of the generator to GCD.  "
+                "Capture a few frames at one length, then add other lengths to "
+                "separate init from xorout.")
+        else:
+            note = (
+                "could not pin the polynomial -- supply more frames: at least two "
+                "of the same length (varied in content) feed the polynomial GCD, "
+                "plus other lengths to separate init from xorout.")
+        return ReverseResult(status="underdetermined", note=note)
     w, p, ri, ro, members, dim = solved
 
     # Canonical representative: prefer a member that names a catalogue entry.

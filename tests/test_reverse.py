@@ -227,6 +227,32 @@ class TestBehaviour:
             f"too-few frames gave {r.status} (should be honest, not a guess)"
         )
 
+    def test_all_distinct_lengths_guidance_names_same_length_fix(self):
+        # Every frame a distinct length -> the poly GCD (which works on
+        # same-length differences) has no pair to chew on -> underdetermined.
+        # The note must steer to the real fix (>=2 same-length frames), NOT the
+        # misleading "vary the length" that this exact situation invites.
+        rng = random.Random(0)
+        cws = []
+        for length in (5, 6, 7, 8, 9, 10):  # all distinct; custom poly
+            m = bytes(rng.randrange(256) for _ in range(length))
+            cws.append((m, generic_crc(m, 16, 0x1009, 0x1234, False, False, 0x5678)))
+
+        # Act
+        r = reverse(cws, std_algo_only=False)
+
+        # Assert -- honest status + actionable, correct guidance.
+        assert r.status == "underdetermined", (
+            f"all-distinct-length frames should be underdetermined, got {r.status}"
+        )
+        note = r.note.lower()
+        assert "same length" in note, (
+            f"note must point at the same-length fix, got: {r.note!r}"
+        )
+        assert "distinct lengths" in note, (
+            f"note should name the all-distinct-length situation, got: {r.note!r}"
+        )
+
     def test_result_is_reverseresult(self):
         r = reverse(_codewords(16, 0x8001, 0, False, False, 0), std_algo_only=False)
         assert isinstance(r, ReverseResult), "reverse() must return a ReverseResult"
