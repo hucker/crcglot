@@ -919,6 +919,71 @@ def build_server() -> FastMCP:
             + ctx
         )
 
+    @mcp.prompt(
+        name="generate-crc-code",
+        title="Generate CRC code (pick language, naming, comment style)",
+        description=(
+            "Walk the user through emitting CRC source code: choose the target "
+            "language, then -- only when the language offers more than one -- the "
+            "naming convention and the comment style, then call crc_generate.  "
+            "Use this for 'give me code for <CRC> in <language>' requests."
+        ),
+    )
+    def generate_crc_code(algorithm: str = "") -> str:
+        """Return a guided prompt that walks the language/naming/style picker.
+
+        Args:
+            algorithm: Optional catalogue name (or custom-CRC description) the
+                code is for; folded into the prompt when given.
+
+        Returns:
+            A user-message string.  The per-language option lists are built from
+            :data:`crcglot.LANGUAGES` so the "ask only when there's a choice"
+            gating stays accurate as targets gain or lose conventions -- it is
+            never hardcoded here.
+        """
+        # Per-language picker map, derived from the metadata so the gating below
+        # can't drift from what crc_generate actually accepts.
+        rows = []
+        for code, info in LANGUAGES.items():
+            namings = [n.name for n in info.naming_infos]
+            styles = [s.name for s in info.styles]
+            naming_part = (
+                f"naming {namings} (default {info.default_naming})"
+                if len(namings) > 1 else f"naming {namings[0]} (only)")
+            style_part = (
+                f"comment styles {styles}"
+                if len(styles) > 1 else f"comment style {styles[0]} (only)")
+            rows.append(
+                f"- {code} ({info.display_name}): {naming_part}; {style_part}")
+        catalogue = "\n".join(rows)
+        for_algo = f" for {algorithm}" if algorithm.strip() else ""
+
+        return (
+            f"Generate CRC source code{for_algo}. Work with the user IN ORDER, "
+            "and ask only when there's a real choice -- when an axis offers a "
+            "single option, use it silently rather than asking:\n"
+            "\n"
+            "0. ALGORITHM -- if which CRC to use isn't settled yet, settle it "
+            "first: crc_detect / crc_reverse to MATCH an existing one, or the "
+            "design-a-crc prompt to CHOOSE a new one.\n"
+            "1. LANGUAGE -- ask which target they want:\n"
+            f"{catalogue}\n"
+            "2. NAMING -- for the chosen language, ask which convention only if "
+            "it lists more than one above (show the human labels from "
+            "crcglot://languages.json); if it lists one, use it without asking.\n"
+            "3. COMMENT STYLE -- likewise: ask only if the language offers more "
+            "than one; otherwise use its single style.\n"
+            "4. GENERATE -- call crc_generate(language=..., algorithm=..., and "
+            "the chosen naming / comment_style). Leave variant unset (the "
+            "fastest the target supports) unless the user wants the smallest "
+            "code (variant='bitwise').\n"
+            "\n"
+            "The lists above come from crcglot's own metadata; "
+            "crcglot://languages.json carries the labels and descriptions for "
+            "each option."
+        )
+
     # ----- Resources -----
 
     @mcp.resource(

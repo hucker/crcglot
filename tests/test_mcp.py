@@ -913,6 +913,33 @@ class TestSteering:
             "bitwise blurb should come from VariantInfo, keeping one source of truth"
         )
 
+    def test_generate_crc_code_prompt_registered(self):
+        prompts = _run(build_server().list_prompts())
+        names = {p.name for p in prompts}
+        assert "generate-crc-code" in names, (
+            f"generate-crc-code prompt missing from {names}"
+        )
+
+    def test_generate_crc_code_walks_conditional_picker(self):
+        # Act -- render with an algorithm so the interpolation path is covered.
+        got = _run(build_server().get_prompt(
+            "generate-crc-code", {"algorithm": "crc16-modbus"}))
+        text = getattr(got.messages[0].content, "text", str(got.messages[0].content))
+
+        # Assert -- the ordered language/naming/style picker + the generate call.
+        for marker in ("LANGUAGE", "NAMING", "COMMENT STYLE", "crc_generate"):
+            assert marker in text, f"picker step {marker!r} missing from prompt"
+        assert "crc16-modbus" in text, "algorithm not interpolated"
+        # Data-driven gating: every language appears, and the single-option
+        # axes are marked "(only)" so the model knows not to ask.
+        from crcglot import LANGUAGES
+        for code in LANGUAGES:
+            assert code in text, f"language {code!r} missing from picker map"
+        assert "(only)" in text, (
+            "single-option axes (e.g. python naming, verilog style) should be "
+            "marked so the model skips asking"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Cross-algorithm coverage
