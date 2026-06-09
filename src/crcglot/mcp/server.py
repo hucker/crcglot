@@ -690,7 +690,20 @@ def build_server() -> FastMCP:
             "lists what was generated; 'advisories' carries any "
             "{severity, kind, message} notes about a faster path (e.g. a "
             "stdlib CRC-32 for the target, or 'use the crcglot package' for a "
-            "Python target) -- surface these to the user."
+            "Python target) -- surface these to the user.\n"
+            "\n"
+            "OUTPUT HANDLING: each 'files' entry is a COMPLETE, drop-in source "
+            "file -- 'content' is the whole file (header comment, EVERY table "
+            "row, all functions, the embedded self-test).  Never truncate it: "
+            "do not elide table rows, omit functions, or summarise the body.  "
+            "Prefer WRITING the full content to a file and reporting the path "
+            "rather than pasting it into the chat; only paste it inline when the "
+            "user wants to read or copy it directly, and then IN FULL.  Name the "
+            "file by the language's convention -- the algorithm name for C / "
+            "Rust / Go / Python / TypeScript / Verilog / VHDL; the public class "
+            "name shown in the emitted code for Java / C#.  Large variants make "
+            "this matter: slice8 emits eight 256-entry tables, so write it to a "
+            "file instead of dumping the whole table into the conversation."
         ),
     )
     def crc_generate(
@@ -840,6 +853,15 @@ def build_server() -> FastMCP:
             # in lockstep with the dataclass's fields.
             "advisories": [asdict(a) for a in info.advisories_for(advised_algos)],
             "files": files,
+            # Reinforce at the point of use (the result is what's in context when
+            # the model decides how to present it): the content is a whole file,
+            # not a snippet to abridge.  See the tool's OUTPUT HANDLING note.
+            "note": (
+                "Each files[].content is a COMPLETE drop-in source file -- write "
+                "it whole to a file (never truncate tables or omit functions); "
+                "paste it inline only if the user asked to see the code, and "
+                "then in full."
+            ),
         }
 
     # ----- crc_credits -----

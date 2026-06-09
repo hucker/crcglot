@@ -687,6 +687,21 @@ class TestCrcGenerate:
         py = _call("crc_generate", {"language": "python", "algorithm": "crc8"})
         assert py["advisories"][0]["kind"] == "python-runtime", py["advisories"]
 
+    def test_output_handling_steering(self):
+        # The result must carry a "use the whole file" note (proximate steering,
+        # in context when the model decides how to present the output)...
+        out = _call("crc_generate", {"language": "rust", "algorithm": "crc32"})
+        note = out.get("note", "")
+        assert "COMPLETE" in note and "truncate" in note, (
+            f"result must steer against abridging the file, got note={note!r}"
+        )
+        # ...and the tool description (the canonical steer) must say the same.
+        tools = _run(build_server().list_tools())
+        desc = next(t.description for t in tools if t.name == "crc_generate")
+        assert "OUTPUT HANDLING" in desc and "Never truncate" in desc, (
+            "crc_generate description should carry the OUTPUT HANDLING directive"
+        )
+
     def test_c_emits_header_plus_source(self):
         # Act -- C is the only target that ships two files (.h + .c).
         out = _call(
