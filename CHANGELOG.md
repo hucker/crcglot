@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.18.0 — unreleased
+## v0.18.0 — 2026-06-09
 
 CRC reverse-engineering plus a coherent packet/MCP surface.  Additive over
 0.17.0 **except** the code-generation default, which now favours speed over size
