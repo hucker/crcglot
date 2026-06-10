@@ -1212,3 +1212,42 @@ class TestDetectWidthFilter:
         assert actual_widths == expected_widths, (
             f"width=16 filter should yield exactly 16-bit algos, got {actual_widths}"
         )
+
+
+class TestAutoModeFilterIndependence:
+    """``mode="auto"`` decides hex-vs-text against the FULL catalogue, so an
+    ``algorithms`` / ``width`` filter never flips a hex frame into a text
+    reinterpretation (the filter narrows the scan, not the interpretation).
+    """
+
+    # As hex bytes this is a crc32 frame; its space-separated TEXT reading
+    # ("31 33 38 54 74" + crc "5b") is a valid crc8-dvb-s2 frame.  The two
+    # readings disagree, which is exactly what makes the filter coupling
+    # observable.
+    _DUAL = "31 33 38 54 74 5b"
+
+    def test_unfiltered_reads_as_hex_crc32(self) -> None:
+        # Assert -- the shape (hex bytes) wins: crc32, under a HexFormat.
+        result = detect(self._DUAL)
+        assert result.algorithm == "crc32", f"expected hex crc32, got {result}"
+        assert isinstance(result.candidates[0].padding, HexFormat), (
+            "auto should have read the input as hex bytes"
+        )
+
+    def test_algorithms_filter_does_not_flip_to_text(self) -> None:
+        # Filtering to the algo that ONLY the text reading matches must not
+        # re-read the hex bytes as text -- pre-fix this returned a spurious
+        # crc8-dvb-s2 text match.
+        result = detect(self._DUAL, algorithms="crc8-dvb-s2")
+        assert not result.matched, (
+            f"a filter must not flip the hex frame into a text match; got {result}"
+        )
+
+    def test_width_filter_does_not_surface_text_only_match(self) -> None:
+        # Same guard via the width axis: crc8-dvb-s2 (8-bit) is a text-only
+        # match here, so restricting to width 8 must not surface it.
+        result = detect(self._DUAL, width=8, match="all")
+        algos = {m.algorithm for m in result.candidates}
+        assert "crc8-dvb-s2" not in algos, (
+            f"width=8 must not surface the text-only crc8-dvb-s2 match; got {algos}"
+        )

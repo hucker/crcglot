@@ -593,7 +593,10 @@ def detect(
             byte string in any common formatting (``"12 34"``,
             ``"0x12,0x34"``, ``xxd``-style ``"AB:CD:EF"``, etc.) and
             decodes if so; otherwise falls through to text mode
-            (``"data <sep> hex"``).  Three explicit overrides:
+            (``"data <sep> hex"``).  This hex-vs-text decision is made
+            against the **full** catalogue, so it never depends on
+            ``algorithms`` / ``width`` -- those narrow the final scan, they
+            do not flip the interpretation.  Three explicit overrides:
             ``"binary"`` forces bytes-like interpretation; ``"text"``
             skips the hex-as-bytes step entirely and parses as a
             ``"data <sep> hex"`` packet; ``"hex"`` requires the input
@@ -711,10 +714,21 @@ def detect(
                 p[0] for p in parsed if p is not None
             ]
             hex_format = next((p[1] for p in parsed if p is not None), None)
-            hex_result = _run_detect(
-                decoded_bytes, "binary", names, encoding, match, endian,
+            # Decide hex-vs-text on the input's SHAPE, not on the caller's
+            # algorithms / width filter: probe the FULL catalogue so a filter
+            # can't flip a genuine hex frame into a text reinterpretation.  If
+            # the decoded bytes validate against any catalogue CRC, commit to
+            # the hex reading and run the caller's (possibly filtered) scan on
+            # them -- returning that result even when the filter excludes the
+            # match, rather than silently re-reading the bytes as text.
+            probe = _run_detect(
+                decoded_bytes, "binary", _ordered_algorithm_names(None),
+                encoding, "first", endian,
             )
-            if hex_result.matched:
+            if probe.matched:
+                hex_result = _run_detect(
+                    decoded_bytes, "binary", names, encoding, match, endian,
+                )
                 return _attach_padding(hex_result, hex_format)
         # Fall through to text mode for the original str packets.
 
