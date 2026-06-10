@@ -16,7 +16,13 @@ from __future__ import annotations
 
 import pytest
 
-from crcglot import LANGUAGES, AlgorithmInfo, GeneratedFile, generate_files
+from crcglot import (
+    LANGUAGES,
+    AlgorithmInfo,
+    GeneratedFile,
+    default_stem,
+    generate_files,
+)
 from crcglot.catalogue import ALGORITHMS
 
 
@@ -133,13 +139,13 @@ class TestBundle:
 
     def test_rust_bundle_default_name(self):
         files = generate_files("rust", ["crc32", "crc8"])
-        assert [f.filename for f in files] == ["crcglot.rs"], files
+        assert [f.filename for f in files] == ["crc_bundle.rs"], files
         body = files[0].content
         assert "crc32_update(" in body and "crc8_update(" in body, "both present"
 
     def test_c_bundle_is_pair(self):
         files = generate_files("c", ["crc32", "crc8"])
-        assert [f.filename for f in files] == ["crcglot.h", "crcglot.c"], files
+        assert [f.filename for f in files] == ["crc_bundle.h", "crc_bundle.c"], files
 
 
 class TestCustom:
@@ -165,6 +171,142 @@ class TestValidateSymbol:
     def test_pascal_target_rejects_leading_digit(self):
         with pytest.raises(ValueError, match="not a legal"):
             LANGUAGES["java"].validate_symbol("3crc")
+
+
+class TestFormatFilename:
+    """``LanguageInfo.format_filename`` cases a stem to the target's filename
+    convention -- and must agree with the file ``generate_files`` actually
+    writes."""
+
+    @pytest.mark.parametrize(
+        "language,stem,expected",
+        [
+            ("rust", "crc_bundle", "crc_bundle"),        # snake: as-is
+            ("c", "my-crc.v2", "my_crc_v2"),             # snake: - / . -> _
+            ("python", "crc32", "crc32"),
+            ("csharp", "crc-bundle", "CrcBundle"),       # pascal: cased
+            ("java", "crc32", "Crc32"),
+        ],
+    )
+    def test_cases_per_target(self, language, stem, expected):
+        # Act
+        actual = LANGUAGES[language].format_filename(stem)
+
+        # Assert
+        assert actual == expected, f"{language}.format_filename({stem!r})"
+
+    @pytest.mark.parametrize("language", sorted(LANGUAGES))
+    def test_matches_generated_filename(self, language):
+        # The contract: format_filename(stem) is exactly the basename
+        # generate_files(file_stem=stem) emits -- so a UI's preview can't lie.
+        stem = "my-crc.v2"
+
+        # Act
+        previewed = LANGUAGES[language].format_filename(stem)
+        generated_stem = generate_files(
+            language, "crc32", file_stem=stem
+        )[0].filename.rsplit(".", 1)[0]
+
+        # Assert
+        assert previewed == generated_stem, (
+            f"{language}: preview {previewed!r} != generated {generated_stem!r}"
+        )
+
+    @pytest.mark.parametrize("blank", ["", "   ", "\t"])
+    def test_blank_returned_unchanged(self, blank):
+        # Total: empty / whitespace passes through (the caller guards empty).
+        actual = LANGUAGES["java"].format_filename(blank)
+        assert actual == blank, f"blank {blank!r} should pass through unchanged"
+
+    def test_idempotent_on_snake_and_single_word_pascal(self):
+        # Snake casing and single-word PascalCase are fixed points, so a
+        # value re-fed through stays stable.
+        once_rust = LANGUAGES["rust"].format_filename("crc32")
+        twice_rust = LANGUAGES["rust"].format_filename(once_rust)
+        assert twice_rust == once_rust, "snake target is idempotent"
+
+        once_java = LANGUAGES["java"].format_filename("crc32")
+        twice_java = LANGUAGES["java"].format_filename(once_java)
+        assert twice_java == once_java, "single-word pascal is idempotent"
+
+
+class TestFormatNameIdentifier:
+    """``format_name(stem, "identifier")`` cases to each language's naming standard."""
+
+    @pytest.mark.parametrize(
+        "language,expected",
+        [
+            ("rust", "crc_bundle"),       # snake default
+            ("python", "crc_bundle"),     # snake
+            ("go", "CrcBundle"),          # pascal default
+            ("csharp", "CrcBundle"),      # pascal
+            ("typescript", "crcBundle"),  # camel default
+            ("java", "crcBundle"),        # camel
+        ],
+    )
+    def test_identifier_follows_language_naming(self, language, expected):
+        # Act
+        actual = LANGUAGES[language].format_name("crc-bundle", "identifier")
+
+        # Assert
+        assert actual == expected, f"{language} identifier casing"
+
+    @pytest.mark.parametrize("language", sorted(LANGUAGES))
+    def test_identifier_matches_generator_oneshot(self, language):
+        # The contract: the identifier preview equals the bare (oneshot) name
+        # the generator's own naming helper produces -- no parallel casing.
+        from crcglot._helpers import crc_function_names
+
+        lang = LANGUAGES[language]
+
+        # Act
+        previewed = lang.format_name("crc-bundle", "identifier")
+        generated = crc_function_names("crc_bundle", lang.default_naming)["oneshot"]
+
+        # Assert
+        assert previewed == generated, (
+            f"{language}: preview {previewed!r} != oneshot {generated!r}"
+        )
+
+    def test_filename_is_the_default_kind(self):
+        # Act
+        lang = LANGUAGES["csharp"]
+
+        # Assert -- bare call equals the filename convenience.
+        assert lang.format_name("crc-bundle") == lang.format_filename("crc-bundle"), (
+            "default kind is filename"
+        )
+
+    def test_bad_kind_rejected(self):
+        with pytest.raises(ValueError, match="kind must be"):
+            LANGUAGES["rust"].format_name("crc32", "klass")
+
+
+class TestDefaultStem:
+    """``default_stem`` is the raw stem crcglot defaults to (single vs bundle)."""
+
+    def test_single_algorithm_name(self):
+        actual = default_stem("crc16-xmodem")
+        assert actual == "crc16_xmodem", "single algo -> sanitized name"
+
+    def test_one_element_sequence_is_single(self):
+        actual = default_stem(["crc32"])
+        assert actual == "crc32", "a one-element bundle is still a single CRC"
+
+    def test_bundle_is_crc_bundle(self):
+        actual = default_stem(["crc32", "crc8"])
+        assert actual == "crc_bundle", "two+ algos -> crc_bundle"
+
+    def test_drives_generated_bundle_filename(self):
+        # The contract: default_stem is the stem generate_files writes for a
+        # no-override bundle.
+        stem = default_stem(["crc32", "crc8"])
+
+        # Act
+        f = generate_files("rust", ["crc32", "crc8"])[0]
+
+        # Assert
+        assert f.filename == f"{stem}.rs", "bundle filename follows default_stem"
 
 
 class TestErrors:

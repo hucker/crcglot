@@ -23,6 +23,17 @@ in-code class renamed to match (Java's public class *must* equal the file).
   independently of the in-code identifier.
 - `LanguageInfo.validate_symbol(stem)` sanitizes/validates a desired name for a
   UI (rejecting a stem that can't be a legal Java/C# class).
+- `LanguageInfo.format_name(stem, kind)` cases a stem the way crcglot itself
+  will — `kind="filename"` gives the exact basename `generate_files()` writes,
+  `kind="identifier"` gives the function/method base in the language's idiomatic
+  case (snake/camel/pascal). `LanguageInfo.format_filename(stem)` is the
+  filename shortcut. A UI's "default name" field stays in lockstep with the
+  generated output instead of reimplementing per-language casing.
+- `default_stem(algorithm)` returns the stem crcglot defaults to — the
+  algorithm's own name for a single CRC, `"crc_bundle"` for a bundle — so a UI
+  seeds its name field from crcglot rather than re-deriving
+  `name.replace("-", "_")`. A no-override **bundle** now defaults to
+  `crc_bundle.<ext>` instead of `crcglot.<ext>`.
 - `crc_generate` results now carry a `filename` per file.
 
 Migration / behaviour note: a single-algorithm **Java** generation now defaults

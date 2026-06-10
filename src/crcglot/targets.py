@@ -25,7 +25,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Literal, cast
 
-from crcglot._helpers import _func_name, combine_concat
+from crcglot._helpers import _func_name, _join_naming, combine_concat
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, has_faster_alternative
 
 if TYPE_CHECKING:
@@ -302,6 +302,40 @@ def _pascal_base(base_snake: str) -> str:
     return "".join(t[:1].upper() + t[1:].lower() for t in base_snake.split("_") if t)
 
 
+def default_stem(algorithm: str | Sequence[str]) -> str:
+    """The default filename / identifier stem for a generation.
+
+    The stem :func:`generate_files` uses when no ``name`` / ``symbol`` /
+    ``file_stem`` override is given: the algorithm's own name for a single CRC,
+    or the neutral ``"crc_bundle"`` when several are bundled into one file.
+    Returns the raw (snake) stem -- pass it through
+    :meth:`LanguageInfo.format_filename` / :meth:`LanguageInfo.format_name` to
+    case it for a target.
+
+    Owning this here keeps a UI's "default name" field in lockstep with the file
+    crcglot writes, instead of the app re-deriving ``name.replace("-", "_")``.
+
+    Args:
+        algorithm: One catalogue name, or several to bundle.
+
+    Returns:
+        ``_func_name(name)`` for a single algorithm; ``"crc_bundle"`` for a
+        bundle (two or more distinct names).
+
+    Examples:
+        >>> default_stem("crc16-xmodem")
+        'crc16_xmodem'
+        >>> default_stem(["crc32"])
+        'crc32'
+        >>> default_stem(["crc32", "crc8"])
+        'crc_bundle'
+    """
+    if isinstance(algorithm, str):
+        return _func_name(algorithm)
+    names = list(dict.fromkeys(algorithm))
+    return _func_name(names[0]) if len(names) == 1 else "crc_bundle"
+
+
 @dataclass(frozen=True)
 class LanguageInfo:
     """Typed metadata for one target language.
@@ -460,6 +494,72 @@ class LanguageInfo:
             )
         return base
 
+    def format_name(self, stem: str, kind: str = "filename") -> str:
+        """Case ``stem`` to this target's convention for a filename or identifier.
+
+        The casing crcglot itself applies, exposed so a UI's name field agrees
+        with the generated output instead of reimplementing per-language rules:
+
+        * ``kind="filename"`` -- the output basename (minus extension): path
+          stripped + ``-`` / ``.`` -> ``_`` for snake targets; additionally
+          PascalCased for C# / Java, whose file is named after the public class.
+        * ``kind="identifier"`` -- the public function / method base, cased to
+          the language's idiomatic convention (snake / camel / pascal): e.g.
+          ``crc_bundle`` -> ``crcBundle`` in TypeScript, ``CrcBundle`` in Go.
+
+        Pure and total: whitespace-only / empty input returns unchanged (the
+        caller guards empty before generating).  The casing is not a round-trip
+        (``my_crcs`` and ``MyCrcs`` both yield ``Mycrcs``), so pass the raw stem,
+        not a previously-formatted one.
+
+        Args:
+            stem: Desired stem, without extension.
+            kind: ``"filename"`` (default) or ``"identifier"``.
+
+        Returns:
+            ``stem`` cased for this target and ``kind``.
+
+        Raises:
+            ValueError: ``kind`` is not ``"filename"`` or ``"identifier"``.
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> LANGUAGES["go"].format_name("crc_bundle", "filename")
+            'crc_bundle'
+            >>> LANGUAGES["go"].format_name("crc_bundle", "identifier")
+            'CrcBundle'
+            >>> LANGUAGES["typescript"].format_name("crc-bundle", "identifier")
+            'crcBundle'
+        """
+        if not stem.strip():
+            return stem
+        base = _sanitize_base(stem)
+        if kind == "filename":
+            return _pascal_base(base) if self.filename_case == "pascal" else base
+        if kind == "identifier":
+            convention = naming_convention_for(self.code, self.default_naming)
+            return _join_naming(base.split("_"), convention)
+        raise ValueError(f"kind must be 'filename' or 'identifier'; got {kind!r}")
+
+    def format_filename(self, stem: str) -> str:
+        """Case ``stem`` to this target's filename convention.
+
+        Convenience for :meth:`format_name` with ``kind="filename"`` -- the exact
+        basename :meth:`generate_files` writes for ``file_stem=stem`` (minus
+        extension).  See :meth:`format_name` for the casing rules and the
+        non-round-trip caveat.
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> LANGUAGES["rust"].format_filename("crc_bundle")
+            'crc_bundle'
+            >>> LANGUAGES["java"].format_filename("crc32")
+            'Crc32'
+            >>> LANGUAGES["csharp"].format_filename("crc-bundle")
+            'CrcBundle'
+        """
+        return self.format_name(stem, "filename")
+
     def generate_files(
         self,
         algorithm: str | Sequence[str] | None = None,
@@ -550,7 +650,7 @@ class LanguageInfo:
             base = (
                 _sanitize_base(name) if name
                 else _sanitize_base(file_stem) if file_stem
-                else "crcglot"
+                else default_stem(names)
             )
         elif symbol is not None:
             base = symbol
@@ -559,7 +659,7 @@ class LanguageInfo:
         elif file_stem is not None:
             base = _sanitize_base(file_stem)
         else:
-            base = _func_name(display0)
+            base = default_stem(display0)
 
         # file_stem (when given) names the file independently of the in-code
         # base -- so `file=out symbol=foo` writes out.* with a foo() inside.

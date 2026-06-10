@@ -284,6 +284,7 @@ Each entry is a frozen `LanguageInfo` dataclass with:
 - `combiner(outputs, stem)`: merge several generator outputs into one file (powers multi-algorithm bundling); per-symbol tables keep the merge collision-free
 - `emoji`: single-grapheme pictographic identifier for terminals / docs
 - `display_name`: human-readable name (e.g. `"C / C++"`, `"TypeScript"`), distinct from `code`
+- UI helpers: `generate_files(...)` returns ready-to-write `GeneratedFile`s; `format_name(stem, kind)` / `format_filename(stem)` case a stem to the identifier or filename crcglot will actually emit; `validate_symbol(stem)` pre-checks a name.  Module-level `default_stem(algorithm)` gives the stem crcglot defaults to (the algorithm name, or `crc_bundle` for a bundle) — so a UI's name field stays in lockstep with the generated output instead of reimplementing per-language casing
 
 ### `ALGORITHMS`: the reveng CRC catalogue
 
