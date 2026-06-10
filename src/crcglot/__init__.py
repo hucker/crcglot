@@ -37,6 +37,13 @@ Public API:
           path and available for field use when defining a one-off
           CRC).
         - _reflect: internal bit-reversal helper.
+
+    Checksum identification (non-CRC, heads-up only -- no code generation):
+        - identify_checksum / ChecksumResult: spot a common non-CRC checksum
+          (8-bit sum / LRC / XOR, Adler-32, Fletcher, Internet checksum) in a
+          packet; also surfaced as detect()/reverse() ``.checksum_hint`` when no
+          CRC matched.  CHECKSUMS / ChecksumInfo / checksum_info mirror the
+          ALGORITHMS metadata pattern.
 """
 
 from __future__ import annotations
@@ -52,6 +59,14 @@ from crcglot.catalogue import (
     generic_crc,
     generic_crc_many,
     has_faster_alternative,
+)
+from crcglot.checksums import (
+    CHECKSUMS,
+    ChecksumInfo,
+    ChecksumMatch,
+    ChecksumResult,
+    checksum_info,
+    identify_checksum,
 )
 from crcglot.detect import (
     Attempt,
@@ -109,9 +124,13 @@ __all__ = [
     "ACKNOWLEDGMENTS",
     "ALGORITHMS",
     "ATTRIBUTION",
+    "CHECKSUMS",
     "Advisory",
     "AlgorithmInfo",
     "Attempt",
+    "ChecksumInfo",
+    "ChecksumMatch",
+    "ChecksumResult",
     "Crc",
     "CrcStream",
     "DetectMatch",
@@ -134,6 +153,8 @@ __all__ = [
     "variant_info",
     "detect",
     "detect_iter",
+    "identify_checksum",
+    "checksum_info",
     "encode",
     "encode_int",
     "encode_match",

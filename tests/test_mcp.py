@@ -48,6 +48,46 @@ def _call(tool: str, args: dict) -> dict:
     return payload
 
 
+def _lrc_frames_hex() -> list[str]:
+    """A few frames carrying an 8-bit LRC trailer, as hex strings."""
+    from crcglot.checksums import _lrc8
+
+    msgs = [b"123456789", b"hello world", b"\x01\x02\x03\x04\x05"]
+    return [(m + bytes([_lrc8(m)])).hex() for m in msgs]
+
+
+class TestCrcIdentifyChecksum:
+    """``crc_identify_checksum`` (identification only) + the checksum_hint
+    fields on crc_detect / crc_reverse."""
+
+    def test_identifies_lrc_with_frames_agreed(self):
+        # Act
+        out = _call("crc_identify_checksum", {"packets": _lrc_frames_hex()})
+        # Assert
+        names = {c["checksum"] for c in out["candidates"]}
+        assert out["matched"], f"expected a checksum match, got {out}"
+        assert "lrc8" in names, f"expected lrc8, got {names}"
+        assert out["frames_agreed"] == 3, (
+            f"frames_agreed should be 3, got {out['frames_agreed']}"
+        )
+
+    def test_crc_detect_surfaces_checksum_hint(self):
+        # Act -- a single LRC frame: no CRC matches, hint present.
+        out = _call("crc_detect", {"packet_hex": _lrc_frames_hex()[0]})
+        # Assert
+        assert not out["matched"], "an LRC frame is not a catalogue CRC"
+        assert out["checksum_hint"] is not None, "expected a checksum_hint"
+        names = {c["checksum"] for c in out["checksum_hint"]["candidates"]}
+        assert "lrc8" in names, f"hint should name lrc8, got {names}"
+
+    def test_crc_detect_real_crc_has_no_hint(self):
+        # Act / Assert -- a genuine crc32 frame matches, so no hint runs.
+        out = _call(
+            "crc_detect", {"packet_hex": encode(b"123456789", "crc32").hex()})
+        assert out["matched"], "crc32 frame should match"
+        assert out["checksum_hint"] is None, "no hint when a CRC matched"
+
+
 # ---------------------------------------------------------------------------
 # crc_list
 # ---------------------------------------------------------------------------
@@ -889,7 +929,7 @@ class TestToolAnnotations:
         tools = _run(mcp.list_tools())
 
         # Assert -- the whole surface, so a new tool can't slip through.
-        assert len(tools) == 10, f"expected 10 tools, got {len(tools)}"
+        assert len(tools) == 11, f"expected 11 tools, got {len(tools)}"
         for t in tools:
             a = t.annotations
             assert a is not None, f"{t.name}: missing annotations"

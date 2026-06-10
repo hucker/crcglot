@@ -890,3 +890,30 @@ class TestMain:
         parser = build_parser()
         assert hasattr(parser, "parse_args")
         assert parser.prog == "crcglot"
+
+
+class TestChecksumCommand:
+    """``crcglot checksum`` identifies a non-CRC checksum; ``detect`` prints it
+    as a hint when no CRC matches."""
+
+    def _lrc_frame_hex(self) -> str:
+        from crcglot.checksums import _lrc8
+
+        d = b"123456789"
+        return (d + bytes([_lrc8(d)])).hex()
+
+    def test_checksum_command_identifies_lrc(self, capsys):
+        # Act
+        rc = main(["checksum", "--hex", self._lrc_frame_hex()])
+        out, _err = capsys.readouterr()
+        # Assert
+        assert rc == 0, "checksum command should match an LRC frame"
+        assert "lrc8" in out, f"expected lrc8 in stdout, got {out!r}"
+
+    def test_detect_prints_checksum_hint_on_no_match(self, capsys):
+        # Act
+        rc = main(["detect", "--hex", self._lrc_frame_hex()])
+        _out, err = capsys.readouterr()
+        # Assert
+        assert rc == 1, "no catalogue CRC matches this LRC frame"
+        assert "lrc8" in err, f"detect should print the checksum hint, got {err!r}"

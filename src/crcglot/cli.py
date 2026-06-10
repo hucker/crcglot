@@ -178,6 +178,63 @@ def _read_text_packets(arg: str) -> list[str]:
     return [arg]
 
 
+def _format_checksum_lines(hint: object) -> list[str]:
+    """Render a ``ChecksumResult``'s candidates as ``key=value`` lines."""
+    lines = []
+    for m in hint.candidates:  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        lines.append(
+            f"{m.name}  width={m.info.width}  endianness={m.endianness}"
+            f"  frames_agreed={hint.frames_agreed}"  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+            f"  ({m.info.label})"
+        )
+    return lines
+
+
+def _cmd_checksum(args: argparse.Namespace) -> int:
+    """Run the ``crcglot checksum`` subcommand.
+
+    Identifies a non-CRC checksum (8-bit sum / LRC / XOR, Adler-32, Fletcher,
+    Internet checksum) in a packet's trailing field.  Identification only --
+    crcglot does not generate code for these; this is a heads-up.
+
+    Args:
+        args: Parsed argparse namespace for the ``checksum`` subparser.
+
+    Returns:
+        ``0`` on at least one match, ``1`` on no match, ``2`` on invalid input.
+    """
+    if args.text is not None:
+        packets: list[str] | list[bytes] = _read_text_packets(args.text)
+        mode = "text"
+    elif args.hex is not None:
+        try:
+            packets = [bytes.fromhex(args.hex)]
+        except ValueError as e:
+            print(f"Error: invalid hex string: {e}", file=sys.stderr)
+            return 2
+        mode = "binary"
+    else:
+        try:
+            packets = _read_binary_packets(args.inputs)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+        mode = "binary"
+
+    from crcglot import identify_checksum  # local import to avoid cycles
+
+    result = identify_checksum(
+        packets, mode=mode, encoding=args.encoding,
+        endian=args.endian, checksums=args.checksums,
+    )
+    if not result.matched:
+        print("No checksum match.", file=sys.stderr)
+        return 1
+    for line in _format_checksum_lines(result):
+        print(line)
+    return 0
+
+
 def _cmd_detect(args: argparse.Namespace) -> int:
     """Run the ``crcglot detect`` subcommand.
 
@@ -220,6 +277,10 @@ def _cmd_detect(args: argparse.Namespace) -> int:
     )
     if not result.matched:
         print("No match.", file=sys.stderr)
+        if result.checksum_hint is not None:
+            print("Possible non-CRC checksum (heads-up):", file=sys.stderr)
+            for line in _format_checksum_lines(result.checksum_hint):
+                print(f"  {line}", file=sys.stderr)
         return 1
 
     from crcglot import HexFormat, TextFormat  # imported here to avoid cycles
@@ -622,6 +683,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Encoding for text-mode data portion (default: utf-8)",
     )
 
+    # crcglot checksum [packet.bin ...] [--text TEXT|--hex HEX]
+    p_cksum = subs.add_parser(
+        "checksum",
+        help="Identify a non-CRC checksum in a packet (heads-up; no code gen)",
+    )
+    p_cksum.add_argument(
+        "inputs", nargs="*",
+        help="Binary packet files (or '-' for stdin); ignored with --text/--hex",
+    )
+    p_cksum.add_argument(
+        "--text", metavar="TEXT",
+        help="Text packet ('data <sep> hex', or '-' for stdin)",
+    )
+    p_cksum.add_argument(
+        "--hex", metavar="HEX", help="Binary packet supplied as a hex string",
+    )
+    p_cksum.add_argument(
+        "--endian", choices=["big", "little", "both"], default="both",
+        help="Byte order of the trailing field for 16/32-bit checksums "
+             "(default: both)",
+    )
+    p_cksum.add_argument(
+        "--checksums", metavar="GLOB",
+        help="fnmatch glob to narrow the candidates (e.g. 'fletcher*')",
+    )
+    p_cksum.add_argument(
+        "--encoding", default="utf-8",
+        help="Encoding for text-mode data portion (default: utf-8)",
+    )
+
     # crcglot encode <algorithm> [<data>] [--binary] [--little] [--sep STR] ...
     p_encode = subs.add_parser(
         "encode",
@@ -797,6 +888,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_info(args)
     if args.command == "detect":
         return _cmd_detect(args)
+    if args.command == "checksum":
+        return _cmd_checksum(args)
     if args.command == "encode":
         return _cmd_encode(args)
     if args.command == "compute":

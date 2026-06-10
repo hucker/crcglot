@@ -49,6 +49,15 @@ way instead of branching on the format type.
   the `algorithms="crc16-*"` glob workaround.
 - `LanguageInfo.variants_for_widths(widths)` — the variant set valid across a
   multi-width bundle (the intersection), so a UI no longer computes it itself.
+- Non-CRC checksum identifier: `identify_checksum()` / `ChecksumResult` spot a
+  common non-CRC checksum (8-bit sum / LRC / one's-complement / XOR, 16-bit sum,
+  Internet checksum, Fletcher-16, Fletcher-32, Adler-32) in a packet's trailing
+  field — identification only, no code generation.  It surfaces as a
+  `.checksum_hint` on `detect()` / `reverse()` results when no CRC matched, a
+  `crcglot checksum` CLI subcommand, and a `crc_identify_checksum` MCP tool
+  (with `checksum_hint` added to `crc_detect` / `crc_reverse` output).
+  Confidence scales with `frames_agreed`: the more frames that corroborate, the
+  more trustworthy the call.
 
 ### Fixed
 

@@ -27,10 +27,13 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
-from typing import Iterator, Literal, cast
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Iterator, Literal, cast
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
+
+if TYPE_CHECKING:
+    from crcglot.checksums import ChecksumResult
 
 
 # A "packet" is either a bytes-like value (binary mode) or a string
@@ -217,10 +220,16 @@ class DetectResult:
         matched: ``True`` if at least one candidate matched.
         candidates: All surviving :class:`DetectMatch` entries, in scan
             order (priority head first, then catalogue).
+        checksum_hint: When no CRC matched, a
+            :class:`~crcglot.checksums.ChecksumResult` if the trailing field
+            looks like a non-CRC checksum (8-bit sum / LRC / XOR, Adler-32,
+            Fletcher, Internet checksum); ``None`` otherwise.  A heads-up only
+            -- crcglot does not generate code for these.
     """
 
     matched: bool
     candidates: tuple[DetectMatch, ...] = field(default_factory=tuple)
+    checksum_hint: ChecksumResult | None = None
 
     def __bool__(self) -> bool:
         return self.matched
@@ -232,6 +241,27 @@ class DetectResult:
     @property
     def endianness(self) -> Endianness | None:
         return self.candidates[0].endianness if self.candidates else None
+
+
+def _with_checksum_hint(
+    result: DetectResult,
+    packets: list[Packet],
+    *,
+    mode: str,
+    encoding: str,
+    endian: EndianSelector,
+) -> DetectResult:
+    """Attach a non-CRC checksum hint when no CRC matched (else a no-op).
+
+    Lazily imports :mod:`crcglot.checksums` (which imports from this module) to
+    avoid an import cycle.
+    """
+    if result.matched:
+        return result
+    from crcglot.checksums import identify_checksum
+
+    hint = identify_checksum(packets, mode=mode, endian=endian, encoding=encoding)
+    return replace(result, checksum_hint=hint) if hint.matched else result
 
 
 # ---------------------------------------------------------------------------
@@ -705,7 +735,10 @@ def detect(
         result = _run_detect(
             decoded_bytes_explicit, "binary", names, encoding, match, endian,
         )
-        return _attach_padding(result, hex_format)
+        return _with_checksum_hint(
+            _attach_padding(result, hex_format), packets,
+            mode=mode, encoding=encoding, endian=endian,
+        )
     if mode == "auto" and str_count == len(packets) and str_count > 0:
         parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
         if all(p is not None for p in parsed):
@@ -733,7 +766,10 @@ def detect(
         # Fall through to text mode for the original str packets.
 
     actual_mode = _resolve_mode(packets, mode)
-    return _run_detect(packets, actual_mode, names, encoding, match, endian)
+    result = _run_detect(packets, actual_mode, names, encoding, match, endian)
+    return _with_checksum_hint(
+        result, packets, mode=mode, encoding=encoding, endian=endian,
+    )
 
 
 def _run_detect(

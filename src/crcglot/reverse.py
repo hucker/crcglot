@@ -56,6 +56,7 @@ from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, Crc, _reflect, generic_crc
+from crcglot.checksums import ChecksumResult, _identify_checksum_pairs
 from crcglot.detect import _parse_text, _read_hex_crc
 
 Codeword = tuple[bytes, int]
@@ -278,6 +279,12 @@ class ReverseResult:
             model correctly predicted, or ``-1`` if held-out validation didn't
             run.  Empirical confidence, no math required.
         note: Human-readable summary and guidance.
+        checksum_hint: When no CRC was found (status ``"none"`` /
+            ``"underdetermined"``), a
+            :class:`~crcglot.checksums.ChecksumResult` if the codewords look
+            like a non-CRC checksum (8-bit sum / LRC / XOR, Adler-32, Fletcher,
+            Internet checksum); ``None`` otherwise.  A heads-up only -- crcglot
+            does not generate code for these.
     """
 
     status: Status
@@ -286,6 +293,7 @@ class ReverseResult:
     ambiguity_bits: int = 0
     validated_frames: int = -1
     note: str = ""
+    checksum_hint: ChecksumResult | None = None
 
     def __bool__(self) -> bool:
         return self.status not in ("none", "underdetermined")
@@ -461,6 +469,7 @@ def reverse(
             status="none",
             note="no catalogue algorithm matches; pass std_algo_only=False to "
                  "attempt algebraic recovery of a custom algorithm",
+            checksum_hint=_identify_checksum_pairs(codewords) or None,
         )
 
     # ----- Tier 2: algebraic recovery -----
@@ -491,7 +500,10 @@ def reverse(
                 "could not pin the polynomial -- supply more frames: at least two "
                 "of the same length (varied in content) feed the polynomial GCD, "
                 "plus other lengths to separate init from xorout.")
-        return ReverseResult(status="underdetermined", note=note)
+        return ReverseResult(
+            status="underdetermined", note=note,
+            checksum_hint=_identify_checksum_pairs(codewords) or None,
+        )
     w, p, ri, ro, members, dim = solved
 
     # Canonical representative: prefer a member that names a catalogue entry.

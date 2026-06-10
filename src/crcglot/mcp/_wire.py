@@ -212,3 +212,32 @@ def detect_match_to_dict(match: Any) -> dict[str, Any]:
         out["padding_kind"] = type(pad).__name__
         out["padding"] = {k: v for k, v in vars(pad).items() if not k.startswith("_")}
     return out
+
+
+def checksum_match_to_dict(match: Any) -> dict[str, Any]:
+    """Serialize one :class:`crcglot.ChecksumMatch` for JSON output.
+
+    Mirrors :func:`detect_match_to_dict`'s ``endianness -> crc_byte_order``
+    relabel.  An 8-bit checksum is byte-order-invariant (always ``"big"``);
+    16/32-bit respects the field's byte order.
+    """
+    return {
+        "checksum": match.name,
+        "label": match.info.label,
+        "width": match.info.width,
+        "crc_byte_order": match.endianness,
+    }
+
+
+def checksum_result_to_dict(result: Any) -> dict[str, Any]:
+    """Serialize a :class:`crcglot.ChecksumResult` (the non-CRC heads-up).
+
+    ``frames_agreed`` is the confidence signal -- one frame is weak (an 8-bit
+    checksum matches a random frame ~1/256); more agreeing frames make it
+    trustworthy.
+    """
+    return {
+        "matched": result.matched,
+        "frames_agreed": result.frames_agreed,
+        "candidates": [checksum_match_to_dict(m) for m in result.candidates],
+    }
