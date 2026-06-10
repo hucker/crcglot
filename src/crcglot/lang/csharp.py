@@ -7,8 +7,8 @@ containing five methods:
   - ``<fname>_update(state, data)`` -- feed bytes, return new state
   - ``<fname>_finalize(state)`` -- apply output reflection + xorout
   - ``<fname>(data)`` -- one-shot wrapper (init + update + finalize)
-  - ``<fname>_self_test()`` -- True iff the algorithm reproduces the
-    reveng catalogue's canonical check value
+  - ``<fname>_self_test()`` -- True iff the algorithm reproduces its
+    independent reference values
 
 The streaming primitives let callers compute a CRC over data that
 arrives in chunks (file streams, network buffers, log shards) without
@@ -52,6 +52,7 @@ from crcglot._helpers import (
     resolve_variant,
     crc_function_names,
 )
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -387,14 +388,50 @@ def _update_loop_csharp(
     ]
 
 
-def _self_test_csharp(names, check, width, style, docs) -> list[str]:
-    """Emit a static method returning true on success."""
+def _self_test_csharp(names, check, width, cstype, style, docs, goldens) -> list[str]:
+    """Emit a static method returning true on success.
+
+    For a catalogue algorithm ``goldens`` carries four independent
+    reference CRCs; the two large inputs are reproduced with
+    byte-at-a-time loops (no embedded array).  A custom polynomial
+    (``goldens is None``) falls back to the single ``check`` assertion.
+    """
+    n = names
+    if goldens is None:
+        return [
+            *style.doc_block(docs["self_test"], indent=4),
+            f"    public static bool {n['self_test']}() {{",
+            f"        return {n['oneshot']}({_check_input_bytes_cs()}) == "
+            f"{_cs_hex(check, width)};",
+            "    }",
+        ]
+    g = goldens
     return [
         *style.doc_block(docs["self_test"], indent=4),
-        f"    public static bool {names['self_test']}() {{",
-        f"        return {names['oneshot']}({_check_input_bytes_cs()}) == "
-        f"{_cs_hex(check, width)};",
-        f"    }}",
+        f"    public static bool {n['self_test']}() {{",
+        f"        if ({n['oneshot']}(new byte[0]) != {_cs_hex(g['empty'], width)}) "
+        "return false;",
+        f"        if ({n['oneshot']}({_check_input_bytes_cs()}) != "
+        f"{_cs_hex(g['check'], width)}) return false;",
+        "        {",
+        f"            {cstype} s = {n['init']}();",
+        "            for (int i = 0; i < 256; i++) {",
+        f"                s = {n['update']}(s, new byte[] {{ (byte)i }});",
+        "            }",
+        f"            if ({n['finalize']}(s) != {_cs_hex(g['all_bytes'], width)}) "
+        "return false;",
+        "        }",
+        "        {",
+        f"            {cstype} s = {n['init']}();",
+        "            for (int i = 0; i < 1024; i++) {",
+        f"                s = {n['update']}("
+        "s, new byte[] { (byte)((i * 167 + 13) & 0xFF) });",
+        "            }",
+        f"            if ({n['finalize']}(s) != {_cs_hex(g['binary_1k'], width)}) "
+        "return false;",
+        "        }",
+        "        return true;",
+        "    }",
     ]
 
 
@@ -599,7 +636,9 @@ def generate_csharp_from_entry(
     lines.append("")
 
     # ----- self-test -----
-    lines.extend(_self_test_csharp(names, check, w, style, docs))
+    lines.extend(
+        _self_test_csharp(names, check, w, cstype, style, docs, goldens_for(algo))
+    )
 
     lines.append(f"}}")
     _ = mask  # currently unused at top-level scope; consumed via inline helpers

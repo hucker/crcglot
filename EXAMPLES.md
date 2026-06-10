@@ -104,9 +104,11 @@ uint32_t crc32_finalize(uint32_t state);
  */
 uint32_t crc32(const uint8_t *data, size_t len);
 
-/* Self-test the implementation against the reveng catalogue.
+/* Self-test the implementation against independent reference CRCs.
  *
- * Returns 0 iff the CRC of "123456789" matches the embedded check value.
+ * Returns 0 iff the generated CRC reproduces every embedded reference value.
+ *
+ * Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
  *
  * Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
  */
@@ -169,7 +171,25 @@ uint32_t crc32(const uint8_t *data, size_t len) {
 
 int crc32_self_test(void) {
     static const uint8_t kCheckInput[] = "123456789";
-    return crc32(kCheckInput, 9) == 0xCBF43926 ? 0 : 1;
+    if (crc32(kCheckInput, 0) != 0x00000000) return 1;
+    if (crc32(kCheckInput, 9) != 0xCBF43926) return 1;
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 256; i++) {
+            uint8_t b = (uint8_t)i;
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x29058C73) return 1;
+    }
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 1024; i++) {
+            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFF);
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x6D4552DB) return 1;
+    }
+    return 0;
 }
 ```
 
@@ -255,9 +275,11 @@ uint32_t crc32_finalize(uint32_t state);
  */
 uint32_t crc32(const uint8_t *data, size_t len);
 
-/* Self-test the implementation against the reveng catalogue.
+/* Self-test the implementation against independent reference CRCs.
  *
- * Returns 0 iff the CRC of "123456789" matches the embedded check value.
+ * Returns 0 iff the generated CRC reproduces every embedded reference value.
+ *
+ * Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
  *
  * Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
  */
@@ -348,7 +370,25 @@ uint32_t crc32(const uint8_t *data, size_t len) {
 
 int crc32_self_test(void) {
     static const uint8_t kCheckInput[] = "123456789";
-    return crc32(kCheckInput, 9) == 0xCBF43926 ? 0 : 1;
+    if (crc32(kCheckInput, 0) != 0x00000000) return 1;
+    if (crc32(kCheckInput, 9) != 0xCBF43926) return 1;
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 256; i++) {
+            uint8_t b = (uint8_t)i;
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x29058C73) return 1;
+    }
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 1024; i++) {
+            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFF);
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x6D4552DB) return 1;
+    }
+    return 0;
 }
 ```
 
@@ -434,9 +474,11 @@ uint32_t crc32_finalize(uint32_t state);
  */
 uint32_t crc32(const uint8_t *data, size_t len);
 
-/* Self-test the implementation against the reveng catalogue.
+/* Self-test the implementation against independent reference CRCs.
  *
- * Returns 0 iff the CRC of "123456789" matches the embedded check value.
+ * Returns 0 iff the generated CRC reproduces every embedded reference value.
+ *
+ * Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
  *
  * Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
  */
@@ -779,7 +821,25 @@ uint32_t crc32(const uint8_t *data, size_t len) {
 
 int crc32_self_test(void) {
     static const uint8_t kCheckInput[] = "123456789";
-    return crc32(kCheckInput, 9) == 0xCBF43926 ? 0 : 1;
+    if (crc32(kCheckInput, 0) != 0x00000000) return 1;
+    if (crc32(kCheckInput, 9) != 0xCBF43926) return 1;
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 256; i++) {
+            uint8_t b = (uint8_t)i;
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x29058C73) return 1;
+    }
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 1024; i++) {
+            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFF);
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x6D4552DB) return 1;
+    }
+    return 0;
 }
 ```
 
@@ -869,13 +929,31 @@ public static class Crc32
         return Crc32Finalize(Crc32Update(Crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static bool Crc32SelfTest() {
-        return Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926u;
+        if (Crc32(new byte[0]) != 0x00000000u) return false;
+        if (Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926u) return false;
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = Crc32Update(s, new byte[] { (byte)i });
+            }
+            if (Crc32Finalize(s) != 0x29058C73u) return false;
+        }
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = Crc32Update(s, new byte[] { (byte)((i * 167 + 13) & 0xFF) });
+            }
+            if (Crc32Finalize(s) != 0x6D4552DBu) return false;
+        }
+        return true;
     }
 }
 ```
@@ -995,13 +1073,31 @@ public static class Crc32
         return Crc32Finalize(Crc32Update(Crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static bool Crc32SelfTest() {
-        return Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926u;
+        if (Crc32(new byte[0]) != 0x00000000u) return false;
+        if (Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926u) return false;
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = Crc32Update(s, new byte[] { (byte)i });
+            }
+            if (Crc32Finalize(s) != 0x29058C73u) return false;
+        }
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = Crc32Update(s, new byte[] { (byte)((i * 167 + 13) & 0xFF) });
+            }
+            if (Crc32Finalize(s) != 0x6D4552DBu) return false;
+        }
+        return true;
     }
 }
 ```
@@ -1373,13 +1469,31 @@ public static class Crc32
         return Crc32Finalize(Crc32Update(Crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static bool Crc32SelfTest() {
-        return Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926u;
+        if (Crc32(new byte[0]) != 0x00000000u) return false;
+        if (Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926u) return false;
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = Crc32Update(s, new byte[] { (byte)i });
+            }
+            if (Crc32Finalize(s) != 0x29058C73u) return false;
+        }
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = Crc32Update(s, new byte[] { (byte)((i * 167 + 13) & 0xFF) });
+            }
+            if (Crc32Finalize(s) != 0x6D4552DBu) return false;
+        }
+        return true;
     }
 }
 ```
@@ -1469,13 +1583,35 @@ func Crc32(data []byte) uint32 {
     return Crc32Finalize(Crc32Update(Crc32Init(), data))
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 func Crc32SelfTest() bool {
-    return Crc32([]byte("123456789")) == 0xCBF43926
+    if Crc32([]byte("")) != 0x00000000 {
+        return false
+    }
+    if Crc32([]byte("123456789")) != 0xCBF43926 {
+        return false
+    }
+    s := Crc32Init()
+    for i := 0; i < 256; i++ {
+        s = Crc32Update(s, []byte{byte(i)})
+    }
+    if Crc32Finalize(s) != 0x29058C73 {
+        return false
+    }
+    s = Crc32Init()
+    for i := 0; i < 1024; i++ {
+        s = Crc32Update(s, []byte{byte((i*167 + 13) & 0xFF)})
+    }
+    if Crc32Finalize(s) != 0x6D4552DB {
+        return false
+    }
+    return true
 }
 ```
 
@@ -1592,13 +1728,35 @@ func Crc32(data []byte) uint32 {
     return Crc32Finalize(Crc32Update(Crc32Init(), data))
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 func Crc32SelfTest() bool {
-    return Crc32([]byte("123456789")) == 0xCBF43926
+    if Crc32([]byte("")) != 0x00000000 {
+        return false
+    }
+    if Crc32([]byte("123456789")) != 0xCBF43926 {
+        return false
+    }
+    s := Crc32Init()
+    for i := 0; i < 256; i++ {
+        s = Crc32Update(s, []byte{byte(i)})
+    }
+    if Crc32Finalize(s) != 0x29058C73 {
+        return false
+    }
+    s = Crc32Init()
+    for i := 0; i < 1024; i++ {
+        s = Crc32Update(s, []byte{byte((i*167 + 13) & 0xFF)})
+    }
+    if Crc32Finalize(s) != 0x6D4552DB {
+        return false
+    }
+    return true
 }
 ```
 
@@ -1965,13 +2123,35 @@ func Crc32(data []byte) uint32 {
     return Crc32Finalize(Crc32Update(Crc32Init(), data))
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 func Crc32SelfTest() bool {
-    return Crc32([]byte("123456789")) == 0xCBF43926
+    if Crc32([]byte("")) != 0x00000000 {
+        return false
+    }
+    if Crc32([]byte("123456789")) != 0xCBF43926 {
+        return false
+    }
+    s := Crc32Init()
+    for i := 0; i < 256; i++ {
+        s = Crc32Update(s, []byte{byte(i)})
+    }
+    if Crc32Finalize(s) != 0x29058C73 {
+        return false
+    }
+    s = Crc32Init()
+    for i := 0; i < 1024; i++ {
+        s = Crc32Update(s, []byte{byte((i*167 + 13) & 0xFF)})
+    }
+    if Crc32Finalize(s) != 0x6D4552DB {
+        return false
+    }
+    return true
 }
 ```
 
@@ -2064,13 +2244,31 @@ public final class CrcGlot {
         return crc32Finalize(crc32Update(crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static boolean crc32SelfTest() {
-        return crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926;
+        if (crc32(new byte[0]) != 0x00000000) return false;
+        if (crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926) return false;
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = crc32Update(s, new byte[] { (byte) i });
+            }
+            if (crc32Finalize(s) != 0x29058C73) return false;
+        }
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = crc32Update(s, new byte[] { (byte) ((i * 167 + 13) & 0xFF) });
+            }
+            if (crc32Finalize(s) != 0x6D4552DB) return false;
+        }
+        return true;
     }
 }
 ```
@@ -2193,13 +2391,31 @@ public final class CrcGlot {
         return crc32Finalize(crc32Update(crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static boolean crc32SelfTest() {
-        return crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926;
+        if (crc32(new byte[0]) != 0x00000000) return false;
+        if (crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926) return false;
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = crc32Update(s, new byte[] { (byte) i });
+            }
+            if (crc32Finalize(s) != 0x29058C73) return false;
+        }
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = crc32Update(s, new byte[] { (byte) ((i * 167 + 13) & 0xFF) });
+            }
+            if (crc32Finalize(s) != 0x6D4552DB) return false;
+        }
+        return true;
     }
 }
 ```
@@ -2574,13 +2790,31 @@ public final class CrcGlot {
         return crc32Finalize(crc32Update(crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static boolean crc32SelfTest() {
-        return crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926;
+        if (crc32(new byte[0]) != 0x00000000) return false;
+        if (crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926) return false;
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = crc32Update(s, new byte[] { (byte) i });
+            }
+            if (crc32Finalize(s) != 0x29058C73) return false;
+        }
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = crc32Update(s, new byte[] { (byte) ((i * 167 + 13) & 0xFF) });
+            }
+            if (crc32Finalize(s) != 0x6D4552DB) return false;
+        }
+        return true;
     }
 }
 ```
@@ -2674,13 +2908,29 @@ def crc32(data: bytes) -> int:
 
 
 def crc32_self_test() -> bool:
-    """Self-test the implementation against the reveng catalogue.
+    """Self-test the implementation against independent reference CRCs.
 
-    Returns True iff the CRC of "123456789" matches the embedded check value.
+    Returns True iff the generated CRC reproduces every embedded reference value.
+
+    Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 
     Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     """
-    return crc32(b"123456789") == 0xCBF43926
+    if crc32(b"") != 0x00000000:
+        return False
+    if crc32(b"123456789") != 0xCBF43926:
+        return False
+    s = crc32_init()
+    for i in range(256):
+        s = crc32_update(s, bytes([i]))
+    if crc32_finalize(s) != 0x29058C73:
+        return False
+    s = crc32_init()
+    for i in range(1024):
+        s = crc32_update(s, bytes([(i * 167 + 13) & 0xFF]))
+    if crc32_finalize(s) != 0x6D4552DB:
+        return False
+    return True
 ```
 
 </details>
@@ -2804,13 +3054,29 @@ def crc32(data: bytes) -> int:
 
 
 def crc32_self_test() -> bool:
-    """Self-test the implementation against the reveng catalogue.
+    """Self-test the implementation against independent reference CRCs.
 
-    Returns True iff the CRC of "123456789" matches the embedded check value.
+    Returns True iff the generated CRC reproduces every embedded reference value.
+
+    Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 
     Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     """
-    return crc32(b"123456789") == 0xCBF43926
+    if crc32(b"") != 0x00000000:
+        return False
+    if crc32(b"123456789") != 0xCBF43926:
+        return False
+    s = crc32_init()
+    for i in range(256):
+        s = crc32_update(s, bytes([i]))
+    if crc32_finalize(s) != 0x29058C73:
+        return False
+    s = crc32_init()
+    for i in range(1024):
+        s = crc32_update(s, bytes([(i * 167 + 13) & 0xFF]))
+    if crc32_finalize(s) != 0x6D4552DB:
+        return False
+    return True
 ```
 
 </details>
@@ -2896,13 +3162,35 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-/// Self-test the implementation against the reveng catalogue.
+/// Self-test the implementation against independent reference CRCs.
 ///
-/// Returns true iff the CRC of "123456789" matches the embedded check value.
+/// Returns true iff the generated CRC reproduces every embedded reference value.
+///
+/// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 ///
 /// Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 pub fn crc32_self_test() -> bool {
-    crc32(b"123456789") == 0xCBF43926_u32
+    if crc32(b"") != 0x00000000_u32 {
+        return false;
+    }
+    if crc32(b"123456789") != 0xCBF43926_u32 {
+        return false;
+    }
+    let mut s = crc32_init();
+    for i in 0u32..256 {
+        s = crc32_update(s, &[i as u8]);
+    }
+    if crc32_finalize(s) != 0x29058C73_u32 {
+        return false;
+    }
+    s = crc32_init();
+    for i in 0u32..1024 {
+        s = crc32_update(s, &[((i * 167 + 13) & 0xFF) as u8]);
+    }
+    if crc32_finalize(s) != 0x6D4552DB_u32 {
+        return false;
+    }
+    true
 }
 ```
 
@@ -3017,13 +3305,35 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-/// Self-test the implementation against the reveng catalogue.
+/// Self-test the implementation against independent reference CRCs.
 ///
-/// Returns true iff the CRC of "123456789" matches the embedded check value.
+/// Returns true iff the generated CRC reproduces every embedded reference value.
+///
+/// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 ///
 /// Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 pub fn crc32_self_test() -> bool {
-    crc32(b"123456789") == 0xCBF43926_u32
+    if crc32(b"") != 0x00000000_u32 {
+        return false;
+    }
+    if crc32(b"123456789") != 0xCBF43926_u32 {
+        return false;
+    }
+    let mut s = crc32_init();
+    for i in 0u32..256 {
+        s = crc32_update(s, &[i as u8]);
+    }
+    if crc32_finalize(s) != 0x29058C73_u32 {
+        return false;
+    }
+    s = crc32_init();
+    for i in 0u32..1024 {
+        s = crc32_update(s, &[((i * 167 + 13) & 0xFF) as u8]);
+    }
+    if crc32_finalize(s) != 0x6D4552DB_u32 {
+        return false;
+    }
+    true
 }
 ```
 
@@ -3401,13 +3711,35 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-/// Self-test the implementation against the reveng catalogue.
+/// Self-test the implementation against independent reference CRCs.
 ///
-/// Returns true iff the CRC of "123456789" matches the embedded check value.
+/// Returns true iff the generated CRC reproduces every embedded reference value.
+///
+/// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 ///
 /// Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 pub fn crc32_self_test() -> bool {
-    crc32(b"123456789") == 0xCBF43926_u32
+    if crc32(b"") != 0x00000000_u32 {
+        return false;
+    }
+    if crc32(b"123456789") != 0xCBF43926_u32 {
+        return false;
+    }
+    let mut s = crc32_init();
+    for i in 0u32..256 {
+        s = crc32_update(s, &[i as u8]);
+    }
+    if crc32_finalize(s) != 0x29058C73_u32 {
+        return false;
+    }
+    s = crc32_init();
+    for i in 0u32..1024 {
+        s = crc32_update(s, &[((i * 167 + 13) & 0xFF) as u8]);
+    }
+    if crc32_finalize(s) != 0x6D4552DB_u32 {
+        return false;
+    }
+    true
 }
 ```
 
@@ -3494,14 +3826,31 @@ export function crc32(data: Uint8Array): number {
     return crc32Finalize(crc32Update(crc32Init(), data));
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 export function crc32SelfTest(): boolean {
-    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);
-    return crc32(input) === 0xCBF43926;
+    if (crc32(new Uint8Array([])) !== 0x00000000) return false;
+    if (crc32(new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39])) !== 0xCBF43926) return false;
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 256; i++) {
+            s = crc32Update(s, new Uint8Array([i]));
+        }
+        if (crc32Finalize(s) !== 0x29058C73) return false;
+    }
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 1024; i++) {
+            s = crc32Update(s, new Uint8Array([(i * 167 + 13) & 0xFF]));
+        }
+        if (crc32Finalize(s) !== 0x6D4552DB) return false;
+    }
+    return true;
 }
 ```
 
@@ -3616,14 +3965,31 @@ export function crc32(data: Uint8Array): number {
     return crc32Finalize(crc32Update(crc32Init(), data));
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 export function crc32SelfTest(): boolean {
-    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);
-    return crc32(input) === 0xCBF43926;
+    if (crc32(new Uint8Array([])) !== 0x00000000) return false;
+    if (crc32(new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39])) !== 0xCBF43926) return false;
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 256; i++) {
+            s = crc32Update(s, new Uint8Array([i]));
+        }
+        if (crc32Finalize(s) !== 0x29058C73) return false;
+    }
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 1024; i++) {
+            s = crc32Update(s, new Uint8Array([(i * 167 + 13) & 0xFF]));
+        }
+        if (crc32Finalize(s) !== 0x6D4552DB) return false;
+    }
+    return true;
 }
 ```
 
@@ -4007,14 +4373,31 @@ export function crc32(data: Uint8Array): number {
     return crc32Finalize(crc32Update(crc32Init(), data));
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 export function crc32SelfTest(): boolean {
-    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);
-    return crc32(input) === 0xCBF43926;
+    if (crc32(new Uint8Array([])) !== 0x00000000) return false;
+    if (crc32(new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39])) !== 0xCBF43926) return false;
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 256; i++) {
+            s = crc32Update(s, new Uint8Array([i]));
+        }
+        if (crc32Finalize(s) !== 0x29058C73) return false;
+    }
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 1024; i++) {
+            s = crc32Update(s, new Uint8Array([(i * 167 + 13) & 0xFF]));
+        }
+        if (crc32Finalize(s) !== 0x6D4552DB) return false;
+    }
+    return true;
 }
 ```
 
@@ -4116,9 +4499,11 @@ package crc32_pkg;
         crc32 = crc32_finalize(s);
     endfunction
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns 1'b1 iff the CRC of "123456789" matches the embedded check value.
+    // Returns 1'b1 iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     function automatic bit crc32_self_test();
@@ -4208,9 +4593,11 @@ package crc32_pkg is
     -- Returns the finished CRC value.
     function crc32(data: std_logic_vector) return std_logic_vector;
 
-    -- Self-test the implementation against the reveng catalogue.
+    -- Self-test the implementation against independent reference CRCs.
     --
-    -- Returns true iff the CRC of "123456789" matches the embedded check value.
+    -- Returns true iff the generated CRC reproduces every embedded reference value.
+    --
+    -- Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     --
     -- Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     function crc32_self_test return boolean;
@@ -4362,9 +4749,11 @@ uint32_t crc32_finalize(uint32_t state);
  */
 uint32_t crc32(const uint8_t *data, size_t len);
 
-/* Self-test the implementation against the reveng catalogue.
+/* Self-test the implementation against independent reference CRCs.
  *
- * Returns 0 iff the CRC of "123456789" matches the embedded check value.
+ * Returns 0 iff the generated CRC reproduces every embedded reference value.
+ *
+ * Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
  *
  * Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
  */
@@ -4427,7 +4816,25 @@ uint32_t crc32(const uint8_t *data, size_t len) {
 
 int crc32_self_test(void) {
     static const uint8_t kCheckInput[] = "123456789";
-    return crc32(kCheckInput, 9) == 0xCBF43926 ? 0 : 1;
+    if (crc32(kCheckInput, 0) != 0x00000000) return 1;
+    if (crc32(kCheckInput, 9) != 0xCBF43926) return 1;
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 256; i++) {
+            uint8_t b = (uint8_t)i;
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x29058C73) return 1;
+    }
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 1024; i++) {
+            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFF);
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x6D4552DB) return 1;
+    }
+    return 0;
 }
 ```
 
@@ -4510,8 +4917,9 @@ uint32_t crc32_finalize(uint32_t state);
  */
 uint32_t crc32(const uint8_t *data, size_t len);
 
-/** @brief Self-test the implementation against the reveng catalogue.
- * @return 0 iff the CRC of "123456789" matches the embedded check value.
+/** @brief Self-test the implementation against independent reference CRCs.
+ * @return 0 iff the generated CRC reproduces every embedded reference value.
+ * @note Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
  * @note Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
  */
 int crc32_self_test(void);
@@ -4574,7 +4982,25 @@ uint32_t crc32(const uint8_t *data, size_t len) {
 
 int crc32_self_test(void) {
     static const uint8_t kCheckInput[] = "123456789";
-    return crc32(kCheckInput, 9) == 0xCBF43926 ? 0 : 1;
+    if (crc32(kCheckInput, 0) != 0x00000000) return 1;
+    if (crc32(kCheckInput, 9) != 0xCBF43926) return 1;
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 256; i++) {
+            uint8_t b = (uint8_t)i;
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x29058C73) return 1;
+    }
+    {
+        uint32_t s = crc32_init();
+        for (int i = 0; i < 1024; i++) {
+            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFF);
+            s = crc32_update(s, &b, 1);
+        }
+        if (crc32_finalize(s) != 0x6D4552DB) return 1;
+    }
+    return 0;
 }
 ```
 
@@ -4666,13 +5092,31 @@ public static class Crc32
         return Crc32Finalize(Crc32Update(Crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static bool Crc32SelfTest() {
-        return Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926u;
+        if (Crc32(new byte[0]) != 0x00000000u) return false;
+        if (Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926u) return false;
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = Crc32Update(s, new byte[] { (byte)i });
+            }
+            if (Crc32Finalize(s) != 0x29058C73u) return false;
+        }
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = Crc32Update(s, new byte[] { (byte)((i * 167 + 13) & 0xFF) });
+            }
+            if (Crc32Finalize(s) != 0x6D4552DBu) return false;
+        }
+        return true;
     }
 }
 ```
@@ -4765,12 +5209,29 @@ public static class Crc32
         return Crc32Finalize(Crc32Update(Crc32Init(), data));
     }
 
-    /** @brief Self-test the implementation against the reveng catalogue.
-     * @return true iff the CRC of "123456789" matches the embedded check value.
+    /** @brief Self-test the implementation against independent reference CRCs.
+     * @return true iff the generated CRC reproduces every embedded reference value.
+     * @note Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
      * @note Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
      */
     public static bool Crc32SelfTest() {
-        return Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926u;
+        if (Crc32(new byte[0]) != 0x00000000u) return false;
+        if (Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926u) return false;
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = Crc32Update(s, new byte[] { (byte)i });
+            }
+            if (Crc32Finalize(s) != 0x29058C73u) return false;
+        }
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = Crc32Update(s, new byte[] { (byte)((i * 167 + 13) & 0xFF) });
+            }
+            if (Crc32Finalize(s) != 0x6D4552DBu) return false;
+        }
+        return true;
     }
 }
 ```
@@ -4867,14 +5328,31 @@ public static class Crc32
     }
 
     /// <summary>
-    /// Self-test the implementation against the reveng catalogue.
+    /// Self-test the implementation against independent reference CRCs.
     /// </summary>
-    /// <returns>true iff the CRC of "123456789" matches the embedded check value.</returns>
+    /// <returns>true iff the generated CRC reproduces every embedded reference value.</returns>
     /// <remarks>
+    /// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     /// Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     /// </remarks>
     public static bool Crc32SelfTest() {
-        return Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926u;
+        if (Crc32(new byte[0]) != 0x00000000u) return false;
+        if (Crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926u) return false;
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = Crc32Update(s, new byte[] { (byte)i });
+            }
+            if (Crc32Finalize(s) != 0x29058C73u) return false;
+        }
+        {
+            uint s = Crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = Crc32Update(s, new byte[] { (byte)((i * 167 + 13) & 0xFF) });
+            }
+            if (Crc32Finalize(s) != 0x6D4552DBu) return false;
+        }
+        return true;
     }
 }
 ```
@@ -4966,13 +5444,35 @@ func Crc32(data []byte) uint32 {
     return Crc32Finalize(Crc32Update(Crc32Init(), data))
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 func Crc32SelfTest() bool {
-    return Crc32([]byte("123456789")) == 0xCBF43926
+    if Crc32([]byte("")) != 0x00000000 {
+        return false
+    }
+    if Crc32([]byte("123456789")) != 0xCBF43926 {
+        return false
+    }
+    s := Crc32Init()
+    for i := 0; i < 256; i++ {
+        s = Crc32Update(s, []byte{byte(i)})
+    }
+    if Crc32Finalize(s) != 0x29058C73 {
+        return false
+    }
+    s = Crc32Init()
+    for i := 0; i < 1024; i++ {
+        s = Crc32Update(s, []byte{byte((i*167 + 13) & 0xFF)})
+    }
+    if Crc32Finalize(s) != 0x6D4552DB {
+        return false
+    }
+    return true
 }
 ```
 
@@ -5063,13 +5563,35 @@ func Crc32(data []byte) uint32 {
     return Crc32Finalize(Crc32Update(Crc32Init(), data))
 }
 
-// Crc32SelfTest self-test the implementation against the reveng catalogue.
+// Crc32SelfTest self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 func Crc32SelfTest() bool {
-    return Crc32([]byte("123456789")) == 0xCBF43926
+    if Crc32([]byte("")) != 0x00000000 {
+        return false
+    }
+    if Crc32([]byte("123456789")) != 0xCBF43926 {
+        return false
+    }
+    s := Crc32Init()
+    for i := 0; i < 256; i++ {
+        s = Crc32Update(s, []byte{byte(i)})
+    }
+    if Crc32Finalize(s) != 0x29058C73 {
+        return false
+    }
+    s = Crc32Init()
+    for i := 0; i < 1024; i++ {
+        s = Crc32Update(s, []byte{byte((i*167 + 13) & 0xFF)})
+    }
+    if Crc32Finalize(s) != 0x6D4552DB {
+        return false
+    }
+    return true
 }
 ```
 
@@ -5164,13 +5686,31 @@ public final class CrcGlot {
         return crc32Finalize(crc32Update(crc32Init(), data));
     }
 
-    // Self-test the implementation against the reveng catalogue.
+    // Self-test the implementation against independent reference CRCs.
     //
-    // Returns true iff the CRC of "123456789" matches the embedded check value.
+    // Returns true iff the generated CRC reproduces every embedded reference value.
+    //
+    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     public static boolean crc32SelfTest() {
-        return crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926;
+        if (crc32(new byte[0]) != 0x00000000) return false;
+        if (crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926) return false;
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = crc32Update(s, new byte[] { (byte) i });
+            }
+            if (crc32Finalize(s) != 0x29058C73) return false;
+        }
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = crc32Update(s, new byte[] { (byte) ((i * 167 + 13) & 0xFF) });
+            }
+            if (crc32Finalize(s) != 0x6D4552DB) return false;
+        }
+        return true;
     }
 }
 ```
@@ -5264,12 +5804,29 @@ public final class CrcGlot {
         return crc32Finalize(crc32Update(crc32Init(), data));
     }
 
-    /** @brief Self-test the implementation against the reveng catalogue.
-     * @return true iff the CRC of "123456789" matches the embedded check value.
+    /** @brief Self-test the implementation against independent reference CRCs.
+     * @return true iff the generated CRC reproduces every embedded reference value.
+     * @note Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
      * @note Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
      */
     public static boolean crc32SelfTest() {
-        return crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926;
+        if (crc32(new byte[0]) != 0x00000000) return false;
+        if (crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926) return false;
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = crc32Update(s, new byte[] { (byte) i });
+            }
+            if (crc32Finalize(s) != 0x29058C73) return false;
+        }
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = crc32Update(s, new byte[] { (byte) ((i * 167 + 13) & 0xFF) });
+            }
+            if (crc32Finalize(s) != 0x6D4552DB) return false;
+        }
+        return true;
     }
 }
 ```
@@ -5366,13 +5923,31 @@ public final class CrcGlot {
         return crc32Finalize(crc32Update(crc32Init(), data));
     }
 
-    /** Self-test the implementation against the reveng catalogue.
+    /** Self-test the implementation against independent reference CRCs.
+     *
+     * Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
      *
      * Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
-     * @return true iff the CRC of "123456789" matches the embedded check value.
+     * @return true iff the generated CRC reproduces every embedded reference value.
      */
     public static boolean crc32SelfTest() {
-        return crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) == 0xCBF43926;
+        if (crc32(new byte[0]) != 0x00000000) return false;
+        if (crc32(new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 }) != 0xCBF43926) return false;
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 256; i++) {
+                s = crc32Update(s, new byte[] { (byte) i });
+            }
+            if (crc32Finalize(s) != 0x29058C73) return false;
+        }
+        {
+            int s = crc32Init();
+            for (int i = 0; i < 1024; i++) {
+                s = crc32Update(s, new byte[] { (byte) ((i * 167 + 13) & 0xFF) });
+            }
+            if (crc32Finalize(s) != 0x6D4552DB) return false;
+        }
+        return true;
     }
 }
 ```
@@ -5468,13 +6043,29 @@ def crc32(data: bytes) -> int:
 
 
 def crc32_self_test() -> bool:
-    """Self-test the implementation against the reveng catalogue.
+    """Self-test the implementation against independent reference CRCs.
 
-    Returns True iff the CRC of "123456789" matches the embedded check value.
+    Returns True iff the generated CRC reproduces every embedded reference value.
+
+    Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 
     Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     """
-    return crc32(b"123456789") == 0xCBF43926
+    if crc32(b"") != 0x00000000:
+        return False
+    if crc32(b"123456789") != 0xCBF43926:
+        return False
+    s = crc32_init()
+    for i in range(256):
+        s = crc32_update(s, bytes([i]))
+    if crc32_finalize(s) != 0x29058C73:
+        return False
+    s = crc32_init()
+    for i in range(1024):
+        s = crc32_update(s, bytes([(i * 167 + 13) & 0xFF]))
+    if crc32_finalize(s) != 0x6D4552DB:
+        return False
+    return True
 ```
 
 </details>
@@ -5578,15 +6169,30 @@ def crc32(data: bytes) -> int:
 
 
 def crc32_self_test() -> bool:
-    """Self-test the implementation against the reveng catalogue.
+    """Self-test the implementation against independent reference CRCs.
 
     Returns:
-        True iff the CRC of "123456789" matches the embedded check value.
+        True iff the generated CRC reproduces every embedded reference value.
 
     Note:
+        Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
         Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     """
-    return crc32(b"123456789") == 0xCBF43926
+    if crc32(b"") != 0x00000000:
+        return False
+    if crc32(b"123456789") != 0xCBF43926:
+        return False
+    s = crc32_init()
+    for i in range(256):
+        s = crc32_update(s, bytes([i]))
+    if crc32_finalize(s) != 0x29058C73:
+        return False
+    s = crc32_init()
+    for i in range(1024):
+        s = crc32_update(s, bytes([(i * 167 + 13) & 0xFF]))
+    if crc32_finalize(s) != 0x6D4552DB:
+        return False
+    return True
 ```
 
 </details>
@@ -5702,17 +6308,32 @@ def crc32(data: bytes) -> int:
 
 
 def crc32_self_test() -> bool:
-    """Self-test the implementation against the reveng catalogue.
+    """Self-test the implementation against independent reference CRCs.
 
     Returns
     -------
-        True iff the CRC of "123456789" matches the embedded check value.
+        True iff the generated CRC reproduces every embedded reference value.
 
     Notes
     -----
+    Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
     Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     """
-    return crc32(b"123456789") == 0xCBF43926
+    if crc32(b"") != 0x00000000:
+        return False
+    if crc32(b"123456789") != 0xCBF43926:
+        return False
+    s = crc32_init()
+    for i in range(256):
+        s = crc32_update(s, bytes([i]))
+    if crc32_finalize(s) != 0x29058C73:
+        return False
+    s = crc32_init()
+    for i in range(1024):
+        s = crc32_update(s, bytes([(i * 167 + 13) & 0xFF]))
+    if crc32_finalize(s) != 0x6D4552DB:
+        return False
+    return True
 ```
 
 </details>
@@ -5805,14 +6426,31 @@ def crc32(data: bytes) -> int:
 
 
 def crc32_self_test() -> bool:
-    """Self-test the implementation against the reveng catalogue.
+    """Self-test the implementation against independent reference CRCs.
 
-    :returns: True iff the CRC of "123456789" matches the embedded check value.
+    :returns: True iff the generated CRC reproduces every embedded reference value.
+
+    .. note::
+       Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 
     .. note::
        Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     """
-    return crc32(b"123456789") == 0xCBF43926
+    if crc32(b"") != 0x00000000:
+        return False
+    if crc32(b"123456789") != 0xCBF43926:
+        return False
+    s = crc32_init()
+    for i in range(256):
+        s = crc32_update(s, bytes([i]))
+    if crc32_finalize(s) != 0x29058C73:
+        return False
+    s = crc32_init()
+    for i in range(1024):
+        s = crc32_update(s, bytes([(i * 167 + 13) & 0xFF]))
+    if crc32_finalize(s) != 0x6D4552DB:
+        return False
+    return True
 ```
 
 </details>
@@ -5900,13 +6538,35 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-/// Self-test the implementation against the reveng catalogue.
+/// Self-test the implementation against independent reference CRCs.
 ///
-/// Returns true iff the CRC of "123456789" matches the embedded check value.
+/// Returns true iff the generated CRC reproduces every embedded reference value.
+///
+/// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 ///
 /// Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 pub fn crc32_self_test() -> bool {
-    crc32(b"123456789") == 0xCBF43926_u32
+    if crc32(b"") != 0x00000000_u32 {
+        return false;
+    }
+    if crc32(b"123456789") != 0xCBF43926_u32 {
+        return false;
+    }
+    let mut s = crc32_init();
+    for i in 0u32..256 {
+        s = crc32_update(s, &[i as u8]);
+    }
+    if crc32_finalize(s) != 0x29058C73_u32 {
+        return false;
+    }
+    s = crc32_init();
+    for i in 0u32..1024 {
+        s = crc32_update(s, &[((i * 167 + 13) & 0xFF) as u8]);
+    }
+    if crc32_finalize(s) != 0x6D4552DB_u32 {
+        return false;
+    }
+    true
 }
 ```
 
@@ -6009,15 +6669,37 @@ pub fn crc32(data: &[u8]) -> u32 {
     crc32_finalize(crc32_update(crc32_init(), data))
 }
 
-/// Self-test the implementation against the reveng catalogue.
+/// Self-test the implementation against independent reference CRCs.
 ///
 /// # Returns
 ///
-/// True iff the CRC of "123456789" matches the embedded check value.
+/// True iff the generated CRC reproduces every embedded reference value.
+///
+/// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 ///
 /// Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 pub fn crc32_self_test() -> bool {
-    crc32(b"123456789") == 0xCBF43926_u32
+    if crc32(b"") != 0x00000000_u32 {
+        return false;
+    }
+    if crc32(b"123456789") != 0xCBF43926_u32 {
+        return false;
+    }
+    let mut s = crc32_init();
+    for i in 0u32..256 {
+        s = crc32_update(s, &[i as u8]);
+    }
+    if crc32_finalize(s) != 0x29058C73_u32 {
+        return false;
+    }
+    s = crc32_init();
+    for i in 0u32..1024 {
+        s = crc32_update(s, &[((i * 167 + 13) & 0xFF) as u8]);
+    }
+    if crc32_finalize(s) != 0x6D4552DB_u32 {
+        return false;
+    }
+    true
 }
 ```
 
@@ -6106,14 +6788,31 @@ export function crc32(data: Uint8Array): number {
     return crc32Finalize(crc32Update(crc32Init(), data));
 }
 
-// Self-test the implementation against the reveng catalogue.
+// Self-test the implementation against independent reference CRCs.
 //
-// Returns true iff the CRC of "123456789" matches the embedded check value.
+// Returns true iff the generated CRC reproduces every embedded reference value.
+//
+// Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
 //
 // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
 export function crc32SelfTest(): boolean {
-    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);
-    return crc32(input) === 0xCBF43926;
+    if (crc32(new Uint8Array([])) !== 0x00000000) return false;
+    if (crc32(new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39])) !== 0xCBF43926) return false;
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 256; i++) {
+            s = crc32Update(s, new Uint8Array([i]));
+        }
+        if (crc32Finalize(s) !== 0x29058C73) return false;
+    }
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 1024; i++) {
+            s = crc32Update(s, new Uint8Array([(i * 167 + 13) & 0xFF]));
+        }
+        if (crc32Finalize(s) !== 0x6D4552DB) return false;
+    }
+    return true;
 }
 ```
 
@@ -6203,14 +6902,31 @@ export function crc32(data: Uint8Array): number {
     return crc32Finalize(crc32Update(crc32Init(), data));
 }
 
-/** Self-test the implementation against the reveng catalogue.
+/** Self-test the implementation against independent reference CRCs.
+ *
+ * Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
  *
  * Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
- * @returns true iff the CRC of "123456789" matches the embedded check value.
+ * @returns true iff the generated CRC reproduces every embedded reference value.
  */
 export function crc32SelfTest(): boolean {
-    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);
-    return crc32(input) === 0xCBF43926;
+    if (crc32(new Uint8Array([])) !== 0x00000000) return false;
+    if (crc32(new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39])) !== 0xCBF43926) return false;
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 256; i++) {
+            s = crc32Update(s, new Uint8Array([i]));
+        }
+        if (crc32Finalize(s) !== 0x29058C73) return false;
+    }
+    {
+        let s = crc32Init();
+        for (let i = 0; i < 1024; i++) {
+            s = crc32Update(s, new Uint8Array([(i * 167 + 13) & 0xFF]));
+        }
+        if (crc32Finalize(s) !== 0x6D4552DB) return false;
+    }
+    return true;
 }
 ```
 

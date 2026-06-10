@@ -10,7 +10,8 @@ and emits five functions:
   - ``<fname>_update(state, data, len)`` -- feed bytes, return new state
   - ``<fname>_finalize(state)`` -- apply output reflection + xorout
   - ``<fname>(data, len)`` -- one-shot wrapper (init + update + finalize)
-  - ``<fname>_self_test(void)`` -- returns 0 if check matches reveng, 1 otherwise
+  - ``<fname>_self_test(void)`` -- returns 0 if the CRC reproduces its
+    independent reference values, 1 otherwise
 
 The streaming API (init / update / finalize) lets embedded firmware
 compute a CRC over data that arrives in chunks (large files, network
@@ -44,6 +45,7 @@ from crcglot._helpers import (
     resolve_variant,
     crc_function_names,
 )
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -304,19 +306,53 @@ def _update_loop_c(
     ]
 
 
-def _self_test_c(names, check: int, width: int) -> str:
+def _self_test_c(names, check: int, width: int, ctype: str, goldens) -> str:
     """Emit a C self-test function returning 0 on success, 1 on failure.
 
     Designed to be called from a downstream test framework, firmware
     boot self-check, or crcglot's CI runner harness.  We deliberately
     do NOT emit a ``main()`` so the file drops into firmware without
     a symbol collision.
+
+    For a catalogue algorithm ``goldens`` carries four independent
+    reference CRCs (see :func:`crcglot._vectors.goldens_for`); the two
+    large inputs are reproduced with byte-at-a-time loops so no big array
+    is embedded.  For a custom polynomial (``goldens is None``) it falls
+    back to the single ``check``-string assertion.
     """
+    n = names
+    if goldens is None:
+        lines = [
+            f"int {n['self_test']}(void) {{",
+            '    static const uint8_t kCheckInput[] = "123456789";',
+            f"    return {n['oneshot']}(kCheckInput, 9) == {_hex(check, width)} ? 0 : 1;",
+            "}",
+        ]
+        return "\n".join(lines)
+    g = goldens
     lines = [
-        f"int {names['self_test']}(void) {{",
-        f'    static const uint8_t kCheckInput[] = "123456789";',
-        f"    return {names['oneshot']}(kCheckInput, 9) == {_hex(check, width)} ? 0 : 1;",
-        f"}}",
+        f"int {n['self_test']}(void) {{",
+        '    static const uint8_t kCheckInput[] = "123456789";',
+        f"    if ({n['oneshot']}(kCheckInput, 0) != {_hex(g['empty'], width)}) return 1;",
+        f"    if ({n['oneshot']}(kCheckInput, 9) != {_hex(g['check'], width)}) return 1;",
+        "    {",
+        f"        {ctype} s = {n['init']}();",
+        "        for (int i = 0; i < 256; i++) {",
+        "            uint8_t b = (uint8_t)i;",
+        f"            s = {n['update']}(s, &b, 1);",
+        "        }",
+        f"        if ({n['finalize']}(s) != {_hex(g['all_bytes'], width)}) return 1;",
+        "    }",
+        "    {",
+        f"        {ctype} s = {n['init']}();",
+        "        for (int i = 0; i < 1024; i++) {",
+        "            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFF);",
+        f"            s = {n['update']}(s, &b, 1);",
+        "        }",
+        f"        if ({n['finalize']}(s) != {_hex(g['binary_1k'], width)}) return 1;",
+        "    }",
+        "    return 0;",
+        "}",
     ]
     return "\n".join(lines)
 
@@ -599,7 +635,7 @@ def generate_c_from_entry(
     lines.append("")
 
     # ----- self-test -----
-    lines.append(_self_test_c(names, check, w))
+    lines.append(_self_test_c(names, check, w, ctype, goldens_for(algo)))
 
     header = _header_c(base, names, ctype, style, meta, usage, docs)
     source = "\n".join(lines)

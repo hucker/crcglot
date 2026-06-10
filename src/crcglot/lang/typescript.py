@@ -6,8 +6,8 @@ Emits a single ``.ts`` file containing five exported functions:
   - ``<fname>_update(state, data) -> <T>`` -- feed bytes, return new state
   - ``<fname>_finalize(state) -> <T>`` -- apply output reflection + xorout
   - ``<fname>(data) -> <T>`` -- one-shot wrapper (init + update + finalize)
-  - ``<fname>_self_test() -> boolean`` -- true iff the one-shot
-    reproduces the reveng catalogue check value for ``b"123456789"``
+  - ``<fname>_self_test() -> boolean`` -- true iff the generated CRC
+    reproduces its independent reference values
 
 The state type ``<T>`` is ``number`` for widths 8 / 16 / 32 and
 ``bigint`` for width 64.  ``number`` is JS's float64, which represents
@@ -50,6 +50,7 @@ from crcglot._helpers import (
     resolve_variant,
     crc_function_names,
 )
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -367,15 +368,52 @@ def _mask_int(width: int) -> int:
     return (1 << width) - 1
 
 
-def _self_test_ts(names, check, width, style, docs) -> list[str]:
-    """Emit a TS self-test returning true iff one-shot matches reveng."""
+def _self_test_ts(names, check, width, ttype, style, docs, goldens) -> list[str]:
+    """Emit a TS self-test returning true on success.
+
+    For a catalogue algorithm ``goldens`` carries four independent
+    reference CRCs; the two large inputs are reproduced with
+    byte-at-a-time loops (no embedded array).  A custom polynomial
+    (``goldens is None``) falls back to the single ``check`` assertion.
+    """
+    n = names
+    check_arr = "new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39])"
+    if goldens is None:
+        return [
+            "",
+            *style.doc_block(docs["self_test"]),
+            f"export function {n['self_test']}(): boolean {{",
+            f"    const input = {check_arr};",
+            f"    return {n['oneshot']}(input) === {_ts_lit(check, width)};",
+            "}",
+        ]
+    g = goldens
     return [
-        f"",
+        "",
         *style.doc_block(docs["self_test"]),
-        f"export function {names['self_test']}(): boolean {{",
-        f'    const input = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);',
-        f"    return {names['oneshot']}(input) === {_ts_lit(check, width)};",
-        f"}}",
+        f"export function {n['self_test']}(): boolean {{",
+        f"    if ({n['oneshot']}(new Uint8Array([])) !== {_ts_lit(g['empty'], width)}) "
+        "return false;",
+        f"    if ({n['oneshot']}({check_arr}) !== {_ts_lit(g['check'], width)}) "
+        "return false;",
+        "    {",
+        f"        let s = {n['init']}();",
+        "        for (let i = 0; i < 256; i++) {",
+        f"            s = {n['update']}(s, new Uint8Array([i]));",
+        "        }",
+        f"        if ({n['finalize']}(s) !== {_ts_lit(g['all_bytes'], width)}) "
+        "return false;",
+        "    }",
+        "    {",
+        f"        let s = {n['init']}();",
+        "        for (let i = 0; i < 1024; i++) {",
+        f"            s = {n['update']}(s, new Uint8Array([(i * 167 + 13) & 0xFF]));",
+        "        }",
+        f"        if ({n['finalize']}(s) !== {_ts_lit(g['binary_1k'], width)}) "
+        "return false;",
+        "    }",
+        "    return true;",
+        "}",
     ]
 
 
@@ -578,7 +616,9 @@ def generate_typescript_from_entry(
     lines.append(f"}}")
 
     # ----- self-test -----
-    lines.extend(_self_test_ts(names, check, w, style, docs))
+    lines.extend(
+        _self_test_ts(names, check, w, ttype, style, docs, goldens_for(algo))
+    )
 
     module = "\n".join(lines)
     # Namespace the lookup-table identifiers per symbol so multiple

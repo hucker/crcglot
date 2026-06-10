@@ -7,7 +7,7 @@ Emits a complete ``.go`` file with five package-level functions:
   - ``<fname>_finalize(state) ...`` -- apply output reflection + xorout
   - ``<fname>(data) ...`` -- one-shot wrapper (init + update + finalize)
   - ``<fname>_self_test() bool`` -- True iff the algorithm reproduces
-    the reveng catalogue's canonical check value
+    its independent reference values
 
 The streaming primitives let callers compute a CRC over data that
 arrives in chunks (large files, network streams) without buffering
@@ -44,6 +44,7 @@ from crcglot._helpers import (
     resolve_variant,
     crc_function_names,
 )
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -259,13 +260,48 @@ def _update_loop_go(
     ]
 
 
-def _self_test_go(names, check, width, style, docs) -> list[str]:
-    """Emit a Go self-test function returning true on success."""
+def _self_test_go(names, check, width, gtype, style, docs, goldens) -> list[str]:
+    """Emit a Go self-test function returning true on success.
+
+    For a catalogue algorithm ``goldens`` carries four independent
+    reference CRCs; the two large inputs are reproduced with
+    byte-at-a-time loops (no embedded array).  A custom polynomial
+    (``goldens is None``) falls back to the single ``check`` assertion.
+    """
+    n = names
+    if goldens is None:
+        return [
+            *style.doc_block(docs["self_test"]),
+            f"func {n['self_test']}() bool {{",
+            f'    return {n["oneshot"]}([]byte("123456789")) == {_hex(check, width)}',
+            "}",
+        ]
+    g = goldens
     return [
         *style.doc_block(docs["self_test"]),
-        f"func {names['self_test']}() bool {{",
-        f'    return {names["oneshot"]}([]byte("123456789")) == {_hex(check, width)}',
-        f"}}",
+        f"func {n['self_test']}() bool {{",
+        f'    if {n["oneshot"]}([]byte("")) != {_hex(g["empty"], width)} {{',
+        "        return false",
+        "    }",
+        f'    if {n["oneshot"]}([]byte("123456789")) != {_hex(g["check"], width)} {{',
+        "        return false",
+        "    }",
+        f"    s := {n['init']}()",
+        "    for i := 0; i < 256; i++ {",
+        f"        s = {n['update']}(s, []byte{{byte(i)}})",
+        "    }",
+        f"    if {n['finalize']}(s) != {_hex(g['all_bytes'], width)} {{",
+        "        return false",
+        "    }",
+        f"    s = {n['init']}()",
+        "    for i := 0; i < 1024; i++ {",
+        f"        s = {n['update']}(s, []byte{{byte((i*167 + 13) & 0xFF)}})",
+        "    }",
+        f"    if {n['finalize']}(s) != {_hex(g['binary_1k'], width)} {{",
+        "        return false",
+        "    }",
+        "    return true",
+        "}",
     ]
 
 
@@ -468,6 +504,6 @@ def generate_go_from_entry(
     lines.append("")
 
     # ----- self-test -----
-    lines.extend(_self_test_go(names, check, w, style, docs))
+    lines.extend(_self_test_go(names, check, w, gtype, style, docs, goldens_for(algo)))
 
     return "\n".join(lines)

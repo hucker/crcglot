@@ -181,10 +181,15 @@ def standard_doc_blocks(
             symbol=names["oneshot"],
         ),
         "self_test": DocBlock(
-            summary="Self-test the implementation against the reveng catalogue.",
-            returns=f"{selftest_returns} iff the CRC of \"123456789\" matches "
-            "the embedded check value.",
+            summary="Self-test the implementation against independent reference CRCs.",
+            returns=f"{selftest_returns} iff the generated CRC reproduces every "
+            "embedded reference value.",
             notes=(
+                "Catalogue algorithms check four fixed inputs (the empty string, "
+                '"123456789", all 256 byte values, and a 1 KiB pattern); the two '
+                "large inputs are regenerated with a byte-at-a-time loop, so no "
+                "big array is embedded.  The references come from two independent "
+                "engines that had to agree.",
                 "Run once on your target toolchain -- it is the cheapest way "
                 "to catch a compiler / endianness / width mismatch before "
                 "trusting the output.",

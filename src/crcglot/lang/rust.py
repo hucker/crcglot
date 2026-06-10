@@ -6,8 +6,8 @@ Emits a complete ``.rs`` file with five module-level functions:
   - ``<fname>_update(state, data) -> rtype`` -- feed bytes, return new state
   - ``<fname>_finalize(state) -> rtype`` -- apply output reflection + xorout
   - ``<fname>(data) -> rtype`` -- one-shot wrapper (init + update + finalize)
-  - ``<fname>_self_test() -> bool`` -- true iff the one-shot reproduces
-    the reveng catalogue check value for ``b"123456789"``
+  - ``<fname>_self_test() -> bool`` -- true iff the generated CRC
+    reproduces its independent reference values
 
 The self-test is a plain ``pub fn``, not a ``#[cfg(test)]`` block, so
 callers can wire it into a boot self-check or a release-build startup
@@ -42,6 +42,7 @@ from crcglot._helpers import (
     resolve_variant,
     crc_function_names,
 )
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -315,22 +316,62 @@ def _update_loop_rust(
     ]
 
 
-def _self_test_rust(names, check, width, rtype, style, docs) -> str:
+def _self_test_rust(names, check, width, rtype, style, docs, goldens) -> str:
     """Emit a Rust ``pub fn <fname>_self_test() -> bool``.
 
-    Returns true iff the one-shot CRC of ``b"123456789"`` matches the
-    catalogue check value.  Callable from any build configuration --
-    debug, release, embedded -- so downstream consumers can wire it
-    into a boot self-check or a startup assertion, not just
-    ``cargo test``.  Matches the convention of every other target
-    (C returns 0/1; Go / C# / TypeScript / Python / Verilog / VHDL return bool).
+    Returns true iff the generated CRC reproduces independent reference
+    values.  Callable from any build configuration -- debug, release,
+    embedded -- so downstream consumers can wire it into a boot
+    self-check or a startup assertion, not just ``cargo test``.  Matches
+    the convention of every other target (C returns 0/1; Go / C# /
+    TypeScript / Python / Verilog / VHDL return bool).
+
+    For a catalogue algorithm ``goldens`` carries four independent
+    reference CRCs; the two large inputs are reproduced with
+    byte-at-a-time loops (no embedded array).  A custom polynomial
+    (``goldens is None``) falls back to the single ``check`` assertion.
     """
+    n = names
+
+    def lit(value: int) -> str:
+        return f"{_hex(value, width)}_{rtype}"
+
+    if goldens is None:
+        lines = [
+            "",
+            *style.doc_block(docs["self_test"]),
+            f"pub fn {n['self_test']}() -> bool {{",
+            f'    {n["oneshot"]}(b"123456789") == {lit(check)}',
+            "}",
+        ]
+        return "\n".join(lines)
+    g = goldens
     lines = [
-        f"",
+        "",
         *style.doc_block(docs["self_test"]),
-        f"pub fn {names['self_test']}() -> bool {{",
-        f'    {names["oneshot"]}(b"123456789") == {_hex(check, width)}_{rtype}',
-        f"}}",
+        f"pub fn {n['self_test']}() -> bool {{",
+        f'    if {n["oneshot"]}(b"") != {lit(g["empty"])} {{',
+        "        return false;",
+        "    }",
+        f'    if {n["oneshot"]}(b"123456789") != {lit(g["check"])} {{',
+        "        return false;",
+        "    }",
+        f"    let mut s = {n['init']}();",
+        "    for i in 0u32..256 {",
+        f"        s = {n['update']}(s, &[i as u8]);",
+        "    }",
+        f"    if {n['finalize']}(s) != {lit(g['all_bytes'])} {{",
+        "        return false;",
+        "    }",
+        f"    s = {n['init']}();",
+        "    for i in 0u32..1024 {",
+        f"        s = {n['update']}(s, &[((i * 167 + 13) & 0xFF) as u8]);",
+        "    }",
+        f"    if {n['finalize']}(s) != {lit(g['binary_1k'])} {{",
+        "        return false;",
+        "    }",
+        "    true",
+        "}",
     ]
     return "\n".join(lines)
 
@@ -512,7 +553,9 @@ def generate_rust_from_entry(
         f"    {names['finalize']}({names['update']}({names['init']}(), data))"
     )
     lines.append(f"}}")
-    lines.append(_self_test_rust(names, check, w, rtype, style, docs))
+    lines.append(
+        _self_test_rust(names, check, w, rtype, style, docs, goldens_for(algo))
+    )
 
     module = "\n".join(lines)
     # Namespace the lookup-table consts per symbol so several generated

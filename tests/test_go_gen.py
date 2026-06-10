@@ -208,7 +208,7 @@ class TestGeneratedGoExecutes:
     """Shell out to ``go run`` to compile and execute the generated
     code.  The runner checks four things in one compiled binary:
 
-      1. ``_self_test()``        -- one-shot vs reveng check value
+      1. ``_self_test()``        -- four inputs vs independent references
       2. split-at-4 streaming    -- init / update("1234") /
                                     update("56789") / finalize
       3. empty-chunk-first       -- init / update("") /

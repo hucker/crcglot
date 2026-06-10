@@ -6,6 +6,21 @@ An integrator-ergonomics pass over the public surface, prompted by friction a
 downstream app hit.  Several breaking changes; crcglot has a single consumer
 today, so they ship without a deprecation cycle.
 
+### Added: generated self-tests check four independent vectors
+
+The embedded `_self_test()` for a catalogue algorithm now validates four fixed
+inputs instead of one: the empty string, `"123456789"`, all 256 byte values,
+and a 1 KiB pseudo-random pattern.  The two large inputs are regenerated inside
+the self-test with a byte-at-a-time loop, so the generated code embeds no big
+array and stays friendly to flash- and RAM-constrained targets.  The reference
+CRCs come from two independent implementations (anycrc and crccheck) that had to
+agree, anchored to reveng's published check value — they are not computed by
+crcglot, so the engine never grades itself.  Both oracles are dev-only; the
+shipped package stays pure-stdlib with zero runtime dependencies.  Covers the
+seven software languages (C, Rust, Go, C#, Java, Python, TypeScript); Verilog
+and VHDL keep their single-vector self-test, and a custom (non-catalogue)
+polynomial falls back to the single check-string assertion.
+
 ### Breaking: `generic_crc` takes a `Crc` value object
 
 `generic_crc(data, width, poly, init, refin, refout, xorout)` is now

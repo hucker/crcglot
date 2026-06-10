@@ -1,13 +1,13 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-5440%20passed-brightgreen)
-![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-6119%20passed-brightgreen)
+![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
 **A multi-language CRC toolkit.**  Generate verified code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌 — and compute, detect, and reverse-engineer CRCs, from Python or over MCP.  Catalogue-driven, execution-verified, self-test embedded.  **Pure-stdlib package, zero runtime dependencies.**
 
-LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator; it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 100 algorithms across nine languages, verified by execution rather than inspection, and every generated file ships that same self-test so you can re-prove it on your own toolchain.
+LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator; it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 100 algorithms across nine languages, verified by execution rather than inspection, and every generated file embeds a self-test over four independent reference vectors so you can re-prove it on your own toolchain.
 
 ## Quick start
 
@@ -16,7 +16,7 @@ uv tool install crcglot         # or: pip install crcglot
 crcglot c crc32 file=mycrc
 ```
 
-That's it.  You now have `mycrc.h` and `mycrc.c`: a drop-in CRC-32 with a built-in `_self_test()` you can call to verify it matches the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
+That's it.  You now have `mycrc.h` and `mycrc.c`: a drop-in CRC-32 with a built-in `_self_test()` you can call to verify it reproduces four independent reference CRCs, anchored to the canonical [reveng](https://reveng.sourceforge.io/crc-catalogue/all.htm) check value.
 
 **The whole model is three choices:** which **algorithm** (`crc32`, `crc16-modbus`, … ; `crcglot list` shows the more than 100), which **language** (`c` / `python` / `rust` / `vhdl` / `verilog` / `go` / `csharp` / `java` / `typescript`), and whether you want it **`--fast`** (fastest the target supports, and the default) or **`--small`** (smallest code).  crcglot figures out the implementation details, so you never have to know what "slice-by-8" is.
 
@@ -51,7 +51,7 @@ Both surfaces are documented in detail below.
 | ---------------------------------------- | ------------------------------------------------------- |
 | `<fname>_init` / `_update` / `_finalize` | Streaming triple; feed data chunk by chunk              |
 | `<fname>`                                | One-shot wrapper that calls the streaming triple        |
-| `<fname>_self_test`                      | Verify against the reveng check value on your toolchain |
+| `<fname>_self_test`                      | Verify against four independent reference CRCs on your toolchain |
 
 Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go / C# / Java / TypeScript / Python / Verilog / VHDL return `bool` / `boolean` / `bit`.  No `#[cfg(test)]` gating, so you can call it from your release build, a boot self-check, or a startup assertion.
 
@@ -61,7 +61,9 @@ Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go /
 
 CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against its **hardcoded** canonical check value (not the catalogue's own `check` field, so a silent regression in the engine can't hide), and the Python generator is run end-to-end (generated, exec'd, and called on `b"123456789"`) against the same hardcoded vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, Java, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `javac`+`java` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain.
 
-Every generated file also ships its own `_self_test()` carrying that same canonical vector.  **For every target except Python, you should call `_self_test()` once in your build environment**, wired into a unit test, a startup assertion, or your boot self-check.  Our CI proves the generator emits correct code on our reference toolchain; only running `_self_test()` on yours proves your compiler version, optimization flags, target endianness, and integer widths haven't introduced a subtle disagreement.  Python is the exception: the interpreter that ran the CI suite is the one running your code, so the in-environment check would be redundant.
+Every generated file also ships its own `_self_test()`.  For a catalogue algorithm it now checks **four** fixed inputs — the empty string, `"123456789"`, all 256 byte values, and a 1 KiB pseudo-random pattern — so the byte-table and the high-bit handling get exercised, not just the one short check string.  The two large inputs are regenerated inside the self-test with a byte-at-a-time loop, so the embedded code carries no big array (it stays friendly to flash- and RAM-constrained targets).  Those four reference CRCs are not computed by crcglot — using the engine to grade itself would be circular.  They come from two independent implementations ([anycrc](https://pypi.org/project/anycrc/) and [crccheck](https://pypi.org/project/crccheck/)) that had to agree, anchored to reveng's published value at the check string; both are dev-only tools, so the shipped package stays pure-stdlib.  A custom (non-catalogue) polynomial has no independent reference, so it falls back to the single check-string assertion.
+
+**For every target except Python, you should call `_self_test()` once in your build environment**, wired into a unit test, a startup assertion, or your boot self-check.  Our CI proves the generator emits correct code on our reference toolchain; only running `_self_test()` on yours proves your compiler version, optimization flags, target endianness, and integer widths haven't introduced a subtle disagreement.  Python is the exception: the interpreter that ran the CI suite is the one running your code, so the in-environment check would be redundant.
 
 ## Documentation comments
 
@@ -223,7 +225,7 @@ Rules:
 - The variant selectors `--small` / `--fast` / `--table` / `--slice8` are mutually exclusive: pick at most one (exit 2 otherwise).  No selector = `--fast` (the fastest the target supports); pass `--small` for the smallest code.
 - `--slice8 python` silently falls back to `--table` (CPython's per-int overhead eats the slice-by-8 speedup; stderr warns).  `--fast` never needs this fallback; it only picks slice-by-8 where it actually applies.
 - Without `file=`, output goes to stdout.  For C, header is emitted first, then source.
-- C / Rust / VHDL files embed `<symbol>_self_test()` returning 0 on success.  In constrained embedded targets, standard toolchain flags (`-Wl,--gc-sections` for C, LTO for Rust) strip whatever you don't call.
+- Every target embeds `<symbol>_self_test()` (C returns 0 on success; the rest return `bool` / `boolean` / `bit`).  In constrained embedded targets, standard toolchain flags (`-Wl,--gc-sections` for C, LTO for Rust) strip whatever you don't call.
 
 ### `--custom` (raw Rocksoft/Williams parameters)
 

@@ -7,7 +7,7 @@ Emits a Python module string containing five module-level functions:
   - ``<fname>_finalize(state)`` -- apply output reflection + xorout
   - ``<fname>(data)``      -- one-shot wrapper (init + update + finalize)
   - ``<fname>_self_test()`` -- returns True if the algorithm reproduces
-    the reveng catalogue's canonical check value, False otherwise
+    its independent reference values, False otherwise
 
 The streaming primitives (init / update / finalize) let callers
 compute a CRC over data that arrives in chunks (large files, network
@@ -39,6 +39,7 @@ from crcglot._helpers import (
     resolve_variant,
     crc_function_names,
 )
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
@@ -121,19 +122,46 @@ def _update_loop_python(
     return lines
 
 
-def _self_test_python(names, check, width, style, docs) -> list[str]:
+def _self_test_python(names, check, width, style, docs, goldens) -> list[str]:
     """Emit a Python self-test function returning True on success.
 
     Designed to be called from a downstream test framework
     (``assert <self_test>()`` plays nicely with pytest /
     unittest), a script's startup check, or anywhere the caller
-    wants to confirm the generated CRC matches the reveng catalogue
-    before trusting its output.
+    wants to confirm the generated CRC matches its independent
+    references before trusting its output.
+
+    For a catalogue algorithm ``goldens`` carries four independent
+    reference CRCs; the two large inputs are reproduced with
+    byte-at-a-time loops.  A custom polynomial (``goldens is None``)
+    falls back to the single ``check`` assertion.
     """
+    n = names
+    if goldens is None:
+        return [
+            f"def {n['self_test']}() -> bool:",
+            *style.doc_block(docs["self_test"], indent=4),
+            f'    return {n["oneshot"]}(b"123456789") == {_hex(check, width)}',
+        ]
+    g = goldens
     return [
-        f"def {names['self_test']}() -> bool:",
+        f"def {n['self_test']}() -> bool:",
         *style.doc_block(docs["self_test"], indent=4),
-        f'    return {names["oneshot"]}(b"123456789") == {_hex(check, width)}',
+        f'    if {n["oneshot"]}(b"") != {_hex(g["empty"], width)}:',
+        "        return False",
+        f'    if {n["oneshot"]}(b"123456789") != {_hex(g["check"], width)}:',
+        "        return False",
+        f"    s = {n['init']}()",
+        "    for i in range(256):",
+        f"        s = {n['update']}(s, bytes([i]))",
+        f"    if {n['finalize']}(s) != {_hex(g['all_bytes'], width)}:",
+        "        return False",
+        f"    s = {n['init']}()",
+        "    for i in range(1024):",
+        f"        s = {n['update']}(s, bytes([(i * 167 + 13) & 0xFF]))",
+        f"    if {n['finalize']}(s) != {_hex(g['binary_1k'], width)}:",
+        "        return False",
+        "    return True",
     ]
 
 
@@ -307,7 +335,7 @@ def generate_python_from_entry(
     lines.append("")
 
     # ----- <self_test>() -----
-    lines.extend(_self_test_python(names, check, w, style, docs))
+    lines.extend(_self_test_python(names, check, w, style, docs, goldens_for(algo)))
 
     module = "\n".join(lines)
     # Namespace the lookup table per symbol so several generated modules

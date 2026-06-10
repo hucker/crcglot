@@ -239,7 +239,7 @@ class TestGeneratedCSharpExecutes:
     """Compile + run via ``dotnet run`` on a minimal project that
     runs four checks in one compiled binary:
 
-      1. ``_self_test()`` -- one-shot vs reveng check value
+      1. ``_self_test()`` -- four inputs vs independent references
       2. split-at-4 streaming
       3. empty-chunk-first streaming
       4. empty-chunk-last streaming

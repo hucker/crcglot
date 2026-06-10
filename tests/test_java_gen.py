@@ -103,7 +103,7 @@ class TestGenerateJava:
         # Assert -- unlike C# (u/UL), Java width-32 is a plain int literal.
         code = generate_java("crc32")
         assert code is not None, "generator returned code"
-        assert "== 0xCBF43926;" in code, "w32 check literal is a bare int"
+        assert "0xCBF43926" in code, "w32 check literal present as bare int"
         assert "0xCBF43926u" not in code and "0xCBF43926UL" not in code, (
             "no C#-style unsigned suffix"
         )
