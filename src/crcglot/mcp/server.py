@@ -256,7 +256,10 @@ def build_server() -> FastMCP:
             "If you already know the CRC value but not its algorithm "
             "(e.g. user pasted 'expected CRC: 0xCBF43926'), pass it as "
             "target_crc (decimal int) or target_crc_hex (hex string) "
-            "and pass the data-only bytes as the packet."
+            "and pass the data-only bytes as the packet.\n"
+            "\n"
+            "Narrow the scan with 'width' (e.g. 16 for a 2-byte CRC field) "
+            "and/or 'algorithms' (an fnmatch glob like 'crc16-*')."
         ),
     )
     def crc_detect(
@@ -267,6 +270,7 @@ def build_server() -> FastMCP:
         target_crc_hex: str | None = None,
         endian: ENDIAN_ENUM = "both",
         algorithms: str | None = None,
+        width: int | None = None,
         match: MATCH_ENUM = "first",
         encoding: str = "utf-8",
     ) -> dict[str, Any]:
@@ -276,6 +280,7 @@ def build_server() -> FastMCP:
             packet,
             endian=endian,
             algorithms=algorithms,
+            width=width,
             match=match,
             encoding=encoding,
             target_crc=target,

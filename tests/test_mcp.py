@@ -139,6 +139,21 @@ class TestCrcDetect:
             f"expected crc32, got {out['candidates'][0]['algorithm']}"
         )
 
+    def test_width_filter_narrows_the_scan(self):
+        # Arrange -- a crc32 packet; width=16 must exclude the 32-bit match.
+        pkt = {"packet_hex": "31 32 33 34 35 36 37 38 39 cb f4 39 26"}
+        # Act
+        at_32 = _call("crc_detect", {**pkt, "width": 32})
+        at_16 = _call("crc_detect", {**pkt, "width": 16, "match": "all"})
+        # Assert
+        assert at_32["candidates"][0]["algorithm"] == "crc32", (
+            f"width=32 should still find crc32, got {at_32}"
+        )
+        algos_16 = {c["algorithm"] for c in at_16["candidates"]}
+        assert "crc32" not in algos_16, (
+            f"width=16 must exclude the 32-bit crc32, got {algos_16}"
+        )
+
     def test_output_uses_crc_byte_order_not_endianness(self):
         # Arrange / Act
         out = _call(

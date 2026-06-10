@@ -1,6 +1,6 @@
 """CRC catalogue + generic compute engine.
 
-100+ named algorithms from the reveng catalogue (Greg Cook,
+More than 100 named algorithms from the reveng catalogue (Greg Cook,
 https://reveng.sourceforge.io/crc-catalogue/all.htm) plus
 generic Rocksoft/Williams CRC computation for any custom
 ``(width, poly, init, refin, refout, xorout)`` tuple.

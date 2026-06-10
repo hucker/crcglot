@@ -215,6 +215,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         mode=mode,
         encoding=args.encoding,
         algorithms=args.algorithms,
+        width=args.width,
         match=args.match,
     )
     if not result.matched:
@@ -597,6 +598,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_detect.add_argument(
         "--algorithms", metavar="GLOB",
         help="fnmatch glob to narrow the scan (e.g. 'crc16-*')",
+    )
+    p_detect.add_argument(
+        "--width", type=int, metavar="BITS",
+        help="restrict the scan to algorithms of this CRC bit width (e.g. 16)",
     )
     p_detect.add_argument(
         "--encoding", default="utf-8",

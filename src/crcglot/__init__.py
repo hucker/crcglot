@@ -1,8 +1,8 @@
-"""crcglot -- multi-language CRC code generator.
+"""crcglot -- a multi-language CRC toolkit: generate, compute, detect, reverse.
 
 Generate ready-to-compile CRC source code in C, C#, Go, Java, Python,
 Rust, TypeScript, Verilog, or VHDL for any of the reveng catalogue's
-100+ named algorithms, or any custom Rocksoft/Williams polynomial.  Three
+more than 100 named algorithms, or any custom Rocksoft/Williams polynomial.  Three
 implementation shapes per target (where supported): bit-by-bit
 (smallest), table-driven (4-8x faster), and slice-by-8 (another
 5-10x faster, CRC-32/64 only).
