@@ -64,6 +64,25 @@ _TEXT_RE = re.compile(
 # byte separators.
 _HEX_CLEAN = re.compile(r"0[xX]|[\s,:]+")
 
+# Hex digit set, shared by the hex-bytes decoder and the hex-mode validity check.
+_HEXDIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _is_odd_hex(text: str) -> bool:
+    """True when ``text`` is all hex digits (after stripping ``0x`` prefixes and
+    whitespace / comma / colon separators) but an **odd** number of them.
+
+    That's a malformed hex byte string -- you can't have half a byte.  Explicit
+    ``hex`` mode raises on it instead of silently treating it as no-match;
+    ``auto`` mode stays lenient (an odd-length string is legitimately text).
+    """
+    cleaned = _HEX_CLEAN.sub("", text)
+    return (
+        bool(cleaned)
+        and len(cleaned) % 2 == 1
+        and all(c in _HEXDIGITS for c in cleaned)
+    )
+
 
 Endianness = Literal["big", "little"]
 EndianSelector = Literal["big", "little", "both"]
@@ -348,7 +367,7 @@ def _looks_like_hex(text: str) -> tuple[bytes, HexFormat] | None:
     cleaned = re.sub(r"[\s,:]+", "", text_no_prefix)
     if not cleaned or len(cleaned) % 2 != 0:
         return None
-    if not all(c in "0123456789abcdefABCDEF" for c in cleaned):
+    if not all(c in _HEXDIGITS for c in cleaned):
         return None
 
     # Per-byte vs single-leading prefix.  ``>=`` because the mixed-case
@@ -725,6 +744,11 @@ def detect(
     if mode == "hex":
         if str_count != len(packets):
             raise TypeError("hex mode requires all str packets")
+        for p in packets:
+            if isinstance(p, str) and _is_odd_hex(p):
+                raise ValueError(
+                    f"hex mode: odd number of hex digits in {p!r} -- a hex byte "
+                    "string needs an even count")
         parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
         if any(p is None for p in parsed):
             return DetectResult(matched=False)

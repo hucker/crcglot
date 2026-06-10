@@ -67,6 +67,10 @@ way instead of branching on the format type.
   scan without changing how the bytes are read.
 - Docstring rot: the package described "72 algorithms" (the catalogue holds more
   than 100) and left Java off the target list.
+- `detect(mode="hex")` (and `identify_checksum(mode="hex")`) now raise on an odd
+  number of hex digits instead of silently returning no-match — a hex byte
+  string can't carry half a byte.  `mode="auto"` stays lenient (an odd-length
+  string is read as text).
 
 ## v0.18.0 — 2026-06-09
 

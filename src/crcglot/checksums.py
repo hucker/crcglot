@@ -35,6 +35,7 @@ from crcglot.detect import (
     _crc_byte_len,
     _crc_nibble_len,
     _endians_for,
+    _is_odd_hex,
     _looks_like_hex,
     _normalize_packets,
     _parse_text,
@@ -358,7 +359,11 @@ def identify_checksum(
             survivor_sets.append(
                 _matches_for_bytes(decoded[0], endian=endian, names=names))
         elif mode == "hex":
-            survivor_sets.append(set())  # required hex, didn't decode
+            if _is_odd_hex(p):
+                raise ValueError(
+                    f"hex mode: odd number of hex digits in {p!r} -- a hex byte "
+                    "string needs an even count")
+            survivor_sets.append(set())  # required hex but didn't decode
         else:
             parsed = _parse_text(p, encoding)
             survivor_sets.append(

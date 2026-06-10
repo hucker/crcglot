@@ -274,3 +274,16 @@ class TestDetectReverseIntegration:
         assert "fletcher16" in names, (
             f"little-endian fletcher16 should be flagged, got {names}"
         )
+
+
+class TestHexModeOddDigits:
+    """identify_checksum's hex mode rejects an odd-length hex byte string."""
+
+    def test_hex_mode_odd_raises(self):
+        with pytest.raises(ValueError, match="odd number of hex digits"):
+            identify_checksum("abc", mode="hex")
+
+    def test_auto_mode_odd_is_lenient(self):
+        # auto: not an error (falls to text); simply no match.
+        result = identify_checksum("abc", mode="auto")
+        assert not result.matched, "auto must not raise on odd hex"
