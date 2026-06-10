@@ -54,8 +54,8 @@ way instead of branching on the format type.
 
 - `detect(mode="auto")` decided hex-vs-text by probing the *filtered* algorithm
   set, so a `width=` / `algorithms=` filter could silently re-read a hex frame
-  as text.  The decision now uses the full catalogue; filters narrow the scan,
-  never the interpretation.
+  as text.  The decision now uses the full catalogue, so a filter narrows the
+  scan without changing how the bytes are read.
 - Docstring rot: the package described "72 algorithms" (the catalogue holds more
   than 100) and left Java off the target list.
 
