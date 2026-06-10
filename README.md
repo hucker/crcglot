@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-5389%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-5428%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -284,7 +284,7 @@ Each entry is a frozen `LanguageInfo` dataclass with:
 - `combiner(outputs, stem)`: merge several generator outputs into one file (powers multi-algorithm bundling); per-symbol tables keep the merge collision-free
 - `emoji`: single-grapheme pictographic identifier for terminals / docs
 - `display_name`: human-readable name (e.g. `"C / C++"`, `"TypeScript"`), distinct from `code`
-- UI helpers: `generate_files(...)` returns ready-to-write `GeneratedFile`s; `format_name(stem, kind)` / `format_filename(stem)` case a stem to the identifier or filename crcglot will actually emit; `validate_symbol(stem)` pre-checks a name.  Module-level `default_stem(algorithm)` gives the stem crcglot defaults to (the algorithm name, or `crc_bundle` for a bundle) — so a UI's name field stays in lockstep with the generated output instead of reimplementing per-language casing
+- UI helpers: `generate_files(...)` returns ready-to-write `GeneratedFile`s; `format_name(stem, kind)` / `format_filename(stem)` case a stem to the identifier or filename crcglot will emit; `validate_symbol(stem)` pre-checks a name; module-level `default_stem(algorithm)` gives crcglot's default stem (the algorithm name, or `crc_bundle` for a bundle).  A UI reads its name field from these instead of hardcoding per-language rules
 
 ### `ALGORITHMS`: the reveng CRC catalogue
 
