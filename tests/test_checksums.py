@@ -241,3 +241,36 @@ class TestDetectReverseIntegration:
         assert result.checksum_hint.name == "lrc8", (
             f"hint should name lrc8, got {result.checksum_hint.name}"
         )
+
+    def test_pairs_catch_byte_reversed_multibyte(self):
+        # Arrange -- the checksum integer read in the "wrong" (byte-reversed)
+        # order, as happens when an LE-stored field is read big-endian.
+        from crcglot.checksums import _identify_checksum_pairs
+        from crcglot.detect import _byte_reversed
+
+        msgs = [b"123456789", b"hello world", b"abcdefghij"]
+        pairs = [(m, _byte_reversed(_fletcher16(m), 16)) for m in msgs]
+        # Act
+        result = _identify_checksum_pairs(pairs)
+        # Assert -- caught, and labelled little (compute matched the reversal).
+        actual = {(c.name, c.endianness) for c in result.candidates}
+        assert ("fletcher16", "little") in actual, (
+            f"byte-reversed fletcher16 should be caught as little, got {actual}"
+        )
+
+    def test_reverse_packets_little_endian_multibyte_hint(self):
+        # Arrange -- Fletcher-16 stored little-endian, read with the DEFAULT
+        # big-endian field order: the hint must still flag it.
+        from crcglot import reverse_packets
+
+        msgs = [b"123456789", b"hello world", b"abcdefghij", b"0123456789xy"]
+        frames = [m + _fletcher16(m).to_bytes(2, "little") for m in msgs]
+        # Act -- binary frames; crc_byte_order defaults to "big".
+        result = reverse_packets(frames, crc_bytes=2)
+        # Assert
+        assert not result, f"Fletcher frames are not a CRC; got {result.status}"
+        assert result.checksum_hint is not None, "expected a checksum hint"
+        names = {c.name for c in result.checksum_hint.candidates}
+        assert "fletcher16" in names, (
+            f"little-endian fletcher16 should be flagged, got {names}"
+        )

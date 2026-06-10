@@ -31,6 +31,7 @@ from crcglot.detect import (
     Endianness,
     EndianSelector,
     Packet,
+    _byte_reversed,
     _crc_byte_len,
     _crc_nibble_len,
     _endians_for,
@@ -382,20 +383,30 @@ def _identify_checksum_pairs(
 ) -> ChecksumResult:
     """Checksum hint from ``(message, checksum_int)`` pairs (for ``reverse``).
 
-    The checksum value is already an integer (the caller resolved byte order),
-    so this compares ``compute(message) == value`` for every pair and keeps the
-    checksums that hold for all of them.  ``endianness`` is reported as
-    ``"big"`` (the value is in canonical integer form).
+    A checksum fits a pair when its computed value equals the given integer read
+    either way: as-is (``"big"``) or byte-reversed over the checksum's width
+    (``"little"``).  Trying both orders means a little-endian-stored multi-byte
+    checksum is caught even when the caller read the field big-endian (the
+    default).  A checksum is kept only if it fits every pair (the intersection).
+    8-bit checksums have no byte order, so they only ever report ``"big"``.
     """
     if not pairs:
         return ChecksumResult(matched=False)
-    survivor: set[str] | None = None
+    survivor_sets: list[set[tuple[str, Endianness]]] = []
     for msg, value in pairs:
-        hits = {n for n in CHECKSUMS if _COMPUTE[n](msg) == value}
-        survivor = hits if survivor is None else (survivor & hits)
-    survivor = survivor or set()
+        fits: set[tuple[str, Endianness]] = set()
+        for name, info in CHECKSUMS.items():
+            expected = _COMPUTE[name](msg)
+            if expected == value:
+                fits.add((name, "big"))
+            elif (info.width > 8 and value < (1 << info.width)
+                    and expected == _byte_reversed(value, info.width)):
+                fits.add((name, "little"))
+        survivor_sets.append(fits)
+    common = set.intersection(*survivor_sets)
     candidates = tuple(
-        ChecksumMatch(n, CHECKSUMS[n], "big") for n in CHECKSUMS if n in survivor
+        ChecksumMatch(n, CHECKSUMS[n], e)
+        for n in CHECKSUMS for e in ("big", "little") if (n, e) in common
     )
     return ChecksumResult(
         matched=bool(candidates),
