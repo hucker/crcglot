@@ -393,6 +393,21 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         print("Error: name= requires a value", file=sys.stderr)
         return 2
 
+    # `name=` and `file=` both name the output (the one naming knob); `file=`
+    # additionally writes to disk.  They therefore can't disagree.
+    if (
+        file_stem is not None and name_override is not None
+        and file_stem != name_override
+    ):
+        print(
+            "Error: name= and file= both name the output; use file= to write "
+            "to disk, name= for stdout, and symbol= to override just the "
+            "identifier",
+            file=sys.stderr,
+        )
+        return 2
+    gen_name = file_stem if file_stem is not None else name_override
+
     # Map the variant selector flags to one variant string for generate_files.
     # slice-by-8 on a language that doesn't emit it falls back to table (the one
     # width-independent fallback); width-illegal variants surface from the
@@ -515,9 +530,8 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
             variant=variant_arg,
             comment_style=args.comment,
             naming=args.naming,
-            name=name_override,
+            name=gen_name,
             symbol=symbol_override,
-            file_stem=file_stem,
         )
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)

@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased
+
+An integrator-ergonomics pass over the public surface, prompted by friction a
+downstream app hit.  Several breaking changes; crcglot has a single consumer
+today, so they ship without a deprecation cycle.
+
+### Breaking: `generic_crc` takes a `Crc` value object
+
+`generic_crc(data, width, poly, init, refin, refout, xorout)` is now
+`generic_crc(data, crc)`, where `crc` is the new frozen `Crc(width, poly, init,
+refin, refout, xorout)`.  `AlgorithmInfo` subclasses `Crc`, so a catalogue entry
+passes straight in:
+
+```python
+from crcglot import Crc, generic_crc, ALGORITHMS
+generic_crc(b"123456789", ALGORITHMS["crc16-modbus"])          # catalogue
+generic_crc(b"123456789", Crc(width=16, poly=0x8005, init=0xFFFF,
+                              refin=True, refout=True, xorout=0))  # custom
+```
+
+`generic_crc_many` changes the same way.  The compute functions that took
+`str | AlgorithmInfo` (`encode_int`, `encode`, `verify`) now take `str | Crc`
+(an `AlgorithmInfo` still works), and `CrcStream.from_crc(crc)` builds a stream
+from any `Crc`.  Constructing `Crc` by keyword removes the six-positional-int
+footgun, where the two adjacent bools were easy to transpose.
+
+### Breaking: one naming knob
+
+`generate_files` drops `file_stem`.  `name=` is now the single naming knob: it
+sets the filename *and* the in-code identifier/class (cased per target), and it
+works for a single CRC and for a bundle.  `symbol=` stays as the verbatim escape
+hatch (it overrides only the identifier); `name=` + `symbol=` expresses the old
+file-vs-identifier divergence.  On the CLI, `name=` and `file=` both name the
+output (and `file=` still writes to disk), so giving both with different values
+is now rejected.
+
+### Breaking: unified packet-format field names
+
+`TextFormat.hex_prefix` → `prefix`, and `HexFormat.byte_separator` → `separator`.
+Both shapes now expose `separator` / `prefix`, so a consumer reads them the same
+way instead of branching on the format type.
+
+### Added
+
+- `detect()` / `detect_iter()` (and `crcglot detect --width`, plus the MCP
+  `crc_detect` tool) take `width=<bits>` — a first-class filter that replaces
+  the `algorithms="crc16-*"` glob workaround.
+- `LanguageInfo.variants_for_widths(widths)` — the variant set valid across a
+  multi-width bundle (the intersection), so a UI no longer computes it itself.
+
+### Fixed
+
+- `detect(mode="auto")` decided hex-vs-text by probing the *filtered* algorithm
+  set, so a `width=` / `algorithms=` filter could silently re-read a hex frame
+  as text.  The decision now uses the full catalogue; filters narrow the scan,
+  never the interpretation.
+- Docstring rot: the package described "72 algorithms" (the catalogue holds more
+  than 100) and left Java off the target list.
+
 ## v0.18.0 — 2026-06-09
 
 CRC reverse-engineering plus a coherent packet/MCP surface.  Additive over

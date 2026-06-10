@@ -305,9 +305,9 @@ def _pascal_base(base_snake: str) -> str:
 def default_stem(algorithm: str | Sequence[str]) -> str:
     """The default filename / identifier stem for a generation.
 
-    The stem :func:`generate_files` uses when no ``name`` / ``symbol`` /
-    ``file_stem`` override is given: the algorithm's own name for a single CRC,
-    or the neutral ``"crc_bundle"`` when several are bundled into one file.
+    The stem :func:`generate_files` uses when no ``name`` / ``symbol``
+    override is given: the algorithm's own name for a single CRC, or the
+    neutral ``"crc_bundle"`` when several are bundled into one file.
     Returns the raw (snake) stem -- pass it through
     :meth:`LanguageInfo.format_filename` / :meth:`LanguageInfo.format_name` to
     case it for a target.
@@ -580,7 +580,7 @@ class LanguageInfo:
         """Case ``stem`` to this target's filename convention.
 
         Convenience for :meth:`format_name` with ``kind="filename"`` -- the exact
-        basename :meth:`generate_files` writes for ``file_stem=stem`` (minus
+        basename :meth:`generate_files` writes for ``name=stem`` (minus
         extension).  See :meth:`format_name` for the casing rules and the
         non-round-trip caveat.
 
@@ -605,7 +605,6 @@ class LanguageInfo:
         naming: str | None = None,
         name: str | None = None,
         symbol: str | None = None,
-        file_stem: str | None = None,
     ) -> tuple[GeneratedFile, ...]:
         """Generate complete, correctly-named source file(s) for this target.
 
@@ -624,21 +623,23 @@ class LanguageInfo:
             comment_style: Forwarded to the generator.
             naming: Forwarded to the generator; defaults to the language's
                 idiomatic convention.
-            name: Rename this CRC -- replaces the algorithm name as the base for
-                functions / class / filename, **cased per target** (the common
-                "call it X" knob).  Single CRC only.
-            symbol: Emit this identifier **verbatim** (escape hatch); single CRC,
-                not valid for Java.
-            file_stem: Override only the filename stem (and, for Java, the
-                class); defaults to the ``name`` / algorithm-derived stem.
+            name: The one naming knob -- sets the filename stem AND the in-code
+                identifier / class, **cased per target**.  Valid for a single
+                CRC and for a bundle (where it names the file / module / class;
+                each member keeps its own function name).  Defaults to the
+                algorithm name (single) or a neutral bundle stem.
+            symbol: Emit the in-code identifier **verbatim** (escape hatch) --
+                the filename still follows ``name``.  Single CRC, not valid for
+                Java.  Combine ``name=`` + ``symbol=`` to make the file and the
+                identifier differ.
 
         Returns:
             One :class:`GeneratedFile` (two for C: header + source).
 
         Raises:
-            ValueError: bad ``algorithm`` / ``custom`` combination,
-                ``symbol`` / ``name`` with a bundle, ``symbol`` for Java, or a
-                stem that can't be a legal class name for a strict target.
+            ValueError: bad ``algorithm`` / ``custom`` combination, ``symbol``
+                with a bundle, ``symbol`` for Java, or a ``name`` that can't be
+                a legal class name for a strict target.
 
         Examples:
             >>> from crcglot import LANGUAGES
@@ -648,6 +649,9 @@ class LanguageInfo:
             'Crc16Xmodem.java'
             >>> LANGUAGES["rust"].generate_files("crc32", name="my-widget")[0].filename
             'my_widget.rs'
+            >>> bundle = LANGUAGES["rust"].generate_files(["crc32", "crc8"], name="checks")
+            >>> bundle[0].filename
+            'checks.rs'
         """
         if (algorithm is None) == (custom is None):
             raise ValueError("supply exactly one of algorithm or custom")
@@ -671,36 +675,25 @@ class LanguageInfo:
         multi = len(items) > 1
         if multi and symbol is not None:
             raise ValueError("symbol= names one function; omit it for a bundle")
-        if multi and name is not None:
-            raise ValueError("name= renames one CRC; omit it for a bundle")
         if self.code == "java" and symbol is not None:
             raise ValueError(
                 "symbol= is not used for Java (methods are named after the "
-                "algorithm, the class after name= / file_stem); use name="
+                "algorithm, the class after name=); use name="
             )
 
-        # The single identifier the code AND the filename derive from.
+        # `name` is the one knob: it sets the filename stem AND the in-code
+        # base (identifier / class), cased per target.  `symbol` overrides only
+        # the in-code identifier (verbatim); the filename still follows `name`
+        # -- so `name=out symbol=foo` writes out.* with a foo() inside.
         display0 = items[0][0]
-        if multi:
-            base = (
-                _sanitize_base(name) if name
-                else _sanitize_base(file_stem) if file_stem
-                else default_stem(names)
-            )
+        if name is not None:
+            file_base = _sanitize_base(name)
         elif symbol is not None:
-            base = symbol
-        elif name is not None:
-            base = _sanitize_base(name)
-        elif file_stem is not None:
-            base = _sanitize_base(file_stem)
+            file_base = _sanitize_base(symbol)
+        elif multi:
+            file_base = default_stem(names)
         else:
-            base = default_stem(display0)
-
-        # file_stem (when given) names the file independently of the in-code
-        # base -- so `file=out symbol=foo` writes out.* with a foo() inside.
-        # For Java the class follows the file (it must match); for C the
-        # header/#include follow the in-code base, so don't diverge them there.
-        file_base = _sanitize_base(file_stem) if file_stem else base
+            file_base = default_stem(display0)
 
         def _gen(disp, algo, *, sym=None, nm=None):
             return self.generator_from_entry(
@@ -726,8 +719,6 @@ class LanguageInfo:
                 result = _gen(disp, algo, sym=symbol)
             elif name is not None:
                 result = _gen(disp, algo, nm=name)
-            elif file_stem is not None:
-                result = _gen(disp, algo, sym=base)  # verbatim, like the CLI's file=
             else:
                 result = _gen(disp, algo)
 
@@ -737,7 +728,7 @@ class LanguageInfo:
         stem = _pascal_base(file_base) if self.filename_case == "pascal" else file_base
         if self.filename_case == "pascal" and not _is_legal_class_identifier(stem):
             raise ValueError(
-                f"{(name or file_stem or display0)!r} yields class {stem!r}, "
+                f"{(name or symbol or display0)!r} yields class {stem!r}, "
                 f"not a legal {self.display_name} class name"
             )
         exts = self.extensions
@@ -1029,7 +1020,6 @@ def generate_files(
     naming: str | None = None,
     name: str | None = None,
     symbol: str | None = None,
-    file_stem: str | None = None,
 ) -> tuple[GeneratedFile, ...]:
     """Generate complete, correctly-named source file(s) for ``language``.
 
@@ -1043,7 +1033,7 @@ def generate_files(
         algorithm: A catalogue name or list of names; see
             :meth:`LanguageInfo.generate_files` for the full keyword set
             (``custom`` / ``variant`` / ``comment_style`` / ``naming`` /
-            ``name`` / ``symbol`` / ``file_stem``).
+            ``name`` / ``symbol``).
 
     Returns:
         One :class:`GeneratedFile` (two for C: header + source).
@@ -1065,5 +1055,5 @@ def generate_files(
         )
     return LANGUAGES[language].generate_files(
         algorithm, custom=custom, variant=variant, comment_style=comment_style,
-        naming=naming, name=name, symbol=symbol, file_stem=file_stem,
+        naming=naming, name=name, symbol=symbol,
     )

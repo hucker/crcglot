@@ -5,8 +5,8 @@ crcglot owns every filename / in-code-naming decision so a CLI / MCP / UI can
 "configure once, read finished files out".  These tests pin that contract:
 the filename(s) each target produces, the lockstep between a file and the class
 named inside it (Java's class *must* equal the file; C# conventionally does),
-the cased ``name=`` override, the verbatim ``symbol=`` escape hatch, and the
-independent ``file_stem`` knob.
+the cased ``name=`` knob (the one that sets file + identifier, single or
+bundle), and the verbatim ``symbol=`` escape hatch.
 
 Generation correctness (the CRC math) is covered by ``test_<lang>_gen.py``; here
 we assert naming + structure only.
@@ -124,12 +124,13 @@ class TestSymbolVerbatim:
         assert f.filename == "myCheck.rs", f.filename
 
 
-class TestFileStemIndependent:
-    """``file_stem`` names the file independently of the in-code identifier."""
+class TestNameSymbolDivergence:
+    """``name=`` + ``symbol=`` lets the filename and the in-code identifier
+    differ: the file follows ``name``, the functions follow ``symbol``."""
 
-    def test_symbol_functions_file_stem_filename(self):
-        # symbol drives the function; file_stem drives the filename.
-        f = generate_files("rust", "crc32", symbol="explicit", file_stem="outname")[0]
+    def test_name_files_symbol_functions(self):
+        # name drives the filename; symbol drives the (verbatim) function.
+        f = generate_files("rust", "crc32", name="outname", symbol="explicit")[0]
         assert f.filename == "outname.rs", f.filename
         assert "fn explicit_update(" in f.content, "functions follow symbol="
 
@@ -146,6 +147,13 @@ class TestBundle:
     def test_c_bundle_is_pair(self):
         files = generate_files("c", ["crc32", "crc8"])
         assert [f.filename for f in files] == ["crc_bundle.h", "crc_bundle.c"], files
+
+    def test_bundle_named(self):
+        # name= now names a bundle's file / module; each member keeps its fn.
+        files = generate_files("rust", ["crc32", "crc8"], name="checks")
+        assert [f.filename for f in files] == ["checks.rs"], files
+        body = files[0].content
+        assert "crc32_update(" in body and "crc8_update(" in body, "both present"
 
 
 class TestCustom:
@@ -198,13 +206,13 @@ class TestFormatFilename:
     @pytest.mark.parametrize("language", sorted(LANGUAGES))
     def test_matches_generated_filename(self, language):
         # The contract: format_filename(stem) is exactly the basename
-        # generate_files(file_stem=stem) emits -- so a UI's preview can't lie.
+        # generate_files(name=stem) emits -- so a UI's preview can't lie.
         stem = "my-crc.v2"
 
         # Act
         previewed = LANGUAGES[language].format_filename(stem)
         generated_stem = generate_files(
-            language, "crc32", file_stem=stem
+            language, "crc32", name=stem
         )[0].filename.rsplit(".", 1)[0]
 
         # Assert
@@ -315,10 +323,6 @@ class TestErrors:
     def test_algorithm_and_custom_mutually_exclusive(self):
         with pytest.raises(ValueError, match="exactly one"):
             generate_files("rust", "crc32", custom=ALGORITHMS["crc32"])
-
-    def test_name_with_bundle_rejected(self):
-        with pytest.raises(ValueError, match="renames one CRC"):
-            generate_files("rust", ["crc32", "crc8"], name="x")
 
     def test_symbol_with_bundle_rejected(self):
         with pytest.raises(ValueError, match="names one function"):

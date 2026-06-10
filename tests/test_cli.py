@@ -829,32 +829,29 @@ class TestCodegenCustom:
         assert rc == 2
         assert "variant='slice8' requires width" in err
 
-    def test_custom_symbol_priority_over_file_and_name(self, tmp_path, monkeypatch):
-        """When symbol= is given, it wins over file=STEM-derived and
-        name= derivations."""
+    def test_custom_symbol_overrides_file_derived_name(self, tmp_path, monkeypatch):
+        """symbol= wins for the function while file= sets the filename -- the
+        file/identifier divergence escape hatch (name= + symbol=)."""
         monkeypatch.chdir(tmp_path)
         rc = main([
             "python", "--custom",
             "width=16", "poly=0x8005",
-            "name=mycrc", "file=outname", "symbol=explicit_sym",
+            "file=outname", "symbol=explicit_sym",
         ])
         assert rc == 0
         body = (tmp_path / "outname.py").read_text()
-        assert "def explicit_sym(" in body
+        assert "def explicit_sym(" in body, "function follows symbol="
 
-    def test_name_sets_functions_file_sets_filename(self, tmp_path, monkeypatch):
-        """name= sets the in-code identifier (cased); file= independently sets
-        the filename.  They are separate knobs: functions follow name=, the
-        file follows file=."""
+    def test_name_and_file_conflict_rejected(self, tmp_path, monkeypatch):
+        """name= and file= both name the output (the one knob), so giving both
+        with different values is rejected -- use file= + symbol= to diverge."""
         monkeypatch.chdir(tmp_path)
         rc = main([
             "python", "--custom",
             "width=16", "poly=0x8005",
             "name=mycrc", "file=from_file",
         ])
-        assert rc == 0
-        body = (tmp_path / "from_file.py").read_text()
-        assert "def mycrc(" in body, "functions follow name="
+        assert rc == 2, "conflicting name= and file= should be rejected"
 
     def test_custom_symbol_from_name_when_no_file(self, capsys):
         """No file= and no symbol=: symbol falls back to the custom name=."""
