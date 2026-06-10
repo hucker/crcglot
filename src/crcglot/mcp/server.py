@@ -28,6 +28,7 @@ from mcp.server import FastMCP
 from mcp.types import ToolAnnotations
 
 from crcglot import (
+    Crc,
     ALGORITHMS,
     ATTRIBUTION,
     LANGUAGES,
@@ -126,7 +127,7 @@ def _resolve_algorithm(
     init = int(cp.get("init", 0))
     refin, refout = bool(cp.get("refin", False)), bool(cp.get("refout", False))
     xorout = int(cp.get("xorout", 0))
-    check = generic_crc(b"123456789", width, poly, init, refin, refout, xorout)
+    check = generic_crc(b"123456789", Crc(width, poly, init, refin, refout, xorout))
     info = AlgorithmInfo(
         width=width, poly=poly, init=init, refin=refin, refout=refout,
         xorout=xorout, check=check, desc=str(cp.get("desc", "")), source="custom",
@@ -447,9 +448,7 @@ def build_server() -> FastMCP:
             assert data_texts is not None
             buffers = [t.encode(encoding) for t in data_texts]
 
-        results = generic_crc_many(
-            buffers, a.width, a.poly, a.init, a.refin, a.refout, a.xorout
-        )
+        results = generic_crc_many(buffers, a)
         hex_w = (a.width + 3) // 4
         return {
             "algorithm": label,
@@ -796,13 +795,7 @@ def build_server() -> FastMCP:
             desc = str(cp.get("desc", ""))
             cust_name = str(cp.get("name", "crc_custom"))
             check = generic_crc(
-                b"123456789",
-                width,
-                poly,
-                init,
-                refin,
-                refout,
-                xorout,
+                b"123456789", Crc(width, poly, init, refin, refout, xorout)
             )
             algo_info = AlgorithmInfo(
                 width=width,

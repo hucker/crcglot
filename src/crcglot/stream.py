@@ -33,6 +33,7 @@ from typing import Protocol
 from crcglot.catalogue import (
     ALGORITHMS,
     AlgorithmInfo,
+    Crc,
     _ZLIB_FAST_PATHS,
     _reflect,
 )
@@ -229,17 +230,36 @@ class CrcStream:
         self._width = width
 
     @classmethod
+    def from_crc(cls, crc: Crc) -> CrcStream:
+        """Build a stream from a :class:`~crcglot.Crc` (or AlgorithmInfo).
+
+        The general object constructor: pass any :class:`~crcglot.Crc`, including
+        a custom / recovered one, instead of unpacking its fields into the
+        keyword constructor.
+
+        Examples:
+            >>> from crcglot import Crc, CrcStream
+            >>> spec = Crc(width=16, poly=0x8005, init=0xFFFF,
+            ...            refin=True, refout=True, xorout=0)
+            >>> CrcStream.from_crc(spec).update(b"123456789")
+        """
+        return cls(
+            width=crc.width, poly=crc.poly, init=crc.init,
+            refin=crc.refin, refout=crc.refout, xorout=crc.xorout,
+        )
+
+    @classmethod
     def from_info(cls, algo: AlgorithmInfo) -> CrcStream:
         """Build a stream from an :class:`~crcglot.AlgorithmInfo`.
+
+        An :class:`~crcglot.AlgorithmInfo` *is* a :class:`~crcglot.Crc`, so this
+        is :meth:`from_crc` under a catalogue-record name.
 
         Examples:
             >>> from crcglot import ALGORITHMS, CrcStream
             >>> CrcStream.from_info(ALGORITHMS["crc32"]).update(b"123456789")
         """
-        return cls(
-            width=algo.width, poly=algo.poly, init=algo.init,
-            refin=algo.refin, refout=algo.refout, xorout=algo.xorout,
-        )
+        return cls.from_crc(algo)
 
     @classmethod
     def from_name(cls, name: str) -> CrcStream:

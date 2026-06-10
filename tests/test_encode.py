@@ -11,6 +11,7 @@ import pytest
 from crcglot import (
     ALGORITHMS,
     AlgorithmInfo,
+    Crc,
     HexFormat,
     TextFormat,
     detect,
@@ -265,7 +266,7 @@ class TestRoundTripText:
         # Assert
         assert result.matched, f"text packet not detected: {packet!r}"
         actual_padding = result.candidates[0].padding
-        expected_padding = TextFormat(separator=sep, hex_prefix=leader, uppercase=upper)
+        expected_padding = TextFormat(separator=sep, prefix=leader, uppercase=upper)
         assert actual_padding == expected_padding, (
             f"padding mismatch: actual={actual_padding} expected={expected_padding}"
         )
@@ -392,7 +393,7 @@ class TestCustomAlgorithmInfo:
     def _custom() -> AlgorithmInfo:
         # A custom poly NOT in the catalogue (width 16, reflected).
         w, p, i, ri, ro, xo = 16, 0x1009, 0xFFFF, True, True, 0x0000
-        check = generic_crc(b"123456789", w, p, i, ri, ro, xo)
+        check = generic_crc(b"123456789", Crc(w, p, i, ri, ro, xo))
         return AlgorithmInfo(w, p, i, ri, ro, xo, check, "custom", "test")
 
     def test_info_passthrough_matches_name(self) -> None:

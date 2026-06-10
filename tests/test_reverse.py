@@ -17,7 +17,7 @@ import random
 
 import pytest
 
-from crcglot import ReverseResult, generic_crc, reverse, reverse_packets
+from crcglot import Crc, ReverseResult, generic_crc, reverse, reverse_packets
 from crcglot.catalogue import ALGORITHMS
 from crcglot.reverse import _solve_dials
 
@@ -34,7 +34,7 @@ def _codewords(width, poly, init, refin, refout, xorout, *, seed=0):
     out = []
     for length in lens:
         m = bytes(rng.randrange(256) for _ in range(length))
-        out.append((m, generic_crc(m, width, poly, init, refin, refout, xorout)))
+        out.append((m, generic_crc(m, Crc(width, poly, init, refin, refout, xorout))))
     return out
 
 
@@ -49,7 +49,7 @@ def _agree(pa: _Params, pb: _Params, *, seed=99) -> bool:
     """True if two parameter sets give the same CRC on fresh held-out messages."""
     rng = random.Random(seed)
     held = [bytes(rng.randrange(256) for _ in range(L)) for L in _HELD_LENS]
-    return all(generic_crc(m, *pa) == generic_crc(m, *pb) for m in held)
+    return all(generic_crc(m, Crc(*pa)) == generic_crc(m, Crc(*pb)) for m in held)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ class TestEquivalenceClass:
         for _ in range(200):
             m = bytes(rng.randrange(256) for _ in range(rng.randrange(0, 40)))
             values = {
-                generic_crc(m, c.width, c.poly, c.init, c.refin, c.refout, c.xorout)
+                generic_crc(m, Crc(c.width, c.poly, c.init, c.refin, c.refout, c.xorout))
                 for c in r.candidates
             }
             assert len(values) == 1, f"class members disagree on {m!r}: {values}"
@@ -236,7 +236,7 @@ class TestBehaviour:
         cws = []
         for length in (5, 6, 7, 8, 9, 10):  # all distinct; custom poly
             m = bytes(rng.randrange(256) for _ in range(length))
-            cws.append((m, generic_crc(m, 16, 0x1009, 0x1234, False, False, 0x5678)))
+            cws.append((m, generic_crc(m, Crc(16, 0x1009, 0x1234, False, False, 0x5678))))
 
         # Act
         r = reverse(cws, std_algo_only=False)
@@ -267,7 +267,7 @@ class TestBehaviour:
 def _byte_packets(width, poly, init, refin, refout, xorout, *, crc_bytes, order="big"):
     """Codewords reshaped into binary frames: message + CRC at the tail."""
     return [
-        m + generic_crc(m, width, poly, init, refin, refout, xorout).to_bytes(crc_bytes, order)
+        m + generic_crc(m, Crc(width, poly, init, refin, refout, xorout)).to_bytes(crc_bytes, order)
         for m, _c in _codewords(width, poly, init, refin, refout, xorout)
     ]
 
@@ -278,7 +278,7 @@ def _text_packets(width, poly, init, refin, refout, xorout, *, nibbles=4, sep=" 
     for i, (m, _c) in enumerate(_codewords(width, poly, init, refin, refout, xorout)):
         # Use printable, varied data so the text regex has a clean data/sep/hex split.
         data = f"frame{i:02d}-{m.hex()}"
-        crc = generic_crc(data.encode(), width, poly, init, refin, refout, xorout)
+        crc = generic_crc(data.encode(), Crc(width, poly, init, refin, refout, xorout))
         out.append(f"{data}{sep}{crc:0{nibbles}x}")
     return out
 

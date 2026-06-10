@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-5428%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-5436%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-94%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -304,16 +304,17 @@ Each entry is a frozen `AlgorithmInfo` dataclass with the full Rocksoft / Willia
 ### Custom polynomials
 
 ```python
-from crcglot import AlgorithmInfo, LANGUAGES, generic_crc
+from crcglot import AlgorithmInfo, Crc, LANGUAGES, generic_crc
 
 # Compute the canonical check value for a custom poly.
-check = generic_crc(b"123456789", 16, 0x1234, 0xFFFF, True, True, 0x0000)
+spec = Crc(width=16, poly=0x1234, init=0xFFFF, refin=True, refout=True, xorout=0x0000)
+check = generic_crc(b"123456789", spec)
 
-# Build an AlgorithmInfo and feed it to any generator.
+# Build an AlgorithmInfo (a named, checked Crc) and feed it to any generator.
 algo = AlgorithmInfo(
-    name="my_crc16", width=16, poly=0x1234, init=0xFFFF,
+    width=16, poly=0x1234, init=0xFFFF,
     refin=True, refout=True, xorout=0x0000, check=check,
-    desc="My custom CRC-16",
+    desc="My custom CRC-16", source="custom",
 )
 code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 ```
@@ -348,7 +349,7 @@ Beyond *generating* code, crcglot can *compute* CRCs at runtime, and it's fast.
 
 > **Performance, stated honestly:** with the C extension, crcglot computes any of the more than 100 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer, on par with generated C and ahead of generated Rust), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s), *faster* than the generated code.  The pure-Python fallback always works but is ~1000× slower.  Two caveats: the "compiled-class" numbers need the extension installed (it ships in the prebuilt wheel), and they hold for bulk/streaming data; many tiny one-shot calls pay Python↔C overhead per call (use the [batch API](#streaming-and-batch) for those).  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
 
-At runtime there's **no variant choice to make**, the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, width, poly, init, refin, refout, xorout)` and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
+At runtime there's **no variant choice to make**, the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, crc)` (passing a `Crc`, or any `AlgorithmInfo`) and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
 
 Under the hood it dispatches three ways (you never select among them):
 
@@ -365,10 +366,12 @@ pip install --no-binary crcglot crcglot
 It's a single abi3 wheel per platform (CPython 3.11+), and crcglot stays fully functional in pure Python if no wheel matches your platform.
 
 ```python
-from crcglot import generic_crc
+from crcglot import Crc, generic_crc
 
 # One-shot.  crc32 here rides the zlib hardware path automatically.
-crc = generic_crc(b"123456789", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
+ieee = Crc(width=32, poly=0x04C11DB7, init=0xFFFFFFFF,
+           refin=True, refout=True, xorout=0xFFFFFFFF)
+crc = generic_crc(b"123456789", ieee)
 ```
 
 ### Streaming and batch
@@ -387,12 +390,13 @@ s.digest()        # 0xCBF43926 — an int; non-destructive, call it again
 s.hexdigest()     # 'cbf43926'
 ```
 
-`crc_stream` is **backend-smart**, taking the same three-tier dispatch as `generic_crc`: stdlib `zlib.crc32` for IEEE crc32 / jamcrc, the C extension when built, pure-Python otherwise.  So it always works, and is fast where it can be.  For a custom (non-catalogue) CRC, construct from raw parameters (signature matches the C extension's) or from an `AlgorithmInfo`:
+`crc_stream` is **backend-smart**, taking the same three-tier dispatch as `generic_crc`: stdlib `zlib.crc32` for IEEE crc32 / jamcrc, the C extension when built, pure-Python otherwise.  So it always works, and is fast where it can be.  For a custom (non-catalogue) CRC, build it from a `Crc` value object (or its raw keyword parameters), or from an `AlgorithmInfo`:
 
 ```python
-from crcglot import CrcStream, ALGORITHMS
+from crcglot import CrcStream, Crc, ALGORITHMS
 
-CrcStream(width=16, poly=0x8005, init=0xFFFF, refin=True, refout=True, xorout=0)
+CrcStream.from_crc(Crc(width=16, poly=0x8005, init=0xFFFF, refin=True, refout=True, xorout=0))
+CrcStream(width=16, poly=0x8005, init=0xFFFF, refin=True, refout=True, xorout=0)  # raw kwargs
 CrcStream.from_info(ALGORITHMS["crc16-modbus"])
 ```
 
@@ -402,8 +406,7 @@ For high-volume small-buffer workloads (framed protocols, packet streams, bulk v
 from crcglot import generic_crc_many, ALGORITHMS
 
 a = ALGORITHMS["crc16-modbus"]
-results = generic_crc_many(list_of_packets, a.width, a.poly, a.init,
-                           a.refin, a.refout, a.xorout)   # one CRC per packet, in order
+results = generic_crc_many(list_of_packets, a)   # one CRC per packet, in order
 ```
 
 It uses the same dispatch as `generic_crc` (zlib for crc32 / jamcrc, the C extension's `c_crc_many` otherwise, pure-Python fallback), and is exposed over MCP as the `crc_compute_many` tool, so an agent can CRC a whole batch of captured frames in a single tool call.

@@ -24,7 +24,7 @@ import sys
 
 import pytest
 
-from crcglot import ALGORITHMS, LANGUAGES, encode, generic_crc
+from crcglot import ALGORITHMS, LANGUAGES, Crc, encode, generic_crc
 from crcglot.mcp.server import build_server
 
 
@@ -434,7 +434,7 @@ class TestCrcReverse:
         out = []
         for length in [8] * 12 + [9, 11, 13, 17]:
             m = bytes(rng.randrange(256) for _ in range(length))
-            c = generic_crc(m, width, poly, init, refin, refout, xorout)
+            c = generic_crc(m, Crc(width, poly, init, refin, refout, xorout))
             frame = m + c.to_bytes(crc_bytes, order)
             out.append(base64.b64encode(frame).decode() if b64 else frame.hex())
         return out
@@ -495,7 +495,7 @@ class TestCrcReverse:
         for i in range(16):
             data = f"f{i:02d}-" + "".join(
                 chr(97 + rng.randrange(26)) for _ in range(rng.randrange(4, 12)))
-            c = generic_crc(data.encode(), 16, 0x1009, 0xFFFF, True, True, 0)
+            c = generic_crc(data.encode(), Crc(16, 0x1009, 0xFFFF, True, True, 0))
             frames.append(f"{data} {c:04x}")
         out = _call("crc_reverse", {"packets": frames, "packet_format": "text"})
         assert out["candidates"], "no candidates from text frames"
@@ -574,7 +574,7 @@ class TestCustomParams:
           "refin": True, "refout": True, "xorout": 0}
 
     def _truth(self, data: bytes) -> int:
-        return generic_crc(data, 16, 0x1009, 0xFFFF, True, True, 0)
+        return generic_crc(data, Crc(16, 0x1009, 0xFFFF, True, True, 0))
 
     def test_compute_matches_engine(self):
         # Act
@@ -606,7 +606,7 @@ class TestCustomParams:
         rng = random.Random(5)
         msgs = [bytes(rng.randrange(256) for _ in range(n))
                 for n in ([8] * 12 + [9, 11, 13, 17])]
-        packets = [(m + generic_crc(m, 16, 0x1009, 0xFFFF, True, True, 0)
+        packets = [(m + generic_crc(m, Crc(16, 0x1009, 0xFFFF, True, True, 0))
                     .to_bytes(2, "big")).hex() for m in msgs]
         rev = _call("crc_reverse", {"packets": packets, "std_algo_only": False})
         model = rev["candidates"][0]
@@ -614,7 +614,7 @@ class TestCustomParams:
               ("width", "poly", "init", "refin", "refout", "xorout")}
         # A fresh frame the recovery never saw, CRC'd with the true params.
         fresh = b"a brand new frame"
-        good = (fresh + generic_crc(fresh, 16, 0x1009, 0xFFFF, True, True, 0)
+        good = (fresh + generic_crc(fresh, Crc(16, 0x1009, 0xFFFF, True, True, 0))
                 .to_bytes(2, "big"))
         ver = _call("crc_verify", {"custom_params": cp, "packet_hex": good.hex()})
         assert ver["valid"] is True, "recovered params must validate an unseen frame"

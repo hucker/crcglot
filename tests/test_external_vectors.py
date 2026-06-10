@@ -100,15 +100,7 @@ class TestEngineAgainstZlibCrc32:
         # Arrange
         algo = ALGORITHMS["crc32"]
         # Act
-        actual = generic_crc(
-            data,
-            algo.width,
-            algo.poly,
-            algo.init,
-            algo.refin,
-            algo.refout,
-            algo.xorout,
-        )
+        actual = generic_crc(data, algo)
         expected = zlib.crc32(data) & 0xFFFFFFFF
         # Assert
         assert actual == expected, (
@@ -125,15 +117,7 @@ class TestEngineAgainstZlibCrc32:
         # i.e. zlib.crc32(data) XOR 0xFFFFFFFF.
         algo = ALGORITHMS["crc32-jamcrc"]
         # Act
-        actual = generic_crc(
-            data,
-            algo.width,
-            algo.poly,
-            algo.init,
-            algo.refin,
-            algo.refout,
-            algo.xorout,
-        )
+        actual = generic_crc(data, algo)
         expected = (zlib.crc32(data) ^ 0xFFFFFFFF) & 0xFFFFFFFF
         # Assert
         assert actual == expected, (
@@ -147,15 +131,7 @@ class TestEngineAgainstZlibCrc32:
         data = bytes((i * 31 + 17) & 0xFF for i in range(1_000_000))
         algo = ALGORITHMS["crc32"]
         # Act
-        actual = generic_crc(
-            data,
-            algo.width,
-            algo.poly,
-            algo.init,
-            algo.refin,
-            algo.refout,
-            algo.xorout,
-        )
+        actual = generic_crc(data, algo)
         expected = zlib.crc32(data) & 0xFFFFFFFF
         # Assert
         assert actual == expected, (
@@ -187,15 +163,7 @@ class TestEveryAlgorithmReproducesCatalogueCheck:
         # Arrange
         algo = ALGORITHMS[name]
         # Act
-        actual = generic_crc(
-            b"123456789",
-            algo.width,
-            algo.poly,
-            algo.init,
-            algo.refin,
-            algo.refout,
-            algo.xorout,
-        )
+        actual = generic_crc(b"123456789", algo)
         # Assert
         assert actual == algo.check, (
             f"{name}: engine output on b'123456789' disagrees with "
@@ -284,15 +252,7 @@ class TestCrc8BacnetAgainstReferenceImpl:
         # Arrange
         algo = ALGORITHMS["crc8-bacnet"]
         # Act
-        actual = generic_crc(
-            data,
-            algo.width,
-            algo.poly,
-            algo.init,
-            algo.refin,
-            algo.refout,
-            algo.xorout,
-        )
+        actual = generic_crc(data, algo)
         expected = _bacnet_calc_crc8_header(data)
         # Assert
         assert actual == expected, (
@@ -314,15 +274,7 @@ class TestCrc32BacnetAgainstReferenceImpl:
         # Arrange
         algo = ALGORITHMS["crc32-bacnet"]
         # Act
-        actual = generic_crc(
-            data,
-            algo.width,
-            algo.poly,
-            algo.init,
-            algo.refin,
-            algo.refout,
-            algo.xorout,
-        )
+        actual = generic_crc(data, algo)
         expected = _bacnet_calc_crc32k_data(data)
         # Assert
         assert actual == expected, (
@@ -515,15 +467,7 @@ class TestEngineAgainstPublishedVectors:
         # Arrange
         algo = ALGORITHMS[name]
         # Act
-        actual = generic_crc(
-            data,
-            algo.width,
-            algo.poly,
-            algo.init,
-            algo.refin,
-            algo.refout,
-            algo.xorout,
-        )
+        actual = generic_crc(data, algo)
         # Assert
         hex_w = (algo.width + 3) // 4
         assert actual == expected, (

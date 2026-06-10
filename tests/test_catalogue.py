@@ -41,6 +41,7 @@ from crcglot import (
     ALGORITHMS,
     LANGUAGES,
     AlgorithmInfo,
+    Crc,
     LanguageInfo,
     generate_c,
     generate_c_from_entry,
@@ -225,6 +226,52 @@ class TestLanguageMetadata:
         )
 
 
+class TestVariantsForWidths:
+    """``LanguageInfo.variants_for_widths(widths)`` intersects the
+    per-width variant sets -- the valid set for a multi-algorithm bundle,
+    whose combiner emits one implementation shared by every member.
+    """
+
+    def test_single_width_matches_variants_for_width(self):
+        # Assert -- one width behaves like variants_for_width.
+        actual = LANGUAGES["c"].variants_for_widths([32])
+        expected = LANGUAGES["c"].variants_for_width(32)
+        assert actual == expected, (
+            f"single-width intersection should equal variants_for_width: "
+            f"got {actual}, expected {expected}"
+        )
+
+    def test_mixed_widths_drop_slice8(self):
+        # Assert -- 32-bit + 16-bit drops slice8 (valid at 32, not 16).
+        actual = LANGUAGES["c"].variants_for_widths([32, 16])
+        expected = ("bitwise", "table")
+        assert actual == expected, f"32+16 bundle should be {expected}, got {actual}"
+
+    def test_sub_byte_member_drops_table(self):
+        # Assert -- a width-5 member removes table too, leaving bitwise.
+        actual = LANGUAGES["c"].variants_for_widths([32, 5])
+        expected = ("bitwise",)
+        assert actual == expected, f"32+5 bundle should be {expected}, got {actual}"
+
+    def test_empty_widths_is_unconstrained(self):
+        # Assert -- no widths => the language's full variant set.
+        actual = LANGUAGES["c"].variants_for_widths([])
+        expected = LANGUAGES["c"].variants_for_width(32)
+        assert actual == expected, (
+            f"empty widths should be unconstrained: got {actual}, "
+            f"expected {expected}"
+        )
+
+    def test_canonical_ordering(self):
+        # Assert -- the result follows VARIANT_ORDER.
+        from crcglot import VARIANT_ORDER
+
+        actual = LANGUAGES["c"].variants_for_widths([32, 64])
+        assert actual == VARIANT_ORDER, (
+            f"expected canonical order {VARIANT_ORDER}, got {actual}"
+        )
+
+
 class TestVariantsForWidth:
     """``LanguageInfo.variants_for_width(width)`` filters the variant
     set by the algorithm width.  The only width-dependent rule today
@@ -396,10 +443,10 @@ class TestAdvisories:
     def test_custom_crc32_equivalent_detected(self):
         # The param-tuple check catches a custom CRC that IS crc32 -- a name
         # check (the old downstream approach) could not.
-        from crcglot import AlgorithmInfo, generic_crc
+        from crcglot import AlgorithmInfo, Crc, generic_crc
 
         p = (32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
-        custom = AlgorithmInfo(*p, generic_crc(b"123456789", *p), "mine", "custom")
+        custom = AlgorithmInfo(*p, generic_crc(b"123456789", Crc(*p)), "mine", "custom")
         adv = LANGUAGES["c"].advisories_for([custom])
         assert len(adv) == 1 and adv[0].kind == "stdlib-crc32", "custom crc32 detected"
 
@@ -626,7 +673,7 @@ class TestZlibFastPaths:
             algo.refin, algo.refout, algo.xorout,
         )
         # Act
-        actual = generic_crc(b"123456789", *args)
+        actual = generic_crc(b"123456789", Crc(*args))
         # Assert
         assert actual == algo.check, (
             f"{name} fast path gave {actual:#x}, expected {algo.check:#x}"
@@ -643,7 +690,7 @@ class TestZlibFastPaths:
             algo.refin, algo.refout, algo.xorout,
         )
         for data in [b"", b"\x00", b"123456789", b"The quick brown fox", bytes(range(256))]:
-            assert generic_crc(data, *args) == _generic_crc_python(data, *args), (
+            assert generic_crc(data, Crc(*args)) == _generic_crc_python(data, *args), (
                 f"{name}: zlib fast path disagrees with reference on "
                 f"{len(data)}-byte input"
             )
@@ -658,7 +705,7 @@ class TestZlibFastPaths:
             algo.width, algo.poly, algo.init,
             algo.refin, algo.refout, algo.xorout,
         )
-        assert generic_crc(data, *args) == (zlib.crc32(data) ^ 0xFFFFFFFF)
+        assert generic_crc(data, Crc(*args)) == (zlib.crc32(data) ^ 0xFFFFFFFF)
 
     def test_matches_stdlib_zlib(self):
         # The delegated path must equal calling zlib directly.
@@ -669,7 +716,7 @@ class TestZlibFastPaths:
             algo.refin, algo.refout, algo.xorout,
         )
         for data in [b"", b"a", b"123456789", bytes(range(256)) * 10]:
-            actual = generic_crc(data, *args)
+            actual = generic_crc(data, Crc(*args))
             assert actual == zlib.crc32(data), (
                 f"delegated != zlib.crc32 for {len(data)}-byte input"
             )
@@ -682,8 +729,8 @@ class TestZlibFastPaths:
             algo.refin, algo.refout, algo.xorout,
         )
         data = b"123456789"
-        assert generic_crc(bytearray(data), *args) == 0xCBF43926
-        assert generic_crc(memoryview(data), *args) == 0xCBF43926
+        assert generic_crc(bytearray(data), Crc(*args)) == 0xCBF43926
+        assert generic_crc(memoryview(data), Crc(*args)) == 0xCBF43926
 
 
 class TestGenericCrcMany:
@@ -700,8 +747,8 @@ class TestGenericCrcMany:
         args = (a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
 
         # Act
-        actual = generic_crc_many(self._BUFFERS, *args)
-        expected = [generic_crc(b, *args) for b in self._BUFFERS]
+        actual = generic_crc_many(self._BUFFERS, Crc(*args))
+        expected = [generic_crc(b, Crc(*args)) for b in self._BUFFERS]
 
         # Assert
         assert actual == expected, f"{name}: batch != per-buffer generic_crc"
@@ -709,7 +756,7 @@ class TestGenericCrcMany:
     def test_empty_batch_returns_empty_list(self):
         # Act
         a = ALGORITHMS["crc16-modbus"]
-        actual = generic_crc_many([], a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        actual = generic_crc_many([], a)
 
         # Assert
         assert actual == [], "empty batch must return an empty list"
@@ -718,7 +765,7 @@ class TestGenericCrcMany:
         # Act -- distinct inputs in a known order.
         a = ALGORITHMS["crc32"]
         bufs = [b"123456789", b"", b"a"]
-        actual = generic_crc_many(bufs, a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        actual = generic_crc_many(bufs, a)
 
         # Assert -- first is the canonical check value; order matches input.
         assert actual[0] == 0xCBF43926, "first result is crc32 of '123456789'"
@@ -781,7 +828,7 @@ class TestCustomCrcChainAgainstRevengTruth:
 
         # Act
         actual = generic_crc(
-            b"123456789", w, poly, init, refin, refout, xorout
+            b"123456789", Crc(w, poly, init, refin, refout, xorout)
         )
 
         # Assert
@@ -912,7 +959,7 @@ class TestGenerateFromEntryAcceptsSyntheticEntry:
         width, poly, init = 16, 0x1234, 0xABCD
         refin, refout, xorout = False, False, 0x5678
         engine_result = generic_crc(
-            b"123456789", width, poly, init, refin, refout, xorout
+            b"123456789", Crc(width, poly, init, refin, refout, xorout)
         )
         algo = AlgorithmInfo(
             width=width, poly=poly, init=init,

@@ -1,8 +1,8 @@
 """crcglot -- multi-language CRC code generator.
 
-Generate ready-to-compile CRC source code in C, C#, Go, Python, Rust,
-TypeScript, Verilog, or VHDL for any of 72 named algorithms (reveng
-catalogue) or any custom Rocksoft/Williams polynomial.  Three
+Generate ready-to-compile CRC source code in C, C#, Go, Java, Python,
+Rust, TypeScript, Verilog, or VHDL for any of the reveng catalogue's
+100+ named algorithms, or any custom Rocksoft/Williams polynomial.  Three
 implementation shapes per target (where supported): bit-by-bit
 (smallest), table-driven (4-8x faster), and slice-by-8 (another
 5-10x faster, CRC-32/64 only).
@@ -17,7 +17,8 @@ Public API:
           algorithm in the reveng catalogue.
 
     Dataclasses:
-        - LanguageInfo, AlgorithmInfo (both frozen).
+        - LanguageInfo, Crc, AlgorithmInfo (all frozen; AlgorithmInfo is a
+          named, check-carrying Crc).
 
     Individual generators (also reachable via LANGUAGES[code].generator):
         - generate_c / generate_c_from_entry
@@ -46,6 +47,7 @@ from crcglot.attribution import ACKNOWLEDGMENTS, ATTRIBUTION
 from crcglot.catalogue import (
     ALGORITHMS,
     AlgorithmInfo,
+    Crc,
     _reflect,
     generic_crc,
     generic_crc_many,
@@ -110,6 +112,7 @@ __all__ = [
     "Advisory",
     "AlgorithmInfo",
     "Attempt",
+    "Crc",
     "CrcStream",
     "DetectMatch",
     "DetectResult",

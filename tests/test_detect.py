@@ -179,7 +179,7 @@ class TestTextRoundTrip:
         # Assert
         assert result.matched, f"canonical text detect failed: result={result}"
         actual_padding = result.candidates[0].padding
-        expected_padding = TextFormat(separator=" ", hex_prefix="", uppercase=False)
+        expected_padding = TextFormat(separator=" ", prefix="", uppercase=False)
         assert actual_padding == expected_padding, (
             f"expected padding={expected_padding}, got {actual_padding}"
         )
@@ -203,7 +203,7 @@ class TestTextRoundTrip:
 
         # Assert
         actual = result.candidates[0].padding
-        expected = TextFormat(separator=sep, hex_prefix=leader, uppercase=upper)
+        expected = TextFormat(separator=sep, prefix=leader, uppercase=upper)
         assert result.matched, f"text variant detect failed: result={result}"
         assert actual == expected, f"padding mismatch: actual={actual} expected={expected}"
 
@@ -254,27 +254,27 @@ class TestHexTextInput:
         [
             (
                 "313233343536373839cbf43926",
-                HexFormat(byte_separator="", prefix="", prefix_per_byte=False, uppercase=False),
+                HexFormat(separator="", prefix="", prefix_per_byte=False, uppercase=False),
             ),
             (
                 "31 32 33 34 35 36 37 38 39 cb f4 39 26",
-                HexFormat(byte_separator=" ", prefix="", prefix_per_byte=False, uppercase=False),
+                HexFormat(separator=" ", prefix="", prefix_per_byte=False, uppercase=False),
             ),
             (
                 "0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xcb 0xf4 0x39 0x26",
-                HexFormat(byte_separator=" ", prefix="0x", prefix_per_byte=True, uppercase=False),
+                HexFormat(separator=" ", prefix="0x", prefix_per_byte=True, uppercase=False),
             ),
             (
                 "0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0xcb,0xf4,0x39,0x26",
-                HexFormat(byte_separator=",", prefix="0x", prefix_per_byte=True, uppercase=False),
+                HexFormat(separator=",", prefix="0x", prefix_per_byte=True, uppercase=False),
             ),
             (
                 "31:32:33:34:35:36:37:38:39:CB:F4:39:26",
-                HexFormat(byte_separator=":", prefix="", prefix_per_byte=False, uppercase=True),
+                HexFormat(separator=":", prefix="", prefix_per_byte=False, uppercase=True),
             ),
             (
                 "0X313233343536373839CBF43926",
-                HexFormat(byte_separator="", prefix="0X", prefix_per_byte=False, uppercase=True),
+                HexFormat(separator="", prefix="0X", prefix_per_byte=False, uppercase=True),
             ),
         ],
         ids=[
@@ -388,9 +388,7 @@ class TestMultiPacketIntersection:
         datas = [b"123456789", b"hello world", b"the quick brown fox"]
         packets: list[bytes] = []
         for d in datas:
-            crc = generic_crc(
-                d, algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout,
-            )
+            crc = generic_crc(d, algo)
             packets.append(d + crc.to_bytes(algo.width // 8, "big"))
 
         # Act
@@ -629,12 +627,8 @@ class TestMultiPacketSet:
         from crcglot import generic_crc
         algo = ALGORITHMS["crc32"]
         data1, data2 = b"123456789", b"the quick brown fox"
-        crc1 = generic_crc(
-            data1, algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout,
-        )
-        crc2 = generic_crc(
-            data2, algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout,
-        )
+        crc1 = generic_crc(data1, algo)
+        crc2 = generic_crc(data2, algo)
         packets = [
             data1 + crc1.to_bytes(4, "big"),
             data2 + crc2.to_bytes(4, "big"),
@@ -1174,4 +1168,47 @@ class TestEndianSelector:
         )
         assert (r_both.algorithm, r_both.endianness) == ("crc32", "big"), (
             f"endian='both' + BE target: {(r_both.algorithm, r_both.endianness)}"
+        )
+
+
+class TestDetectWidthFilter:
+    """``detect(..., width=N)`` narrows the scan to algorithms of that bit
+    width -- a first-class int alternative to an ``algorithms`` glob.
+    """
+
+    def test_width_keeps_matching_algorithm(self) -> None:
+        # Arrange
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="big")
+        # Act
+        result = detect(packet, width=32)
+        # Assert
+        assert result.algorithm == "crc32", (
+            f"width=32 should still find crc32, got {result}"
+        )
+
+    def test_wrong_width_excludes_the_algorithm(self) -> None:
+        # Arrange -- a genuine crc32 frame, but restrict the scan to 16-bit.
+        from crcglot import encode
+
+        packet = encode(b"123456789", "crc32", endianness="big")
+        # Act
+        result = detect(packet, width=16, match="all")
+        # Assert -- crc32 is excluded, and any survivor is 16-bit.
+        algos = {m.algorithm for m in result.candidates}
+        actual_widths = {ALGORITHMS[a].width for a in algos}
+        assert "crc32" not in algos, f"width=16 must exclude crc32: {algos}"
+        assert actual_widths <= {16}, (
+            f"width=16 should only surface 16-bit algorithms: {actual_widths}"
+        )
+
+    def test_width_narrows_candidate_names(self) -> None:
+        # Act -- the helper that detect/detect_iter share.
+        names = _ordered_algorithm_names(None, 16)
+        # Assert -- only (and all) 16-bit catalogue entries.
+        actual_widths = {ALGORITHMS[n].width for n in names}
+        expected_widths = {16}
+        assert actual_widths == expected_widths, (
+            f"width=16 filter should yield exactly 16-bit algos, got {actual_widths}"
         )

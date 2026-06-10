@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
+from crcglot.catalogue import ALGORITHMS, Crc, generic_crc
 from crcglot.detect import (
     DetectMatch,
     Endianness,
@@ -40,17 +40,18 @@ def _format_bytes_as_hex_text(packet: bytes, fmt: HexFormat) -> str:
     hex_parts = [f"{b:02{case_char}}" for b in packet]
     if fmt.prefix and fmt.prefix_per_byte:
         hex_parts = [fmt.prefix + h for h in hex_parts]
-    joined = fmt.byte_separator.join(hex_parts)
+    joined = fmt.separator.join(hex_parts)
     if fmt.prefix and not fmt.prefix_per_byte:
         joined = fmt.prefix + joined
     return joined
 
 
-def _lookup(algorithm: str | AlgorithmInfo) -> AlgorithmInfo:
-    # Resolve a catalogue name to its record, or pass an AlgorithmInfo through
-    # unchanged -- the latter lets callers checksum a custom / recovered
+def _lookup(algorithm: str | Crc) -> Crc:
+    # Resolve a catalogue name to its record, or pass a Crc / AlgorithmInfo
+    # through unchanged -- the latter lets callers checksum a custom / recovered
     # polynomial (e.g. the output of crcglot.reverse) with the same functions.
-    if isinstance(algorithm, AlgorithmInfo):
+    # AlgorithmInfo is a Crc, so the isinstance check covers both.
+    if isinstance(algorithm, Crc):
         return algorithm
     try:
         return ALGORITHMS[algorithm]
@@ -63,7 +64,7 @@ def _lookup(algorithm: str | AlgorithmInfo) -> AlgorithmInfo:
 
 def encode(
     data: bytes | bytearray,
-    algorithm: str | AlgorithmInfo,
+    algorithm: str | Crc,
     *,
     endianness: Endianness = "big",
 ) -> bytes:
@@ -94,17 +95,14 @@ def encode(
     """
     algo = _lookup(algorithm)
     data_bytes = bytes(data)
-    crc = generic_crc(
-        data_bytes, algo.width, algo.poly, algo.init,
-        algo.refin, algo.refout, algo.xorout,
-    )
+    crc = generic_crc(data_bytes, algo)
     w = (algo.width + 7) // 8  # ceil: zero-padded field for sub-byte widths
     return data_bytes + crc.to_bytes(w, endianness)
 
 
 def encode_text(
     data: str,
-    algorithm: str | AlgorithmInfo,
+    algorithm: str | Crc,
     *,
     sep: str = " ",
     leader: str = "",
@@ -149,10 +147,7 @@ def encode_text(
     """
     algo = _lookup(algorithm)
     data_bytes = data.encode(encoding)
-    crc = generic_crc(
-        data_bytes, algo.width, algo.poly, algo.init,
-        algo.refin, algo.refout, algo.xorout,
-    )
+    crc = generic_crc(data_bytes, algo)
     hex_chars = (algo.width + 3) // 4  # ceil: CRC-15 -> 4 nibbles
     if endianness == "big":
         crc_hex = f"{crc:0{hex_chars}x}"
@@ -223,7 +218,7 @@ def encode_match(
         data,
         match.algorithm,
         sep=tf.separator,
-        leader=tf.hex_prefix,
+        leader=tf.prefix,
         uppercase=tf.uppercase,
         endianness=match.endianness,
     )
@@ -231,7 +226,7 @@ def encode_match(
 
 def encode_int(
     data: bytes | bytearray | str,
-    algorithm: str | AlgorithmInfo,
+    algorithm: str | Crc,
     *,
     encoding: str = "utf-8",
 ) -> int:
@@ -259,10 +254,7 @@ def encode_int(
     algo = _lookup(algorithm)
     if isinstance(data, str):
         data = data.encode(encoding)
-    return generic_crc(
-        bytes(data), algo.width, algo.poly, algo.init,
-        algo.refin, algo.refout, algo.xorout,
-    )
+    return generic_crc(bytes(data), algo)
 
 
 @dataclass(frozen=True)
@@ -287,7 +279,7 @@ class VerifyResult:
 
 def verify(
     packet: bytes | bytearray | str,
-    algorithm: str | AlgorithmInfo,
+    algorithm: str | Crc,
     *,
     endianness: Endianness = "big",
     encoding: str = "utf-8",
@@ -355,10 +347,7 @@ def verify(
             )
         message, field = pkt[:-n], pkt[-n:]
         actual = int.from_bytes(field, endianness)
-    expected = generic_crc(
-        message, algo.width, algo.poly, algo.init,
-        algo.refin, algo.refout, algo.xorout,
-    )
+    expected = generic_crc(message, algo)
     return VerifyResult(
         valid=expected == actual, expected=expected, actual=actual,
         width=algo.width,

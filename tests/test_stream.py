@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from crcglot import ALGORITHMS, CrcStream, crc_stream, generic_crc
+from crcglot import ALGORITHMS, Crc, CrcStream, crc_stream, generic_crc
 from crcglot.stream import _CCrcStream, _PyBackend, _ZlibBackend
 
 # The reveng check string and the four chunkings that must all agree: whole,
@@ -61,7 +61,7 @@ def test_stream_matches_generic_crc(name: str) -> None:
     """Streaming agrees with the one-shot ``generic_crc`` for every algorithm."""
     # Arrange
     a = ALGORITHMS[name]
-    expected = generic_crc(_DATA, a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+    expected = generic_crc(_DATA, a)
 
     # Act
     actual = _digest(crc_stream(name), [b"123", b"456", b"789"])
@@ -226,7 +226,7 @@ def test_dirty_xorout_is_masked_to_width() -> None:
     """
     # Arrange -- crc16-modbus params with an xorout bit above width 16.
     w, poly, init, refin, refout, xorout = 16, 0x8005, 0xFFFF, True, True, 1 << 20
-    expected = generic_crc(_DATA, w, poly, init, refin, refout, xorout)
+    expected = generic_crc(_DATA, Crc(w, poly, init, refin, refout, xorout))
     assert expected < (1 << w), "reference result must be within the width"
 
     # Act / Assert -- public stream (whatever backend is selected here).

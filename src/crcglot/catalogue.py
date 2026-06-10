@@ -119,15 +119,42 @@ def _reflect(value: int, width: int) -> int:
     return result
 
 
-def generic_crc(
-    data: bytes | bytearray | memoryview,
-    width: int,
-    poly: int,
-    init: int,
-    refin: bool,
-    refout: bool,
-    xorout: int,
-) -> int:
+@dataclass(frozen=True)
+class Crc:
+    """The six Rocksoft/Williams parameters that define a CRC algorithm.
+
+    The value object the compute surface speaks in: :func:`generic_crc`,
+    :func:`generic_crc_many`, :func:`crcglot.encode_int`, :func:`crcglot.encode`,
+    :func:`crcglot.verify`, and :meth:`crcglot.CrcStream.from_crc` all accept a
+    ``Crc`` -- or an :class:`AlgorithmInfo`, which *is* a named, check-carrying
+    ``Crc``.  Construct one with keywords so the two bools (``refin`` /
+    ``refout``) and the four ints can't be silently transposed.
+
+    Attributes:
+        width: CRC bit width (1-64; sub-byte widths are supported).
+        poly: Generator polynomial in normal (MSB-first) form.
+        init: Initial register value.
+        refin: True to reflect each input byte.
+        refout: True to reflect the final CRC value.
+        xorout: XOR applied to the final CRC value.
+
+    Examples:
+        >>> from crcglot import Crc, generic_crc
+        >>> modbus = Crc(width=16, poly=0x8005, init=0xFFFF,
+        ...              refin=True, refout=True, xorout=0)
+        >>> hex(generic_crc(b"123456789", modbus))
+        '0x4b37'
+    """
+
+    width: int
+    poly: int
+    init: int
+    refin: bool
+    refout: bool
+    xorout: int
+
+
+def generic_crc(data: bytes | bytearray | memoryview, crc: Crc) -> int:
     """Compute CRC using Rocksoft/Williams parameterization.
 
     Public helper for callers who need a check value for a custom
@@ -168,16 +195,21 @@ def generic_crc(
 
     Args:
         data: Payload bytes.
-        width: CRC bit width (8, 16, 32, etc.).
-        poly: Generator polynomial in normal (MSB-first) form.
-        init: Initial register value.
-        refin: True to reflect each input byte.
-        refout: True to reflect the final CRC value.
-        xorout: XOR applied to the final CRC value.
+        crc: The :class:`Crc` parameter set (an :class:`AlgorithmInfo` works
+            too -- it is a named ``Crc``).
 
     Returns:
         Computed CRC value.
+
+    Examples:
+        >>> from crcglot import Crc, generic_crc
+        >>> spec = Crc(width=16, poly=0x8005, init=0xFFFF,
+        ...            refin=True, refout=True, xorout=0)
+        >>> hex(generic_crc(b"123456789", spec))
+        '0x4b37'
     """
+    width, poly, init = crc.width, crc.poly, crc.init
+    refin, refout, xorout = crc.refin, crc.refout, crc.xorout
     fast_path = _ZLIB_FAST_PATHS.get((width, poly, init, refin, refout, xorout))
     if fast_path is not None:
         return fast_path(data)
@@ -190,13 +222,7 @@ def generic_crc(
 
 
 def generic_crc_many(
-    buffers: Sequence[bytes | bytearray | memoryview],
-    width: int,
-    poly: int,
-    init: int,
-    refin: bool,
-    refout: bool,
-    xorout: int,
+    buffers: Sequence[bytes | bytearray | memoryview], crc: Crc
 ) -> list[int]:
     """CRC of each buffer in ``buffers`` (one algorithm), in order.
 
@@ -211,21 +237,21 @@ def generic_crc_many(
 
     Args:
         buffers: The payloads; each is CRC'd independently (not concatenated).
-        width: CRC bit width.
-        poly: Generator polynomial in normal (MSB-first) form.
-        init: Initial register value.
-        refin: True to reflect each input byte.
-        refout: True to reflect the final CRC value.
-        xorout: XOR applied to the final CRC value.
+        crc: The :class:`Crc` parameter set (an :class:`AlgorithmInfo` works
+            too -- it is a named ``Crc``).
 
     Returns:
         One CRC value per buffer, in the same order.
 
     Examples:
-        >>> generic_crc_many([b"123456789", b""], 32, 0x04C11DB7,
-        ...                   0xFFFFFFFF, True, True, 0xFFFFFFFF)
+        >>> from crcglot import Crc
+        >>> crc32 = Crc(width=32, poly=0x04C11DB7, init=0xFFFFFFFF,
+        ...             refin=True, refout=True, xorout=0xFFFFFFFF)
+        >>> generic_crc_many([b"123456789", b""], crc32)
         [3421780262, 0]
     """
+    width, poly, init = crc.width, crc.poly, crc.init
+    refin, refout, xorout = crc.refin, crc.refout, crc.xorout
     fast_path = _ZLIB_FAST_PATHS.get((width, poly, init, refin, refout, xorout))
     if fast_path is not None:
         return [fast_path(b) for b in buffers]
@@ -306,20 +332,23 @@ def _generic_crc_python(
 
 
 @dataclass(frozen=True)
-class AlgorithmInfo:
-    """Typed metadata for one CRC algorithm.
+class AlgorithmInfo(Crc):
+    """Typed metadata for one CRC algorithm: a named, checked :class:`Crc`.
 
-    The algorithm name lives on the :data:`ALGORITHMS` dict key, not on
-    the dataclass itself -- one source of truth, no risk of key vs.
-    ``info.name`` drift.
+    Extends :class:`Crc` with the catalogue metadata (``check`` / ``desc`` /
+    ``source``), so anything that accepts a ``Crc`` -- :func:`generic_crc`,
+    :func:`crcglot.encode_int`, :meth:`crcglot.CrcStream.from_crc` -- accepts an
+    ``AlgorithmInfo`` directly.  The algorithm name lives on the
+    :data:`ALGORITHMS` dict key, not on the dataclass itself -- one source of
+    truth, no risk of key vs. ``info.name`` drift.
 
     Attributes:
-        width: CRC bit width: 8, 16, 32, or 64.
-        poly: Generator polynomial in normal (MSB-first) form.
-        init: Initial register value.
-        refin: True to reflect each input byte.
-        refout: True to reflect the final CRC value.
-        xorout: XOR applied to the final CRC value.
+        width: CRC bit width (inherited from :class:`Crc`).
+        poly: Generator polynomial, MSB-first (inherited).
+        init: Initial register value (inherited).
+        refin: True to reflect each input byte (inherited).
+        refout: True to reflect the final CRC value (inherited).
+        xorout: XOR applied to the final CRC value (inherited).
         check: Canonical reveng check value -- CRC of ``b"123456789"``.
         desc: Human-readable description (may be ``""``).
         source: Provenance of the Rocksoft/Williams parameters --
@@ -331,12 +360,6 @@ class AlgorithmInfo:
             its primary documentation.
     """
 
-    width: int
-    poly: int
-    init: int
-    refin: bool
-    refout: bool
-    xorout: int
     check: int
     desc: str
     source: str

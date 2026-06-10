@@ -55,7 +55,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, cast
 
-from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect, generic_crc
+from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, Crc, _reflect, generic_crc
 from crcglot.detect import _parse_text, _read_hex_crc
 
 Codeword = tuple[bytes, int]
@@ -208,9 +208,9 @@ def _recover_iox_class(
     def columns(n: int) -> list[int]:
         if n not in col_cache:
             z = b"\x00" * n
-            base = generic_crc(z, width, poly, 0, refin, refout, 0)
+            base = generic_crc(z, Crc(width, poly, 0, refin, refout, 0))
             col_cache[n] = [
-                generic_crc(z, width, poly, 1 << j, refin, refout, 0) ^ base
+                generic_crc(z, Crc(width, poly, 1 << j, refin, refout, 0)) ^ base
                 for j in range(width)
             ]
         return col_cache[n]
@@ -218,7 +218,7 @@ def _recover_iox_class(
     rows: list[int] = []
     for msg, crc in codewords:
         cols = columns(len(msg))
-        y = crc ^ generic_crc(msg, width, poly, 0, refin, refout, 0)
+        y = crc ^ generic_crc(msg, Crc(width, poly, 0, refin, refout, 0))
         for k in range(width):
             coeff = 0
             for j in range(width):
@@ -303,7 +303,7 @@ class ReverseResult:
 
 def _as_info(width: int, poly: int, init: int, refin: bool, refout: bool,
              xorout: int, desc: str, source: str) -> AlgorithmInfo:
-    check = generic_crc(b"123456789", width, poly, init, refin, refout, xorout)
+    check = generic_crc(b"123456789", Crc(width, poly, init, refin, refout, xorout))
     return AlgorithmInfo(width, poly, init, refin, refout, xorout, check, desc, source)
 
 
@@ -322,7 +322,7 @@ def _catalogue_match(codewords: Sequence[Codeword]) -> list[str]:
     return [
         name for name, a in ALGORITHMS.items()
         if all(
-            generic_crc(m, a.width, a.poly, a.init, a.refin, a.refout, a.xorout) == c
+            generic_crc(m, a) == c
             for m, c in codewords
         )
     ]
@@ -367,7 +367,8 @@ def _solve_dials(
                 # Final arbiter: the representative must reproduce every codeword.
                 ri0, xo0 = members[0]
                 if not all(
-                    generic_crc(m, w, p, ri0, ri, ro, xo0) == c for m, c in codewords
+                    generic_crc(m, Crc(w, p, ri0, ri, ro, xo0)) == c
+                    for m, c in codewords
                 ):
                     continue
                 dim = 0 if (init is not None or xorout is not None) else dim
@@ -430,10 +431,10 @@ def reverse(
         ValueError: ``frames`` is empty.
 
     Examples:
-        >>> from crcglot import generic_crc, reverse
+        >>> from crcglot import Crc, generic_crc, reverse
         >>> msgs = [bytes((i * 37 + j * 53 + 17) & 0xFF for j in range(8))
         ...         for i in range(8)] + [b"a longer frame", b"and another one!!"]
-        >>> cws = [(m, generic_crc(m, 16, 0x1021, 0xFFFF, False, False, 0))
+        >>> cws = [(m, generic_crc(m, Crc(16, 0x1021, 0xFFFF, False, False, 0)))
         ...        for m in msgs]
         >>> r = reverse(cws, std_algo_only=False)
         >>> r.info.poly
@@ -512,7 +513,7 @@ def reverse(
             hi, hx = sub_members[0]
             hm, hc = codewords[-1]
             validated = int(
-                generic_crc(hm, sw, sp, hi, ri, ro, hx) == hc)
+                generic_crc(hm, Crc(sw, sp, hi, ri, ro, hx)) == hc)
         else:
             validated = 0
 
@@ -616,10 +617,10 @@ def reverse_packets(
             isn't ``"data <sep> hexcrc"``.
 
     Examples:
-        >>> from crcglot import generic_crc, reverse_packets
+        >>> from crcglot import Crc, generic_crc, reverse_packets
         >>> msgs = [bytes((i * 37 + j * 53 + 17) & 0xFF for j in range(8))
         ...         for i in range(8)] + [b"a longer frame", b"and one more!!!"]
-        >>> pkts = [m + generic_crc(m, 16, 0x1021, 0xFFFF, False, False, 0)
+        >>> pkts = [m + generic_crc(m, Crc(16, 0x1021, 0xFFFF, False, False, 0))
         ...                .to_bytes(2, "big") for m in msgs]
         >>> r = reverse_packets(pkts, crc_bytes=2, std_algo_only=False)
         >>> r.info.poly

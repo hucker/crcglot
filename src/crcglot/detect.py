@@ -134,12 +134,12 @@ class TextFormat:
 
     Attributes:
         separator: The literal whitespace between data and hex.
-        hex_prefix: ``""``, ``"0x"``, or ``"0X"``.
+        prefix: ``""``, ``"0x"``, or ``"0X"``.
         uppercase: ``True`` when the hex digits use upper-case A-F.
     """
 
     separator: str
-    hex_prefix: str
+    prefix: str
     uppercase: bool = False
 
 
@@ -151,7 +151,7 @@ class HexFormat:
     surface formatting.
 
     Attributes:
-        byte_separator: The literal characters between hex byte pairs
+        separator: The literal characters between hex byte pairs
             -- ``""`` (none), ``" "``, ``","``, ``":"``, ``"\\n"``, or
             any short run.
         prefix: ``""``, ``"0x"``, or ``"0X"`` -- which ``0x``-style
@@ -162,7 +162,7 @@ class HexFormat:
         uppercase: ``True`` if hex digits use upper-case A-F.
     """
 
-    byte_separator: str
+    separator: str
     prefix: str
     prefix_per_byte: bool
     uppercase: bool = False
@@ -239,20 +239,25 @@ class DetectResult:
 # ---------------------------------------------------------------------------
 
 
-def _ordered_algorithm_names(algorithms_filter: str | None) -> list[str]:
+def _ordered_algorithm_names(
+    algorithms_filter: str | None, width: int | None = None,
+) -> list[str]:
     """Build the scan order: priority head, then the rest of the catalogue.
 
     Args:
         algorithms_filter: Optional ``fnmatch`` glob (e.g. ``"crc16-*"``).
             ``None`` means no filtering.
+        width: Optional CRC bit width; keep only algorithms of that width.
 
     Returns:
-        Algorithm names in scan order, after applying the filter.
+        Algorithm names in scan order, after applying the filter(s).
     """
     rest = [n for n in ALGORITHMS if n not in _PRIORITY]
     ordered = [*_PRIORITY, *rest]
     if algorithms_filter is not None:
         ordered = [n for n in ordered if fnmatch.fnmatch(n, algorithms_filter)]
+    if width is not None:
+        ordered = [n for n in ordered if ALGORITHMS[n].width == width]
     return ordered
 
 
@@ -277,7 +282,7 @@ def _looks_like_hex(text: str) -> tuple[bytes, HexFormat] | None:
 
     Examples:
         >>> b, fmt = _looks_like_hex("0x12 0x34")
-        >>> b, fmt.byte_separator, fmt.prefix, fmt.prefix_per_byte
+        >>> b, fmt.separator, fmt.prefix, fmt.prefix_per_byte
         (b'\\x124', ' ', '0x', True)
         >>> _looks_like_hex("hello") is None
         True
@@ -307,7 +312,7 @@ def _looks_like_hex(text: str) -> tuple[bytes, HexFormat] | None:
     # between hex pairs -- captured verbatim so round-trip preserves
     # tabs vs spaces, ", " vs "," etc.
     sep_match = re.search(r"[\s,:]+", text_no_prefix)
-    byte_separator = sep_match.group(0) if sep_match else ""
+    separator = sep_match.group(0) if sep_match else ""
 
     # Final hex string for the validity check.
     cleaned = re.sub(r"[\s,:]+", "", text_no_prefix)
@@ -327,7 +332,7 @@ def _looks_like_hex(text: str) -> tuple[bytes, HexFormat] | None:
     uppercase = any(c.isupper() for c in cleaned) or prefix == "0X"
 
     return bytes.fromhex(cleaned), HexFormat(
-        byte_separator=byte_separator,
+        separator=separator,
         prefix=prefix,
         prefix_per_byte=prefix_per_byte,
         uppercase=uppercase,
@@ -431,7 +436,7 @@ def _parse_text(text: str, encoding: str) -> _ParsedText | None:
     uppercase = any(c.isupper() for c in hex_str) or leader == "0X"
     return (
         data_str.encode(encoding),
-        TextFormat(separator=sep, hex_prefix=leader, uppercase=uppercase),
+        TextFormat(separator=sep, prefix=leader, uppercase=uppercase),
         len(hex_str),
         hex_str,
     )
@@ -466,9 +471,7 @@ def _check_binary(packet: bytes, algo: AlgorithmInfo, w: int, endian: Endianness
         ``True`` iff the trailing bytes equal the computed CRC.
     """
     parsed = int.from_bytes(packet[-w:], endian)
-    computed = generic_crc(
-        packet[:-w], algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout,
-    )
+    computed = generic_crc(packet[:-w], algo)
     return parsed == computed
 
 
@@ -494,9 +497,7 @@ def _check_text(parsed: _ParsedText, algo: AlgorithmInfo, endian: Endianness) ->
         if len(hex_str) % 2 == 1:
             return False
         parsed_int = int.from_bytes(bytes.fromhex(hex_str), "little")
-    computed = generic_crc(
-        data, algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout,
-    )
+    computed = generic_crc(data, algo)
     return parsed_int == computed
 
 
@@ -573,6 +574,7 @@ def detect(
     mode: Literal["auto", "binary", "text", "hex"] = "auto",
     encoding: str = "utf-8",
     algorithms: str | None = None,
+    width: int | None = None,
     match: Literal["first", "all", "set"] = "first",
     target_crc: int | None = None,
     endian: EndianSelector = "both",
@@ -602,6 +604,9 @@ def detect(
             before computing the CRC.  Default ``"utf-8"``.
         algorithms: Optional ``fnmatch`` glob (e.g. ``"crc16-*"``) to
             narrow the scan.  Same convention as ``crcglot list <glob>``.
+        width: Optional CRC bit width (e.g. ``16``) to narrow the scan to
+            algorithms of that width -- a first-class alternative to a
+            ``"crc16-*"``-style ``algorithms`` glob.
         match: Selection strategy.  ``"first"`` (default) stops at the
             first hit in priority order; ``"all"`` returns every
             consistent candidate; ``"set"`` succeeds only if exactly one
@@ -662,7 +667,7 @@ def detect(
     packets = _normalize_packets(packet)
     if not packets:
         return DetectResult(matched=False)
-    names = _ordered_algorithm_names(algorithms)
+    names = _ordered_algorithm_names(algorithms, width)
 
     # target_crc short-circuit: skip CRC-tail extraction entirely;
     # treat the whole packet as data and compare ``generic_crc(data)``
@@ -851,10 +856,7 @@ def _detect_with_target_crc(
         for tgt, byte_order in targets:
             all_match = True
             for data in data_packets:
-                computed = generic_crc(
-                    data, algo.width, algo.poly, algo.init,
-                    algo.refin, algo.refout, algo.xorout,
-                )
+                computed = generic_crc(data, algo)
                 if computed != tgt:
                     all_match = False
                     break
@@ -883,6 +885,7 @@ def detect_iter(
     mode: Literal["auto", "binary", "text", "hex"] = "auto",
     encoding: str = "utf-8",
     algorithms: str | None = None,
+    width: int | None = None,
     target_crc: int | None = None,
     endian: EndianSelector = "both",
 ) -> Iterator[Attempt]:
@@ -902,6 +905,7 @@ def detect_iter(
             str doesn't parse as hex).
         encoding: Used in text mode to encode the data portion.
         algorithms: Optional ``fnmatch`` glob to narrow the scan.
+        width: Optional CRC bit width to narrow the scan to that width.
         target_crc: When supplied, skip CRC-tail extraction and stream
             one ``Attempt`` per ``(algorithm, endian)`` pair, comparing
             ``generic_crc(data)`` to ``target_crc`` (big-endian reading)
@@ -932,7 +936,7 @@ def detect_iter(
     """
     if not isinstance(packet, (bytes, bytearray, str)):
         raise TypeError("detect_iter takes a single packet (bytes-like or str)")
-    names = _ordered_algorithm_names(algorithms)
+    names = _ordered_algorithm_names(algorithms, width)
 
     # target_crc short-circuit: stream one Attempt per (algo, endian)
     # pair, comparing ``generic_crc(data)`` to ``target_crc`` (BE
@@ -950,10 +954,7 @@ def detect_iter(
             algo = ALGORITHMS[name]
             if target_crc >= (1 << algo.width):
                 continue
-            computed = generic_crc(
-                data, algo.width, algo.poly, algo.init,
-                algo.refin, algo.refout, algo.xorout,
-            )
+            computed = generic_crc(data, algo)
             for byte_order in _endians_for(endian, dedup=(_crc_byte_len(algo.width) == 1)):
                 tgt = (
                     target_crc if byte_order == "big"

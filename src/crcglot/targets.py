@@ -21,7 +21,7 @@ Example:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Literal, cast
 
@@ -442,6 +442,41 @@ class LanguageInfo:
             and not (v == "table" and width < 8)
         )
 
+    def variants_for_widths(self, widths: Iterable[int]) -> tuple[str, ...]:
+        """Implementation variants valid across *all* the given widths.
+
+        For a multi-algorithm bundle the combiner emits a single
+        implementation shared by every member, so the offered variant set is
+        the **intersection** of :meth:`variants_for_width` over each member's
+        width -- e.g. bundling a 32-bit with a 16-bit CRC drops ``"slice8"``
+        (valid at 32, not 16).  Surfacing the rule here keeps a UI from having
+        to intersect the per-width sets itself.
+
+        Args:
+            widths: The CRC widths in the bundle (e.g. ``[32, 16, 8]``).  An
+                empty iterable applies no width constraint (the language's
+                full variant set).
+
+        Returns:
+            Variants valid for every width, in canonical order.
+
+        Examples:
+            >>> from crcglot import LANGUAGES
+            >>> LANGUAGES["c"].variants_for_widths([32, 64])
+            ('bitwise', 'table', 'slice8')
+            >>> LANGUAGES["c"].variants_for_widths([32, 16])
+            ('bitwise', 'table')
+            >>> LANGUAGES["c"].variants_for_widths([32, 5])
+            ('bitwise',)
+        """
+        widths = list(widths)
+        if not widths:
+            return tuple(v for v in VARIANT_ORDER if v in self.variants)
+        common = set(self.variants_for_width(widths[0]))
+        for w in widths[1:]:
+            common &= set(self.variants_for_width(w))
+        return tuple(v for v in VARIANT_ORDER if v in common)
+
     def fastest_variant_for_width(self, width: int) -> str:
         """The fastest implementation variant valid at this width.
 
@@ -763,8 +798,8 @@ class LanguageInfo:
                 call = f"`crcglot.encode_int(data, name)` with name = {head}{tail}"
             else:
                 call = (
-                    "`crcglot.generic_crc(data, width, poly, init, refin, "
-                    "refout, xorout)`"
+                    "`crcglot.generic_crc(data, crcglot.Crc(width=..., poly=..., "
+                    "init=..., refin=..., refout=..., xorout=...))`"
                 )
             speed = (
                 "it dispatches to `zlib.crc32` (CPU CRC instructions), far faster "
