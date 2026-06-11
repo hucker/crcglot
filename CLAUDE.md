@@ -165,9 +165,10 @@ prose pass:
   and let it speak.  "Performance, stated honestly:" becomes "Performance:".
   "An honest pointer" is just a pointer.  If a sentence stops working without
   the word, the sentence was padding.
-- **Em dashes.**  One per paragraph is plenty; zero is fine.  Most of ours
-  convert cleanly to a comma, a colon, a period, or parentheses.  List-item
-  separators (`- **Thing** — description`) should use a colon instead.
+- **Em dashes.**  AT MOST one per file; zero is the norm (Chuck never uses
+  them in his own writing).  They convert cleanly to a comma, a colon, a
+  period, or parentheses.  List-item separators (`- **Thing** — description`)
+  use a colon instead.
 
 ## Cruft audit (every release, minimum)
 
