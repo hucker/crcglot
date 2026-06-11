@@ -6,10 +6,7 @@ Every crcglot capability is a subcommand:
 crcglot <command> [options...]
 ```
 
-The generation subcommands are named after their target language (`crcglot c
-crc32`, `crcglot rust crc16-modbus`, …); everything else is a verb.  Exit
-codes are uniform: `0` on success/match, `1` on no-match/unknown name, `2` on
-invalid invocation.
+The generation subcommands are named after their target language (`crcglot c crc32`, `crcglot rust crc16-modbus`, …); everything else is a verb.  Exit codes are uniform: `0` on success/match, `1` on no-match/unknown name, `2` on invalid invocation.
 
 ## `crcglot list [GLOB] [--json]`
 
@@ -32,6 +29,17 @@ crcglot info crc64-xz
 ## `crcglot detect [INPUTS...]`
 
 Brute-force identify which catalogue CRC matches a packet whose tail is the CRC.  Useful for reverse-engineering unfamiliar protocols, debugging captured frames, or confirming a sample really uses the CRC you expect.
+
+Discovering the CRC type of a captured packet: this frame is the bytes `123456789` followed by an unknown 2-byte trailer.
+
+```text
+$ crcglot detect --hex "31323334353637383931c3"
+crc16-xmodem  width=16  endianness=big
+```
+
+From there, `crcglot c crc16-xmodem file=mycrc` generates the matching implementation.
+
+All the input shapes and scan controls:
 
 ```bash
 crcglot detect packet.bin                            # binary file (or '-' for stdin)

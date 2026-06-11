@@ -240,6 +240,9 @@ when we broke them — honor them when touching public API.
 
 ## Readme and docs/
 
+- Markdown prose uses LONG lines: one line per paragraph / list item, no
+  hard-wrapping at 80 columns (let the editor soft-wrap).  Code fences and
+  tables are exempt.
 - README.md is the short overview (~175 lines); the reference lives in
   `docs/` (one file per section: `cli.md`, `api.md`, `generated-code.md`,
   `MCP.md`, indexed by `docs/index.md`).  Keep it that way -- new reference

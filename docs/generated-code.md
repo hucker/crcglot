@@ -1,13 +1,6 @@
 # Generated code style: comments and naming
 
-The code crcglot delivers is the same code its CI generated, compiled, ran,
-and checked against independent reference vectors, and every delivered file
-embeds a self-test you should run once on your target to confirm your
-compiler settings, endianness, and integer widths reproduce that verified
-behavior (see [How it's verified](../README.md#how-its-verified)).  This page
-covers how the output *reads*: documented in your doc-tool's convention,
-named in your language's casing.  Both axes are queryable, so UIs and scripts
-never hardcode them.
+The code crcglot delivers is the same code its CI generated, compiled, ran, and checked against independent reference vectors, and every delivered file embeds a self-test you should run once on your target to confirm your compiler settings, endianness, and integer widths reproduce that verified behavior (see [How it's verified](../README.md#how-its-verified)).  This page covers how the output *reads*: documented in your doc-tool's convention, named in your language's casing.  Both axes are queryable, so UIs and scripts never hardcode them.
 
 ## Documentation comments
 

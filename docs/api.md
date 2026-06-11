@@ -1,11 +1,6 @@
 # Programmatic API
 
-Everything the CLI does is reachable from Python.  `import crcglot` loads only
-the compute core (the engine, the catalogue, and the streaming API: 4 modules
-in ~30 ms); detection, reverse-engineering, trailer identification, and the
-nine generators load on first use.  The public surface is identical either
-way, and the package root is the only import surface you need:
-`from crcglot import ...` covers all of it.
+Everything the CLI does is reachable from Python.  `import crcglot` loads only the compute core (the engine, the catalogue, and the streaming API: 4 modules in ~30 ms); detection, reverse-engineering, trailer identification, and the nine generators load on first use.  The public surface is identical either way, and the package root is the only import surface you need: `from crcglot import ...` covers all of it.
 
 Two registries, both keyed by short code:
 
@@ -75,13 +70,7 @@ code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 
 ## Runtime CRC computation
 
-Beyond *generating* code, crcglot can *compute* CRCs at runtime, and it's
-fast.  There's **no variant choice to make**, the same philosophy as
-`--small`/`--fast` on the generator, taken all the way: you just call
-`crcglot.generic_crc(data, crc)` (passing a `Crc`, or any `AlgorithmInfo`) and
-it picks the fastest path available on your machine.  There's no
-`table=`/`slice8=` knob here; the speed you get depends only on whether the C
-extension is installed.
+Beyond *generating* code, crcglot can *compute* CRCs at runtime, and it's fast.  There's **no variant choice to make**, the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, crc)` (passing a `Crc`, or any `AlgorithmInfo`) and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
 
 Under the hood it dispatches three ways (you never select among them):
 
@@ -89,9 +78,7 @@ Under the hood it dispatches three ways (you never select among them):
 2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s, ~2,000× over pure Python.
 3. **No extension built → pure Python**: always works, just slow.
 
-The extension ships in the prebuilt wheels; `uv add crcglot` gets it on common
-platforms, with no extra to enable.  To force a build from source instead of
-using a prebuilt wheel:
+The extension ships in the prebuilt wheels; `uv add crcglot` gets it on common platforms, with no extra to enable.  To force a build from source instead of using a prebuilt wheel:
 
 ```bash
 pip install --no-binary crcglot crcglot
