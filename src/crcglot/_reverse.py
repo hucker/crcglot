@@ -57,7 +57,7 @@ from typing import Literal, cast
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, Crc, _reflect, generic_crc
 from crcglot.checksums import ChecksumResult, _identify_checksum_pairs
-from crcglot.detect import _parse_text, _read_hex_crc
+from crcglot._detect import _parse_text, _read_hex_crc
 
 Codeword = tuple[bytes, int]
 Status = Literal["catalogue", "unique", "equivalent", "underdetermined", "none"]

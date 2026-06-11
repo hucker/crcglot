@@ -124,7 +124,9 @@ markers = [
 source = ["src/crcglot"]
 
 [tool.coverage.report]
-exclude_lines = ["if __name__", "pragma: no cover"]
+# "if TYPE_CHECKING:" guards the static mirror of the lazy public API in
+# __init__.py -- definitionally never executed at runtime.
+exclude_lines = ["if __name__", "pragma: no cover", "if TYPE_CHECKING:"]
 show_missing = true
 
 [dependency-groups]

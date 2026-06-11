@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Changed: `import crcglot` loads the compute core only
+
+The package `__init__` now resolves the option layers lazily (PEP 562):
+detection, reverse-engineering, checksum identification, and the nine code
+generators load on first attribute access instead of at import.  A consumer
+that only computes CRCs pays for the engine, the catalogue, and the streaming
+API -- 4 modules in ~33 ms instead of 35 modules in ~100 ms.  The public API is
+unchanged (`from crcglot import detect` still works; `dir()` still advertises
+everything); the one observable difference is that an `ImportError` from an
+unused layer would surface at first use rather than at import.
+`crcglot.__version__` is also resolved on demand -- the `importlib.metadata`
+scan behind it was two-thirds of the old import cost.
+
+### Breaking: internal modules renamed `_detect` / `_encode` / `_reverse`
+
+The submodules `crcglot.detect`, `crcglot.encode`, and `crcglot.reverse`
+shadowed the public functions of the same names, which only worked because the
+eager `__init__` rebound the names after import.  Under lazy loading that
+became an import-order landmine, so the modules are now `crcglot._detect`,
+`crcglot._encode`, and `crcglot._reverse` (matching `_helpers` / `_vectors`).
+Import everything from the package root -- `from crcglot import detect,
+DetectResult, encode_int` -- which is unchanged and has always been the
+supported surface.
+
 ## v0.19.0 — 2026-06-11
 
 Three threads land in this release: an integrator-ergonomics pass over the

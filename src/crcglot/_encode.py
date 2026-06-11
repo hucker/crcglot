@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from crcglot.catalogue import ALGORITHMS, Crc, generic_crc
-from crcglot.detect import (
+from crcglot._detect import (
     DetectMatch,
     Endianness,
     HexFormat,

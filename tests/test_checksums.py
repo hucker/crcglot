@@ -246,7 +246,7 @@ class TestDetectReverseIntegration:
         # Arrange -- the checksum integer read in the "wrong" (byte-reversed)
         # order, as happens when an LE-stored field is read big-endian.
         from crcglot.checksums import _identify_checksum_pairs
-        from crcglot.detect import _byte_reversed
+        from crcglot._detect import _byte_reversed
 
         msgs = [b"123456789", b"hello world", b"abcdefghij"]
         pairs = [(m, _byte_reversed(_fletcher16(m), 16)) for m in msgs]

@@ -19,7 +19,7 @@ import pytest
 
 from crcglot import Crc, ReverseResult, generic_crc, reverse, reverse_packets
 from crcglot.catalogue import ALGORITHMS
-from crcglot.reverse import _solve_dials
+from crcglot._reverse import _solve_dials
 
 # A spread of held-out lengths the solver never sees during recovery.
 _HELD_LENS = (3, 5, 21, 40, 77)

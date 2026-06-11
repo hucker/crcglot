@@ -19,7 +19,7 @@ from crcglot import (
     detect,
     detect_iter,
 )
-from crcglot.detect import _PRIORITY, _ordered_algorithm_names
+from crcglot._detect import _PRIORITY, _ordered_algorithm_names
 
 
 # A canonical reveng input: every catalogue entry's ``check`` value is
