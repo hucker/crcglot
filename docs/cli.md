@@ -113,6 +113,15 @@ crcglot compute crc32 "123456789" --dec         # decimal instead of hex
 crcglot compute crc64-xz --binary < data.bin    # bytes from stdin
 ```
 
+## 'crcglot detect'
+
+If you have a hex string you can find the CRC type using `detect` with `--hex`:
+
+```text
+> crcglot detect --hex "31323334353637383931c3"
+crc16-xmodem  width=16  endianness=big
+```
+
 ## `crcglot credits`
 
 Print acknowledgments for the upstream work crcglot builds on (also exported as `crcglot.ATTRIBUTION` / `crcglot.ACKNOWLEDGMENTS`).
