@@ -225,11 +225,16 @@ when we broke them — honor them when touching public API.
 - **`crcglot.__version__`** is the supported way for apps to assert a minimum
   version at import time; keep it exported and accurate.
 
-## Readme
+## Readme and docs/
 
+- README.md is the short overview (~175 lines); the reference lives in
+  `docs/` (one file per section: `cli.md`, `api.md`, `generated-code.md`,
+  `MCP.md`, indexed by `docs/index.md`).  Keep it that way -- new reference
+  detail goes in a docs/ file, with at most a summary row/teaser in README.
 - Update the badge counts at the top if test count or coverage % changed
 - Update the "what you get per language" table if the API changed
-- Update the "CLI reference" section if the CLI changed
+- Update **docs/cli.md** (and the README "CLI at a glance" table row) if the
+  CLI changed; **docs/api.md** if the public API changed
 - Ensure that there are no auto-fixable markdown lint issues (run `uvx ruff check README.md` to verify)
 
 ## EXAMPLES.md

@@ -7,13 +7,13 @@ the API offers a set of interchangeable options along one axis, that axis is
 a *first-class entity in the code* (a registry of records with a lookup), and
 extending it is the cheap path. The breadth you see is breadth that was *easy*:
 
-| User-visible axis (many options) | First-class entity behind it | Add one by… |
-| --- | --- | --- |
-| **Algorithms** (113) | `ALGORITHMS: dict[str, AlgorithmInfo]` | adding a catalogue row |
-| **Languages** (9) | `LANGUAGES: dict[str, LanguageInfo]` | registering a generator |
-| **Variants** (bitwise / table / slice8) | `VARIANT_ORDER` + `VariantInfo` | a generator branch + record |
-| **Comment styles** (10) | `comment_styles_for_language` + `StyleInfo` | a style record |
-| **Naming** (snake / camel / pascal) | `NAMING_ORDER` + `NamingInfo` | a naming record |
+| User-visible axis (many options)        | First-class entity behind it                | Add one by…                 |
+| --------------------------------------- | ------------------------------------------- | --------------------------- |
+| **Algorithms** (113)                    | `ALGORITHMS: dict[str, AlgorithmInfo]`      | adding a catalogue row      |
+| **Languages** (9)                       | `LANGUAGES: dict[str, LanguageInfo]`        | registering a generator     |
+| **Variants** (bitwise / table / slice8) | `VARIANT_ORDER` + `VariantInfo`             | a generator branch + record |
+| **Comment styles** (10)                 | `comment_styles_for_language` + `StyleInfo` | a style record              |
+| **Naming** (snake / camel / pascal)     | `NAMING_ORDER` + `NamingInfo`               | a naming record             |
 
 We support nine languages because it is easy: a language is a registered
 entity, not a fork in the control flow. We support several naming conventions
@@ -31,7 +31,7 @@ things:
 - **Cheap breadth.** Adding the Nth option touches one seam, not N call sites.
   A new language is picked up by `EXAMPLES.md`, the MCP `languages.json` resource,
   and the CLI automatically, because they all walk the same registry.
-- **Honest cost signals.** If a requested feature *doesn't* fall along an existing
+- **Cost signals.** If a requested feature *doesn't* fall along an existing
   axis, that's the architecture telling you it's the expensive path: it needs a
   new seam, not a new row. The recent `reverse` / `verify` packet tools are an
   example of the inverse working in our favour. "A frame with the CRC at the

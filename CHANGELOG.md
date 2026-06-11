@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Docs: README slimmed; reference moved to docs/
+
+README.md drops from ~510 lines to ~175: the quick start now opens with the
+detect→generate pair (`crcglot detect --hex ...` on inline bytes, then
+`crcglot c crc32`), installation is uv-only, and the reference material moved
+to a `docs/` folder with one file per section — `docs/cli.md`,
+`docs/api.md`, `docs/generated-code.md`, joining `docs/MCP.md`, indexed by
+`docs/index.md`.  The layout is static-site-generator-friendly (mkdocs /
+zensical) but this change is plain markdown only.
+
 ### Added: digest identification; `identify_checksum` becomes `identify_trailer`
 
 The non-CRC identifier now recognises **cryptographic digests** alongside
@@ -9,7 +19,7 @@ checksums: MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2s/2b, and double
 SHA-256 — at full length or the common 4/8-byte leading truncations
 (base58check's `sha256d[:4]`).  Everything comes from stdlib `hashlib`; the
 zero-dependency footprint is unchanged.  Keyed MACs (HMAC / CMAC) are
-undetectable without the key, and the result says so honestly: an unmatched
+undetectable without the key, and the result says so: an unmatched
 digest-sized field gets a `note` like *"found a 32-byte trailing field
 matching no unkeyed digest; could be a MAC"*.  The purpose of the search is
 information for whoever decides next, human or LLM — it ends the CRC
@@ -261,7 +271,7 @@ falls through to an algebraic solve.
   codewords); **init/xorout** by a GF(2) linear solve; **width/refin/refout**
   are searched or fixed via keyword (a known parameter reduces the codewords
   needed).
-- **Honest about ambiguity.** A generator carrying the `(x+1)` factor (most
+- **Ambiguity can exist.** A generator carrying the `(x+1)` factor (most
   well-made CRCs do; it's what detects all odd-bit errors) admits several
   `(init, xorout)` labellings that are *observationally identical*.  `reverse`
   returns the **complete** equivalence class (a finite, provably-exhaustive
@@ -272,7 +282,7 @@ falls through to an algebraic solve.
   held-out frame it didn't train on (`validated_frames`).  The guarantee, under
   a counterexample-hunting test suite (all 113 catalogue algorithms + a random
   custom-CRC sweep, each validated on unseen messages): a recovered model is
-  **correct on unseen data, or honestly reports none/underdetermined, never
+  **correct on unseen data, or reports none/underdetermined, never
   confidently wrong.**
 
 Scope: the CRC is the trailing field of each codeword; byte-aligned messages;
@@ -436,7 +446,7 @@ in the README.
 ### Other
 
 Internal C cleanup: `PyMem_*` allocators, a `CrcEngine` enum replacing magic
-codes, de-duplicated engine selection, honest doc comments, and removal of a
+codes, de-duplicated engine selection, doc comments, and removal of a
 stale "follow-up commits" note and a dead `crcglot[fast]` extra reference.
 
 ## v0.15.0 — 2026-06-06

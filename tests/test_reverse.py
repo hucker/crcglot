@@ -7,7 +7,7 @@ That predictive check -- not exact-parameter-match -- is the right correctness
 criterion, because a CRC whose generator carries the ``(x+1)`` factor has
 several ``(init, xorout)`` labellings that are observationally identical.  The
 standing guarantee these tests enforce is: **a recovered model is either
-correct on unseen data, or honestly reports no/under-determined -- never
+correct on unseen data, or reports no/under-determined -- never
 confidently wrong.**
 """
 
@@ -100,11 +100,13 @@ class TestRandomCustomCrcs:
         rng = random.Random(20240608 + width)
         wrong, no_model, ok = [], 0, 0
         for _ in range(40):
-            poly = rng.randrange(1, 1 << width) | 1   # generators are odd
+            poly = rng.randrange(1, 1 << width) | 1  # generators are odd
             init = rng.randrange(0, 1 << width)
             xorout = rng.randrange(0, 1 << width)
-            ri, ro = rng.random() < .5, rng.random() < .5
-            cws = _codewords(width, poly, init, ri, ro, xorout, seed=rng.randrange(1 << 30))
+            ri, ro = rng.random() < 0.5, rng.random() < 0.5
+            cws = _codewords(
+                width, poly, init, ri, ro, xorout, seed=rng.randrange(1 << 30)
+            )
             r = reverse(cws, std_algo_only=False, width=width)
             if r.info is None:
                 no_model += 1
@@ -113,7 +115,7 @@ class TestRandomCustomCrcs:
                 ok += 1
             else:
                 wrong.append((width, poly, init, ri, ro, xorout))
-        # The guarantee: zero wrong answers.  No-model is an honest outcome.
+        # The guarantee: zero wrong answers.  No-model is a possible outcome.
         assert wrong == [], f"width {width}: {len(wrong)} WRONG recoveries: {wrong[:3]}"
         assert ok >= 1, f"width {width}: recovered nothing at all"
 
@@ -164,7 +166,9 @@ class TestEquivalenceClass:
         for _ in range(200):
             m = bytes(rng.randrange(256) for _ in range(rng.randrange(0, 40)))
             values = {
-                generic_crc(m, Crc(c.width, c.poly, c.init, c.refin, c.refout, c.xorout))
+                generic_crc(
+                    m, Crc(c.width, c.poly, c.init, c.refin, c.refout, c.xorout)
+                )
                 for c in r.candidates
             }
             assert len(values) == 1, f"class members disagree on {m!r}: {values}"
@@ -202,9 +206,7 @@ class TestBehaviour:
         r = reverse(cws)
         # Assert
         assert r.status == "catalogue", f"expected catalogue, got {r.status}"
-        assert r.catalogue_name == "crc16-modbus", (
-            f"named {r.catalogue_name!r}"
-        )
+        assert r.catalogue_name == "crc16-modbus", f"named {r.catalogue_name!r}"
 
     def test_custom_under_std_algo_only_returns_none(self):
         # A custom CRC with std_algo_only=True (default) -> no catalogue match.
@@ -236,12 +238,14 @@ class TestBehaviour:
         cws = []
         for length in (5, 6, 7, 8, 9, 10):  # all distinct; custom poly
             m = bytes(rng.randrange(256) for _ in range(length))
-            cws.append((m, generic_crc(m, Crc(16, 0x1009, 0x1234, False, False, 0x5678))))
+            cws.append(
+                (m, generic_crc(m, Crc(16, 0x1009, 0x1234, False, False, 0x5678)))
+            )
 
         # Act
         r = reverse(cws, std_algo_only=False)
 
-        # Assert -- honest status + actionable, correct guidance.
+        # Assert -- status + actionable, correct guidance.
         assert r.status == "underdetermined", (
             f"all-distinct-length frames should be underdetermined, got {r.status}"
         )
@@ -267,7 +271,10 @@ class TestBehaviour:
 def _byte_packets(width, poly, init, refin, refout, xorout, *, crc_bytes, order="big"):
     """Codewords reshaped into binary frames: message + CRC at the tail."""
     return [
-        m + generic_crc(m, Crc(width, poly, init, refin, refout, xorout)).to_bytes(crc_bytes, order)
+        m
+        + generic_crc(m, Crc(width, poly, init, refin, refout, xorout)).to_bytes(
+            crc_bytes, order
+        )
         for m, _c in _codewords(width, poly, init, refin, refout, xorout)
     ]
 
@@ -303,7 +310,9 @@ class TestReversePackets:
         assert "2 byte" in r.note, f"chosen field size not reported: {r.note!r}"
 
     def test_binary_little_endian_field(self):
-        pkts = _byte_packets(16, 0x8005, 0xFFFF, True, True, 0, crc_bytes=2, order="little")
+        pkts = _byte_packets(
+            16, 0x8005, 0xFFFF, True, True, 0, crc_bytes=2, order="little"
+        )
         # 'both' must discover the little-endian split and name the catalogue entry.
         r = reverse_packets(pkts, crc_byte_order="both", std_algo_only=False)
         assert r.status == "catalogue", f"status {r.status}"

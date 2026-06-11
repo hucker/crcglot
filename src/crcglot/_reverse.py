@@ -27,7 +27,7 @@ Two tiers:
      build the length-dependent contribution map (so it's reflection-agnostic).
    * **width / refin / refout** are searched, or fixed when you pass them.
 
-Honest about ambiguity.  A CRC whose generator carries the ``(x+1)`` factor
+Ambiguity: A CRC whose generator carries the ``(x+1)`` factor
 (most well-made ones do -- it's what detects all odd-bit errors) admits several
 ``(init, xorout)`` labellings that produce **identical** output on every input.
 That set is a coset of a null space, so it is *finite and completely
@@ -145,7 +145,10 @@ def _gf2_solve(rows: list[int], nvars: int) -> tuple[int, int, list[int]] | None
 
 
 def _recover_poly(
-    codewords: Sequence[Codeword], width: int, refin: bool, refout: bool,
+    codewords: Sequence[Codeword],
+    width: int,
+    refin: bool,
+    refout: bool,
 ) -> int | None:
     """Recover the polynomial via GCD of equal-length difference codewords.
 
@@ -158,6 +161,7 @@ def _recover_poly(
         codewords, or all same-content/structured -> the GCD keeps a spurious
         factor and ``deg(g) != width``).
     """
+
     def tx_msg(m: bytes) -> int:
         if refin:
             m = bytes(_reflect(b, 8) for b in m)
@@ -188,7 +192,11 @@ def _recover_poly(
 
 
 def _recover_iox_class(
-    codewords: Sequence[Codeword], width: int, poly: int, refin: bool, refout: bool,
+    codewords: Sequence[Codeword],
+    width: int,
+    poly: int,
+    refin: bool,
+    refout: bool,
 ) -> tuple[list[tuple[int, int]], int] | None:
     """Recover the complete ``(init, xorout)`` equivalence class.
 
@@ -224,10 +232,10 @@ def _recover_iox_class(
             coeff = 0
             for j in range(width):
                 if (cols[j] >> k) & 1:
-                    coeff |= 1 << j           # init bit j
-            coeff |= 1 << (width + k)          # xorout bit k
+                    coeff |= 1 << j  # init bit j
+            coeff |= 1 << (width + k)  # xorout bit k
             if (y >> k) & 1:
-                coeff |= 1 << (2 * width)      # rhs
+                coeff |= 1 << (2 * width)  # rhs
             rows.append(coeff)
 
     solved = _gf2_solve(rows, 2 * width)
@@ -309,18 +317,33 @@ class ReverseResult:
 # ---------------------------------------------------------------------------
 
 
-def _as_info(width: int, poly: int, init: int, refin: bool, refout: bool,
-             xorout: int, desc: str, source: str) -> AlgorithmInfo:
+def _as_info(
+    width: int,
+    poly: int,
+    init: int,
+    refin: bool,
+    refout: bool,
+    xorout: int,
+    desc: str,
+    source: str,
+) -> AlgorithmInfo:
     check = generic_crc(b"123456789", Crc(width, poly, init, refin, refout, xorout))
     return AlgorithmInfo(width, poly, init, refin, refout, xorout, check, desc, source)
 
 
-def _catalogue_name(width: int, poly: int, init: int, refin: bool, refout: bool,
-                    xorout: int) -> str | None:
+def _catalogue_name(
+    width: int, poly: int, init: int, refin: bool, refout: bool, xorout: int
+) -> str | None:
     """The catalogue entry with exactly these parameters, if one exists."""
     for name, a in ALGORITHMS.items():
         if (a.width, a.poly, a.init, a.refin, a.refout, a.xorout) == (
-                width, poly, init, refin, refout, xorout):
+            width,
+            poly,
+            init,
+            refin,
+            refout,
+            xorout,
+        ):
             return name
     return None
 
@@ -328,17 +351,20 @@ def _catalogue_name(width: int, poly: int, init: int, refin: bool, refout: bool,
 def _catalogue_match(codewords: Sequence[Codeword]) -> list[str]:
     """Names of catalogue algorithms that reproduce every codeword."""
     return [
-        name for name, a in ALGORITHMS.items()
-        if all(
-            generic_crc(m, a) == c
-            for m, c in codewords
-        )
+        name
+        for name, a in ALGORITHMS.items()
+        if all(generic_crc(m, a) == c for m, c in codewords)
     ]
 
 
 def _solve_dials(
-    codewords: Sequence[Codeword], width: int | None, refin: bool | None,
-    refout: bool | None, poly: int | None, init: int | None, xorout: int | None,
+    codewords: Sequence[Codeword],
+    width: int | None,
+    refin: bool | None,
+    refout: bool | None,
+    poly: int | None,
+    init: int | None,
+    xorout: int | None,
 ) -> tuple[int, int, bool, bool, list[tuple[int, int]], int] | None:
     """Search the cheap dials and solve; return the winning model + class.
 
@@ -458,9 +484,19 @@ def reverse(
         return ReverseResult(
             status="catalogue",
             candidates=tuple(
-                _as_info(a.width, a.poly, a.init, a.refin, a.refout, a.xorout,
-                         a.desc, "reveng")
-                for n in names for a in (ALGORITHMS[n],)),
+                _as_info(
+                    a.width,
+                    a.poly,
+                    a.init,
+                    a.refin,
+                    a.refout,
+                    a.xorout,
+                    a.desc,
+                    "reveng",
+                )
+                for n in names
+                for a in (ALGORITHMS[n],)
+            ),
             catalogue_name=names[0],
             note=f"matched catalogue: {', '.join(names)}",
         )
@@ -468,7 +504,7 @@ def reverse(
         return ReverseResult(
             status="none",
             note="no catalogue algorithm matches; pass std_algo_only=False to "
-                 "attempt algebraic recovery of a custom algorithm",
+            "attempt algebraic recovery of a custom algorithm",
             trailer_hint=_identify_trailer_pairs(codewords) or None,
         )
 
@@ -485,8 +521,10 @@ def reverse(
         lengths = [len(m) for m, _ in codewords]
         all_distinct = len(set(lengths)) == len(lengths)
         if poly is not None:
-            note = ("could not solve init/xorout for the supplied polynomial -- "
-                    "supply more frames, varied in content and length.")
+            note = (
+                "could not solve init/xorout for the supplied polynomial -- "
+                "supply more frames, varied in content and length."
+            )
         elif all_distinct:
             note = (
                 f"could not pin the polynomial: all {len(codewords)} frames have "
@@ -494,14 +532,17 @@ def reverse(
                 "frames of the SAME length -- their difference cancels "
                 "init/xorout, leaving a multiple of the generator to GCD.  "
                 "Capture a few frames at one length, then add other lengths to "
-                "separate init from xorout.")
+                "separate init from xorout."
+            )
         else:
             note = (
                 "could not pin the polynomial -- supply more frames: at least two "
                 "of the same length (varied in content) feed the polynomial GCD, "
-                "plus other lengths to separate init from xorout.")
+                "plus other lengths to separate init from xorout."
+            )
         return ReverseResult(
-            status="underdetermined", note=note,
+            status="underdetermined",
+            note=note,
             trailer_hint=_identify_trailer_pairs(codewords) or None,
         )
     w, p, ri, ro, members, dim = solved
@@ -524,28 +565,39 @@ def reverse(
             sw, sp, _, _, sub_members, _ = sub
             hi, hx = sub_members[0]
             hm, hc = codewords[-1]
-            validated = int(
-                generic_crc(hm, Crc(sw, sp, hi, ri, ro, hx)) == hc)
+            validated = int(generic_crc(hm, Crc(sw, sp, hi, ri, ro, hx)) == hc)
         else:
             validated = 0
 
     candidates = tuple(
-        _as_info(w, p, mi, ri, ro, mx,
-                 (f"matches {cat_name}" if i == 0 and cat_name else "recovered (custom)"),
-                 "recovered")
-        for i, (mi, mx) in enumerate(ordered))
+        _as_info(
+            w,
+            p,
+            mi,
+            ri,
+            ro,
+            mx,
+            (f"matches {cat_name}" if i == 0 and cat_name else "recovered (custom)"),
+            "recovered",
+        )
+        for i, (mi, mx) in enumerate(ordered)
+    )
     status: Status = "unique" if dim == 0 else "equivalent"
     if status == "unique":
         note = "parameters fully determined"
     else:
-        note = (f"{len(members)} (init, xorout) labellings reproduce all "
-                f"codewords identically -- a complete (x+1)-factor equivalence "
-                f"class ({dim} bit(s)). All predict the same CRC for every "
-                f"input; supply a known init/xorout (or a catalogue match) to "
-                f"pick the canonical one.")
+        note = (
+            f"{len(members)} (init, xorout) labellings reproduce all "
+            f"codewords identically -- a complete (x+1)-factor equivalence "
+            f"class ({dim} bit(s)). All predict the same CRC for every "
+            f"input; supply a known init/xorout (or a catalogue match) to "
+            f"pick the canonical one."
+        )
     if validated == 0:
-        note += "  WARNING: model did not predict a held-out frame -- treat as " \
-                "low-confidence and supply more varied frames."
+        note += (
+            "  WARNING: model did not predict a held-out frame -- treat as "
+            "low-confidence and supply more varied frames."
+        )
     return ReverseResult(
         status=status,
         candidates=candidates,
@@ -643,26 +695,34 @@ def reverse_packets(
         raise ValueError("reverse_packets() needs at least one packet")
 
     orders: tuple[Literal["big", "little"], ...] = (
-        ("big", "little") if crc_byte_order == "both" else (crc_byte_order,))
+        ("big", "little") if crc_byte_order == "both" else (crc_byte_order,)
+    )
     searching_order = crc_byte_order == "both"
 
     def solve(frames: Sequence[Codeword]) -> ReverseResult:
         return reverse(
-            frames, std_algo_only=std_algo_only, width=width, refin=refin,
-            refout=refout, poly=poly, init=init, xorout=xorout, validate=validate)
+            frames,
+            std_algo_only=std_algo_only,
+            width=width,
+            refin=refin,
+            refout=refout,
+            poly=poly,
+            init=init,
+            xorout=xorout,
+            validate=validate,
+        )
 
     # ----- text frames: the hex field is already delimited (no size search) -----
     if any(isinstance(p, str) for p in items):
         if not all(isinstance(p, str) for p in items):
-            raise ValueError(
-                "packets must be all text or all binary frames, not a mix")
+            raise ValueError("packets must be all text or all binary frames, not a mix")
         parsed: list[tuple[bytes, str]] = []
         for i, text in enumerate(cast("list[str]", items)):
             pr = _parse_text(text, encoding)
             if pr is None:
                 raise ValueError(
-                    f"packets[{i}] is not a text frame ('data <sep> hexcrc'): "
-                    f"{text!r}")
+                    f"packets[{i}] is not a text frame ('data <sep> hexcrc'): {text!r}"
+                )
             data, _tf, _hex_len, hex_str = pr
             parsed.append((data, hex_str))
 
@@ -682,8 +742,8 @@ def reverse_packets(
             if res.status in _CONFIDENT_RANK:
                 if searching_order:
                     res = replace(
-                        res,
-                        note=f"{res.note}  [CRC field: {order}-endian text hex]")
+                        res, note=f"{res.note}  [CRC field: {order}-endian text hex]"
+                    )
                 return res
             fallback = fallback or res
         if fallback is not None:
@@ -691,7 +751,8 @@ def reverse_packets(
         return ReverseResult(
             status="none",
             note="no consistent model for these text frames; try crc_byte_order, "
-                 "or supply more varied frames.")
+            "or supply more varied frames.",
+        )
 
     # ----- binary frames: split the trailing CRC field off (size search) -----
     pkts = [bytes(p) for p in cast("list[bytes]", items)]
@@ -708,7 +769,8 @@ def reverse_packets(
             if crc_bytes is not None:
                 raise ValueError(
                     f"packet of length {len(short)} is too short for a {n}-byte "
-                    f"CRC plus a message")
+                    f"CRC plus a message"
+                )
             continue  # this size can't apply to every packet; skip in a search
         hits: list[tuple[Literal["big", "little"], ReverseResult]] = []
         for order in orders:
@@ -722,12 +784,13 @@ def reverse_packets(
             order, res = min(hits, key=lambda h: _CONFIDENT_RANK[h[1].status])
             if searching:
                 res = replace(
-                    res, note=f"{res.note}  [CRC field: {n} byte(s), "
-                              f"{order}-endian]")
+                    res, note=f"{res.note}  [CRC field: {n} byte(s), {order}-endian]"
+                )
             return res
     if byte_fallback is not None:
         return byte_fallback
     return ReverseResult(
         status="none",
         note="no CRC field size in 1..8 bytes yielded a consistent model; "
-             "specify crc_bytes / crc_byte_order, or supply more varied frames.")
+        "specify crc_bytes / crc_byte_order, or supply more varied frames.",
+    )

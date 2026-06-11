@@ -125,7 +125,7 @@ size `2 ** ambiguity_bits`; the polynomial is always unique),
 `underdetermined`, or `none`.  When the field size / byte order was
 auto-detected, `note` records the split chosen.  Every returned model is
 self-verified against the engine and validated against a held-out frame: a
-recovered model is correct on unseen data, or honestly reports underdetermined —
+recovered model is correct on unseen data, or reports underdetermined —
 never confidently wrong.  Clean-room (derived from CRC linearity over GF(2), not
 from reveng).  Mirrors [`crcglot.reverse_packets`][rev].
 
@@ -236,11 +236,11 @@ Mirrors `crcglot credits`.
 
 Read-only JSON snapshots the LLM can ingest once and reason from.
 
-| URI | Contents |
-|-----|----------|
-| `crcglot://catalogue.json` | Every algorithm with full parameters (decimal + hex) |
-| `crcglot://languages.json` | Per-target metadata (extensions, supported variants, emoji) |
-| `crcglot://variants.json` | `variants_for_width(width)` cross-product for widths 8/16/32/64 |
+| URI                        | Contents                                                        |
+| -------------------------- | --------------------------------------------------------------- |
+| `crcglot://catalogue.json` | Every algorithm with full parameters (decimal + hex)            |
+| `crcglot://languages.json` | Per-target metadata (extensions, supported variants, emoji)     |
+| `crcglot://variants.json`  | `variants_for_width(width)` cross-product for widths 8/16/32/64 |
 
 The third preempts invalid `crc_generate` calls — the LLM can check
 `variants_by_width["32"]["python"]` before asking for `slice8` on

@@ -81,8 +81,16 @@ NAMING_ENUM = Literal["snake", "camel", "pascal"]
 # today; the doc-tool styles are accepted by the schema but raise an
 # informative ValueError until shipped (see crcglot.comments).
 COMMENT_STYLE_ENUM = Literal[
-    "plain", "doxygen", "google", "numpy", "rest", "rustdoc", "godoc", "docfx",
-    "javadoc", "jsdoc",
+    "plain",
+    "doxygen",
+    "google",
+    "numpy",
+    "rest",
+    "rustdoc",
+    "godoc",
+    "docfx",
+    "javadoc",
+    "jsdoc",
 ]
 ENDIAN_ENUM = Literal["big", "little", "both"]
 MATCH_ENUM = Literal["first", "all", "set"]
@@ -103,7 +111,8 @@ _READONLY = ToolAnnotations(
 
 
 def _resolve_algorithm(
-    algorithm: str | None, custom_params: dict[str, Any] | None,
+    algorithm: str | None,
+    custom_params: dict[str, Any] | None,
 ) -> tuple[AlgorithmInfo, str]:
     """Resolve a catalogue name OR a custom Rocksoft tuple to ``(info, label)``.
 
@@ -124,15 +133,23 @@ def _resolve_algorithm(
     if "width" not in cp or "poly" not in cp:
         raise ValueError(
             "custom_params requires at least 'width' and 'poly' "
-            "(plus optional init / refin / refout / xorout)")
+            "(plus optional init / refin / refout / xorout)"
+        )
     width, poly = int(cp["width"]), int(cp["poly"])
     init = int(cp.get("init", 0))
     refin, refout = bool(cp.get("refin", False)), bool(cp.get("refout", False))
     xorout = int(cp.get("xorout", 0))
     check = generic_crc(b"123456789", Crc(width, poly, init, refin, refout, xorout))
     info = AlgorithmInfo(
-        width=width, poly=poly, init=init, refin=refin, refout=refout,
-        xorout=xorout, check=check, desc=str(cp.get("desc", "")), source="custom",
+        width=width,
+        poly=poly,
+        init=init,
+        refin=refin,
+        refout=refout,
+        xorout=xorout,
+        check=check,
+        desc=str(cp.get("desc", "")),
+        source="custom",
     )
     return info, str(cp.get("name", "custom"))
 
@@ -292,7 +309,8 @@ def build_server() -> FastMCP:
             "candidates": [detect_match_to_dict(m) for m in result.candidates],
             "trailer_hint": (
                 trailer_result_to_dict(result.trailer_hint)
-                if result.trailer_hint else None
+                if result.trailer_hint
+                else None
             ),
         }
 
@@ -348,15 +366,21 @@ def build_server() -> FastMCP:
             frames_in = []
             for i, p in enumerate(packets):
                 try:
-                    raw = (parse_packet(None, None, p) if packet_format == "base64"
-                           else parse_packet(p, None, None))
+                    raw = (
+                        parse_packet(None, None, p)
+                        if packet_format == "base64"
+                        else parse_packet(p, None, None)
+                    )
                 except ValueError as e:
                     raise ValueError(f"packets[{i}]: {e}") from e
                 assert isinstance(raw, bytes)
                 frames_in.append(raw)
         mode = "text" if packet_format == "text" else "binary"
         result = identify_trailer(
-            frames_in, mode=mode, endian=endian, encoding=encoding,
+            frames_in,
+            mode=mode,
+            endian=endian,
+            encoding=encoding,
             trailers=trailers,
         )
         return trailer_result_to_dict(result)
@@ -530,9 +554,7 @@ def build_server() -> FastMCP:
             "algorithm": label,
             "width": a.width,
             "count": len(results),
-            "results": [
-                {"crc": c, "crc_hex": f"0x{c:0{hex_w}X}"} for c in results
-            ],
+            "results": [{"crc": c, "crc_hex": f"0x{c:0{hex_w}X}"} for c in results],
         }
 
     # ----- crc_reverse -----
@@ -582,7 +604,7 @@ def build_server() -> FastMCP:
             "against the engine, and 'validated_frames' reports a held-out "
             "generalisation check; when the field size / byte order was "
             "auto-detected, 'note' records the split that was chosen.  "
-            "Guarantee: a recovered model is correct on unseen data, or honestly "
+            "Guarantee: a recovered model is correct on unseen data, or "
             "reports underdetermined -- never confidently wrong.  "
             "std_algo_only=True restricts to the catalogue tier (identical to "
             "crc_detect)."
@@ -616,17 +638,28 @@ def build_server() -> FastMCP:
             frames_in = []
             for i, p in enumerate(packets):
                 try:
-                    raw = (parse_packet(None, None, p) if packet_format == "base64"
-                           else parse_packet(p, None, None))
+                    raw = (
+                        parse_packet(None, None, p)
+                        if packet_format == "base64"
+                        else parse_packet(p, None, None)
+                    )
                 except ValueError as e:
                     raise ValueError(f"packets[{i}]: {e}") from e
                 assert isinstance(raw, bytes)  # hex / base64 forms decode to bytes
                 frames_in.append(raw)
 
         result = reverse_packets(
-            frames_in, crc_bytes=crc_bytes, crc_byte_order=crc_byte_order,
-            encoding=encoding, std_algo_only=std_algo_only, width=width,
-            refin=refin, refout=refout, poly=poly, init=init, xorout=xorout,
+            frames_in,
+            crc_bytes=crc_bytes,
+            crc_byte_order=crc_byte_order,
+            encoding=encoding,
+            std_algo_only=std_algo_only,
+            width=width,
+            refin=refin,
+            refout=refout,
+            poly=poly,
+            init=init,
+            xorout=xorout,
             validate=validate,
         )
 
@@ -634,11 +667,16 @@ def build_server() -> FastMCP:
             hw = (info.width + 3) // 4
             return {
                 "width": info.width,
-                "poly": info.poly, "poly_hex": f"0x{info.poly:0{hw}X}",
-                "init": info.init, "init_hex": f"0x{info.init:0{hw}X}",
-                "refin": info.refin, "refout": info.refout,
-                "xorout": info.xorout, "xorout_hex": f"0x{info.xorout:0{hw}X}",
-                "check": info.check, "check_hex": f"0x{info.check:0{hw}X}",
+                "poly": info.poly,
+                "poly_hex": f"0x{info.poly:0{hw}X}",
+                "init": info.init,
+                "init_hex": f"0x{info.init:0{hw}X}",
+                "refin": info.refin,
+                "refout": info.refout,
+                "xorout": info.xorout,
+                "xorout_hex": f"0x{info.xorout:0{hw}X}",
+                "check": info.check,
+                "check_hex": f"0x{info.check:0{hw}X}",
             }
 
         return {
@@ -650,7 +688,8 @@ def build_server() -> FastMCP:
             "note": result.note,
             "trailer_hint": (
                 trailer_result_to_dict(result.trailer_hint)
-                if result.trailer_hint else None
+                if result.trailer_hint
+                else None
             ),
         }
 
@@ -693,10 +732,12 @@ def build_server() -> FastMCP:
         info, label = _resolve_algorithm(algorithm, custom_params)
         if sum(p is not None for p in (packet_hex, packet_text, packet_b64)) != 1:
             raise ValueError(
-                "supply exactly one of packet_hex / packet_text / packet_b64")
+                "supply exactly one of packet_hex / packet_text / packet_b64"
+            )
         if packet_text is not None:
             result = verify(
-                packet_text, info, endianness=crc_byte_order, encoding=encoding)
+                packet_text, info, endianness=crc_byte_order, encoding=encoding
+            )
         else:
             packet = parse_packet(packet_hex, None, packet_b64)
             assert isinstance(packet, bytes)  # hex / base64 forms decode to bytes
@@ -821,10 +862,14 @@ def build_server() -> FastMCP:
             # Several names bundle into one file (one .h + one .c for C);
             # per-symbol tables keep the merge collision-free.  Dedup,
             # order-preserving.
-            requested = algorithm.split() if isinstance(algorithm, str) else list(algorithm)
+            requested = (
+                algorithm.split() if isinstance(algorithm, str) else list(algorithm)
+            )
             names = list(dict.fromkeys(requested))
             if not names:
-                raise ValueError("algorithm is empty; supply one or more catalogue names")
+                raise ValueError(
+                    "algorithm is empty; supply one or more catalogue names"
+                )
             unknown = [n for n in names if n not in ALGORITHMS]
             if unknown:
                 raise ValueError(
@@ -1007,8 +1052,7 @@ def build_server() -> FastMCP:
             "faster than any generated code. crc_generate emits an advisory "
             "pointing to it when the algorithm qualifies.\n"
             "4. Then act: crc_generate to emit verified code in my target "
-            "language, and/or crc_encode / crc_verify to build and check frames."
-            + ctx
+            "language, and/or crc_encode / crc_verify to build and check frames." + ctx
         )
 
     @mcp.prompt(
@@ -1042,12 +1086,15 @@ def build_server() -> FastMCP:
             styles = [s.name for s in info.styles]
             naming_part = (
                 f"naming {namings} (default {info.default_naming})"
-                if len(namings) > 1 else f"naming {namings[0]} (only)")
+                if len(namings) > 1
+                else f"naming {namings[0]} (only)"
+            )
             style_part = (
                 f"comment styles {styles}"
-                if len(styles) > 1 else f"comment style {styles[0]} (only)")
-            rows.append(
-                f"- {code} ({info.display_name}): {naming_part}; {style_part}")
+                if len(styles) > 1
+                else f"comment style {styles[0]} (only)"
+            )
+            rows.append(f"- {code} ({info.display_name}): {naming_part}; {style_part}")
         catalogue = "\n".join(rows)
         for_algo = f" for {algorithm}" if algorithm.strip() else ""
 
