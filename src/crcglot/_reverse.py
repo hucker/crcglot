@@ -56,7 +56,7 @@ from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, Crc, _reflect, generic_crc
-from crcglot.checksums import ChecksumResult, _identify_checksum_pairs
+from crcglot._trailers import TrailerResult, _identify_trailer_pairs
 from crcglot._detect import _parse_text, _read_hex_crc
 
 Codeword = tuple[bytes, int]
@@ -279,9 +279,9 @@ class ReverseResult:
             model correctly predicted, or ``-1`` if held-out validation didn't
             run.  Empirical confidence, no math required.
         note: Human-readable summary and guidance.
-        checksum_hint: When no CRC was found (status ``"none"`` /
+        trailer_hint: When no CRC was found (status ``"none"`` /
             ``"underdetermined"``), a
-            :class:`~crcglot.checksums.ChecksumResult` if the codewords look
+            :class:`~crcglot._trailers.TrailerResult` if the codewords look
             like a non-CRC checksum (8-bit sum / LRC / XOR, Adler-32, Fletcher,
             Internet checksum); ``None`` otherwise.  A heads-up only -- crcglot
             does not generate code for these.
@@ -293,7 +293,7 @@ class ReverseResult:
     ambiguity_bits: int = 0
     validated_frames: int = -1
     note: str = ""
-    checksum_hint: ChecksumResult | None = None
+    trailer_hint: TrailerResult | None = None
 
     def __bool__(self) -> bool:
         return self.status not in ("none", "underdetermined")
@@ -469,7 +469,7 @@ def reverse(
             status="none",
             note="no catalogue algorithm matches; pass std_algo_only=False to "
                  "attempt algebraic recovery of a custom algorithm",
-            checksum_hint=_identify_checksum_pairs(codewords) or None,
+            trailer_hint=_identify_trailer_pairs(codewords) or None,
         )
 
     # ----- Tier 2: algebraic recovery -----
@@ -502,7 +502,7 @@ def reverse(
                 "plus other lengths to separate init from xorout.")
         return ReverseResult(
             status="underdetermined", note=note,
-            checksum_hint=_identify_checksum_pairs(codewords) or None,
+            trailer_hint=_identify_trailer_pairs(codewords) or None,
         )
     w, p, ri, ro, members, dim = solved
 

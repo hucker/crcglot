@@ -21,7 +21,7 @@ _LAZY_LAYER_MODULES = (
     "crcglot._detect",
     "crcglot._encode",
     "crcglot._reverse",
-    "crcglot.checksums",
+    "crcglot._trailers",
     "crcglot.targets",
     "crcglot.lang",
     "crcglot.comments",
@@ -130,7 +130,7 @@ class TestSurfaceIntrospection:
             "import crcglot;"
             "names = set(dir(crcglot));"
             "print({'generate_c', 'detect', 'LANGUAGES',"
-            " 'identify_checksum'} <= names)"
+            " 'identify_trailer'} <= names)"
         )
         # Assert
         assert out == "True", "dir() must list lazy names before they load"
@@ -143,7 +143,7 @@ class TestSurfaceIntrospection:
     def test_dir_advertises_lazy_names_in_process(self):
         # Assert -- __dir__ merges loaded and unloaded names.
         names = set(dir(crcglot))
-        expected = {"generate_c", "detect", "LANGUAGES", "identify_checksum"}
+        expected = {"generate_c", "detect", "LANGUAGES", "identify_trailer"}
         assert expected <= names, f"dir() missing {expected - names}"
 
     def test_submodule_attribute_resolves_via_getattr(self, monkeypatch):

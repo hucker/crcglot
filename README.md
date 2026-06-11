@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-6513%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-6537%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
@@ -182,26 +182,34 @@ crcglot detect --match set a.bin b.bin               # strict: succeed only on a
 
 `--match` selects the strategy: `first` (default; early-stop on the first hit, priority order is `crc32`, `crc32-jamcrc`, `crc32-iscsi`, then the rest of the catalogue), `all` (exhaustive forensic view), `set` (strict singleton: succeed only if exactly one algorithm survives across all packets).  Exit 0 on match, 1 otherwise.  For text packets the inferred separator + hex leader + case are reported so you can reproduce the same format via `crcglot encode`.
 
-When no CRC matches, `detect` (and `reverse`) also report a `checksum_hint` if the trailing field looks like a common **non-CRC** checksum — see `crcglot checksum` below.
+When no CRC matches, `detect` (and `reverse`) also report a `trailer_hint` if the trailing field looks like a common **non-CRC** trailer — see `crcglot identify` below.
 
-### `crcglot checksum [INPUTS...]`
+### `crcglot identify [INPUTS...]`
 
-Identify a common **non-CRC** checksum in a packet's trailing field: 8-bit sum / LRC / one's-complement / XOR, 16-bit sum, Internet checksum, Fletcher-16, Fletcher-32, Adler-32.  Identification only — crcglot doesn't generate code for these; the value is knowing your "mystery CRC" isn't a CRC at all before you burn an afternoon on `detect`.
+Identify a **non-CRC** trailing field in a packet.  Two kinds: simple checksums (8-bit sum / LRC / one's-complement / XOR, 16-bit sum, Internet checksum, Fletcher-16, Fletcher-32, Adler-32) and cryptographic digests (MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2, double SHA-256 — full length, or the common 4/8-byte leading truncations like base58check's `sha256d[:4]`).  Identification only — crcglot doesn't generate code for these (checksums are one-liners; digests live in every stdlib).  The point is information for whoever decides next, human or LLM: "the trailer is an Adler-32" or "found a 32-byte field that's no unkeyed digest, so likely a MAC" redirects the whole investigation in one step.
 
 ```bash
-crcglot checksum packet.bin                          # binary file (or '-' for stdin)
-crcglot checksum --hex "74656c656d65...4b8806d2"     # hex-encoded packet
-crcglot checksum --text "data 1f2a"                  # text packet
-crcglot checksum --checksums 'fletcher*' a.bin       # narrow the candidates
-crcglot checksum --endian little a.bin b.bin         # fix byte order (default: try both)
+crcglot identify packet.bin                          # binary file (or '-' for stdin)
+crcglot identify --hex "74656c656d65...4b8806d2"     # hex-encoded packet
+crcglot identify --text "data 1f2a"                  # text packet
+crcglot identify --trailers 'sha*' a.bin             # narrow the candidates
+crcglot identify --endian little a.bin b.bin         # checksum byte order (default: try both)
 ```
 
 ```text
-$ crcglot checksum --hex "74656c656d657472792d6672616d652d3030314b8806d2"
-adler32  width=32  endianness=big  frames_agreed=1  (Adler-32)
+$ crcglot identify --hex "74656c656d657472792d6672616d652d3030314b8806d2"
+adler32  kind=checksum  width=32  endianness=big  frames_agreed=1  (Adler-32)
+
+$ crcglot identify --hex "66772d757064...<sha256 trailer>"
+sha256  kind=digest  width=256  endianness=big  frames_agreed=1  (SHA-256)
+
+$ crcglot identify --text "sensor-frame-001 abab...ab"      # 32 bytes, matches nothing
+No trailer match.
+Note: found a 32-byte trailing field matching no unkeyed digest; could be a MAC
+(HMAC / CMAC -- keyed, unverifiable without the key) or an uncommon / truncated hash
 ```
 
-Confidence scales with `frames_agreed`: one frame is a hint, several corroborating frames are a finding.  Exit 0 on a match, 1 otherwise.
+Keyed MACs are undetectable by design — that's the third example's honest answer, and it's still useful: it ends the CRC hunt and names what the field probably is.  Confidence scales with `frames_agreed`: one frame is a hint, several corroborating frames are a finding.  Exit 0 on a match, 1 otherwise.
 
 ### `crcglot encode <algorithm> [<data>]`
 
@@ -371,7 +379,7 @@ Here's that case end to end, as a chat session.  Every value below is a real too
 
 > **You:** I captured these frames from a serial link.  Last two bytes look like a CRC but nothing standard matches: `5057523a31322e3430569771`, `544d503a34382e31433d4d`, `52504d3a303031343530da2e`, `5354413a4f4bea3b`
 >
-> **Claude** *(calls `crc_detect`)*: No catalogue algorithm matches, and it's not a common non-CRC checksum either — this is a custom CRC.  *(calls `crc_reverse`)*  Four frames aren't enough to pin the polynomial: I need a few more captures, ideally including two or more of the **same length** with different content.
+> **Claude** *(calls `crc_detect`)*: No catalogue algorithm matches, and it's not a common non-CRC trailer (checksum or digest) either — this is a custom CRC.  *(calls `crc_reverse`)*  Four frames aren't enough to pin the polynomial: I need a few more captures, ideally including two or more of the **same length** with different content.
 >
 > **You:** Here are six more: `5057523a31322e333856b10d`, `544d503a34382e3343bde8`, `52504d3a303031343438eebc`, `5354413a52554e0492`, `5057523a31322e3431565723`, `4552523a4e4f4e458030`
 >
@@ -401,7 +409,7 @@ Then wire it into your MCP client.  Claude Desktop's `claude_desktop_config.json
 }
 ```
 
-Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_verify` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
+Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_identify_trailer` · `crc_verify` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
 
 ## Fast runtime CRC (optional C extension)
 

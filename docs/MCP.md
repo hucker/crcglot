@@ -95,7 +95,7 @@ order of the CRC field *within the packet* — not the byte order of the
 surrounding protocol.  A big-endian protocol can serialize its CRC
 little-endian (and vice versa); the two are independent.
 
-[det]: ../src/crcglot/detect.py
+[det]: ../src/crcglot/_detect.py
 
 ### `crc_reverse(packets, crc_bytes=None, crc_byte_order="big", packet_format="hex", ...)`
 
@@ -129,7 +129,30 @@ recovered model is correct on unseen data, or honestly reports underdetermined �
 never confidently wrong.  Clean-room (derived from CRC linearity over GF(2), not
 from reveng).  Mirrors [`crcglot.reverse_packets`][rev].
 
-[rev]: ../src/crcglot/reverse.py
+[rev]: ../src/crcglot/_reverse.py
+
+### `crc_identify_trailer(packets, packet_format="hex", endian="both", trailers=None, ...)`
+
+Identify a **non-CRC** trailing field — the heads-up for when `crc_detect` and
+`crc_reverse` come up empty.  Recognises simple checksums (8-bit sum / LRC /
+one's-complement / XOR, 16-bit sum, the Internet checksum, Fletcher-16/32,
+Adler-32) and **cryptographic digests** (MD5, SHA-1, the SHA-2 and SHA-3
+families, BLAKE2, double SHA-256 — full length or the common 4/8-byte leading
+truncations, e.g. base58check's `sha256d[:4]`).  Identification only: the
+result exists to give the agent (or the human it's helping) the next move
+with an unfamiliar packet — it ends the CRC parameter hunt, names the likely
+protocol family, and says whether verification is even possible without a key.
+
+Takes the same frame list as `crc_reverse`.  Returns `{matched, frames_agreed,
+candidates, note}` where each candidate carries `{trailer, kind, label, width,
+crc_byte_order, truncated_to}`.  `frames_agreed` is the confidence signal
+(one 8-bit-checksum frame is weak, ~1/256 by chance; several agreeing frames
+are a finding).  Keyed MACs (HMAC / CMAC) are undetectable without the key —
+when a delimited digest-sized field matches nothing, `note` reports e.g.
+*"found a 32-byte trailing field matching no unkeyed digest; could be a MAC"*.
+Mirrors [`crcglot.identify_trailer`][idt] (CLI: `crcglot identify`).
+
+[idt]: ../src/crcglot/_trailers.py
 
 ### `crc_verify(algorithm | custom_params, packet_hex | packet_text | packet_b64, ...)`
 
@@ -144,7 +167,7 @@ Returns `{valid, expected, expected_hex, actual, actual_hex, width, algorithm}`
 — comparing `expected` vs `actual` shows *how* a bad frame is wrong.  Mirrors
 [`crcglot.verify`][vfy].
 
-[vfy]: ../src/crcglot/encode.py
+[vfy]: ../src/crcglot/_encode.py
 
 ### `crc_encode(algorithm | custom_params, data_text | data_b64, ...)`
 

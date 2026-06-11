@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Iterator, Literal, cast
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
 
 if TYPE_CHECKING:
-    from crcglot.checksums import ChecksumResult
+    from crcglot._trailers import TrailerResult
 
 
 # A "packet" is either a bytes-like value (binary mode) or a string
@@ -239,16 +239,18 @@ class DetectResult:
         matched: ``True`` if at least one candidate matched.
         candidates: All surviving :class:`DetectMatch` entries, in scan
             order (priority head first, then catalogue).
-        checksum_hint: When no CRC matched, a
-            :class:`~crcglot.checksums.ChecksumResult` if the trailing field
-            looks like a non-CRC checksum (8-bit sum / LRC / XOR, Adler-32,
-            Fletcher, Internet checksum); ``None`` otherwise.  A heads-up only
-            -- crcglot does not generate code for these.
+        trailer_hint: When no CRC matched, a
+            :class:`~crcglot._trailers.TrailerResult` if the trailing field
+            looks like a non-CRC trailer (a checksum such as 8-bit sum / LRC /
+            XOR, Adler-32, Fletcher, the Internet checksum -- or a
+            cryptographic digest such as MD5 / SHA / BLAKE2, full or
+            truncated); ``None`` otherwise.  A heads-up only -- crcglot does
+            not generate code for these.
     """
 
     matched: bool
     candidates: tuple[DetectMatch, ...] = field(default_factory=tuple)
-    checksum_hint: ChecksumResult | None = None
+    trailer_hint: TrailerResult | None = None
 
     def __bool__(self) -> bool:
         return self.matched
@@ -262,7 +264,7 @@ class DetectResult:
         return self.candidates[0].endianness if self.candidates else None
 
 
-def _with_checksum_hint(
+def _with_trailer_hint(
     result: DetectResult,
     packets: list[Packet],
     *,
@@ -270,17 +272,17 @@ def _with_checksum_hint(
     encoding: str,
     endian: EndianSelector,
 ) -> DetectResult:
-    """Attach a non-CRC checksum hint when no CRC matched (else a no-op).
+    """Attach a non-CRC trailer hint when no CRC matched (else a no-op).
 
-    Lazily imports :mod:`crcglot.checksums` (which imports from this module) to
-    avoid an import cycle.
+    Lazily imports :mod:`crcglot._trailers` (which imports from this module)
+    to avoid an import cycle.
     """
     if result.matched:
         return result
-    from crcglot.checksums import identify_checksum
+    from crcglot._trailers import identify_trailer
 
-    hint = identify_checksum(packets, mode=mode, endian=endian, encoding=encoding)
-    return replace(result, checksum_hint=hint) if hint.matched else result
+    hint = identify_trailer(packets, mode=mode, endian=endian, encoding=encoding)
+    return replace(result, trailer_hint=hint) if hint.matched else result
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +761,7 @@ def detect(
         result = _run_detect(
             decoded_bytes_explicit, "binary", names, encoding, match, endian,
         )
-        return _with_checksum_hint(
+        return _with_trailer_hint(
             _attach_padding(result, hex_format), packets,
             mode=mode, encoding=encoding, endian=endian,
         )
@@ -791,7 +793,7 @@ def detect(
 
     actual_mode = _resolve_mode(packets, mode)
     result = _run_detect(packets, actual_mode, names, encoding, match, endian)
-    return _with_checksum_hint(
+    return _with_trailer_hint(
         result, packets, mode=mode, encoding=encoding, endian=endian,
     )
 

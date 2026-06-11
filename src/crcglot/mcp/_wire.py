@@ -214,30 +214,36 @@ def detect_match_to_dict(match: Any) -> dict[str, Any]:
     return out
 
 
-def checksum_match_to_dict(match: Any) -> dict[str, Any]:
-    """Serialize one :class:`crcglot.ChecksumMatch` for JSON output.
+def trailer_match_to_dict(match: Any) -> dict[str, Any]:
+    """Serialize one :class:`crcglot.TrailerMatch` for JSON output.
 
     Mirrors :func:`detect_match_to_dict`'s ``endianness -> crc_byte_order``
-    relabel.  An 8-bit checksum is byte-order-invariant (always ``"big"``);
-    16/32-bit respects the field's byte order.
+    relabel.  An 8-bit checksum is byte-order-invariant (always ``"big"``),
+    as is any digest (a byte string has no byte order); 16/32-bit checksums
+    respect the field's byte order.  ``truncated_to`` is the trailer's byte
+    length for a leading-truncated digest match, else ``None``.
     """
     return {
-        "checksum": match.name,
+        "trailer": match.name,
+        "kind": match.info.kind,
         "label": match.info.label,
         "width": match.info.width,
         "crc_byte_order": match.endianness,
+        "truncated_to": match.truncated_to,
     }
 
 
-def checksum_result_to_dict(result: Any) -> dict[str, Any]:
-    """Serialize a :class:`crcglot.ChecksumResult` (the non-CRC heads-up).
+def trailer_result_to_dict(result: Any) -> dict[str, Any]:
+    """Serialize a :class:`crcglot.TrailerResult` (the non-CRC heads-up).
 
     ``frames_agreed`` is the confidence signal -- one frame is weak (an 8-bit
     checksum matches a random frame ~1/256); more agreeing frames make it
-    trustworthy.
+    trustworthy.  ``note`` carries the MAC heads-up when a digest-sized field
+    matched nothing.
     """
     return {
         "matched": result.matched,
         "frames_agreed": result.frames_agreed,
-        "candidates": [checksum_match_to_dict(m) for m in result.candidates],
+        "candidates": [trailer_match_to_dict(m) for m in result.candidates],
+        "note": result.note,
     }

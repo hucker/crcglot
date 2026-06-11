@@ -178,27 +178,32 @@ def _read_text_packets(arg: str) -> list[str]:
     return [arg]
 
 
-def _format_checksum_lines(hint: object) -> list[str]:
-    """Render a ``ChecksumResult``'s candidates as ``key=value`` lines."""
+def _format_trailer_lines(hint: object) -> list[str]:
+    """Render a ``TrailerResult``'s candidates as ``key=value`` lines."""
     lines = []
     for m in hint.candidates:  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        trunc = (
+            f"  truncated_to={m.truncated_to}B" if m.truncated_to else ""
+        )
         lines.append(
-            f"{m.name}  width={m.info.width}  endianness={m.endianness}"
+            f"{m.name}  kind={m.info.kind}  width={m.info.width}"
+            f"  endianness={m.endianness}{trunc}"
             f"  frames_agreed={hint.frames_agreed}"  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
             f"  ({m.info.label})"
         )
     return lines
 
 
-def _cmd_checksum(args: argparse.Namespace) -> int:
-    """Run the ``crcglot checksum`` subcommand.
+def _cmd_identify(args: argparse.Namespace) -> int:
+    """Run the ``crcglot identify`` subcommand.
 
-    Identifies a non-CRC checksum (8-bit sum / LRC / XOR, Adler-32, Fletcher,
-    Internet checksum) in a packet's trailing field.  Identification only --
-    crcglot does not generate code for these; this is a heads-up.
+    Identifies a non-CRC trailing field in a packet: a checksum (8-bit sum /
+    LRC / XOR, Adler-32, Fletcher, Internet checksum) or a cryptographic
+    digest (MD5, SHA-1, SHA-2/3, BLAKE2; full or truncated).  Identification
+    only -- crcglot does not generate code for these; this is a heads-up.
 
     Args:
-        args: Parsed argparse namespace for the ``checksum`` subparser.
+        args: Parsed argparse namespace for the ``identify`` subparser.
 
     Returns:
         ``0`` on at least one match, ``1`` on no match, ``2`` on invalid input.
@@ -221,16 +226,18 @@ def _cmd_checksum(args: argparse.Namespace) -> int:
             return 2
         mode = "binary"
 
-    from crcglot import identify_checksum  # local import to avoid cycles
+    from crcglot import identify_trailer  # local import to avoid cycles
 
-    result = identify_checksum(
+    result = identify_trailer(
         packets, mode=mode, encoding=args.encoding,
-        endian=args.endian, checksums=args.checksums,
+        endian=args.endian, trailers=args.trailers,
     )
     if not result.matched:
-        print("No checksum match.", file=sys.stderr)
+        print("No trailer match.", file=sys.stderr)
+        if result.note:
+            print(f"Note: {result.note}", file=sys.stderr)
         return 1
-    for line in _format_checksum_lines(result):
+    for line in _format_trailer_lines(result):
         print(line)
     return 0
 
@@ -277,9 +284,9 @@ def _cmd_detect(args: argparse.Namespace) -> int:
     )
     if not result.matched:
         print("No match.", file=sys.stderr)
-        if result.checksum_hint is not None:
-            print("Possible non-CRC checksum (heads-up):", file=sys.stderr)
-            for line in _format_checksum_lines(result.checksum_hint):
+        if result.trailer_hint is not None:
+            print("Possible non-CRC trailer (heads-up):", file=sys.stderr)
+            for line in _format_trailer_lines(result.trailer_hint):
                 print(f"  {line}", file=sys.stderr)
         return 1
 
@@ -683,10 +690,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Encoding for text-mode data portion (default: utf-8)",
     )
 
-    # crcglot checksum [packet.bin ...] [--text TEXT|--hex HEX]
+    # crcglot identify [packet.bin ...] [--text TEXT|--hex HEX]
     p_cksum = subs.add_parser(
-        "checksum",
-        help="Identify a non-CRC checksum in a packet (heads-up; no code gen)",
+        "identify",
+        help="Identify a non-CRC trailing field in a packet -- checksum or "
+             "digest (heads-up; no code gen)",
     )
     p_cksum.add_argument(
         "inputs", nargs="*",
@@ -705,8 +713,8 @@ def build_parser() -> argparse.ArgumentParser:
              "(default: both)",
     )
     p_cksum.add_argument(
-        "--checksums", metavar="GLOB",
-        help="fnmatch glob to narrow the candidates (e.g. 'fletcher*')",
+        "--trailers", metavar="GLOB",
+        help="fnmatch glob to narrow the candidates (e.g. 'fletcher*', 'sha*')",
     )
     p_cksum.add_argument(
         "--encoding", default="utf-8",
@@ -888,8 +896,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_info(args)
     if args.command == "detect":
         return _cmd_detect(args)
-    if args.command == "checksum":
-        return _cmd_checksum(args)
+    if args.command == "identify":
+        return _cmd_identify(args)
     if args.command == "encode":
         return _cmd_encode(args)
     if args.command == "compute":

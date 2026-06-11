@@ -34,7 +34,7 @@ from crcglot import (
     LANGUAGES,
     AlgorithmInfo,
     detect,
-    identify_checksum,
+    identify_trailer,
     encode,
     encode_int,
     encode_text,
@@ -46,7 +46,7 @@ from crcglot import (
 )
 from crcglot.mcp._wire import (
     algorithm_to_dict,
-    checksum_result_to_dict,
+    trailer_result_to_dict,
     detect_match_to_dict,
     language_to_dict,
     parse_packet,
@@ -290,25 +290,34 @@ def build_server() -> FastMCP:
         return {
             "matched": result.matched,
             "candidates": [detect_match_to_dict(m) for m in result.candidates],
-            "checksum_hint": (
-                checksum_result_to_dict(result.checksum_hint)
-                if result.checksum_hint else None
+            "trailer_hint": (
+                trailer_result_to_dict(result.trailer_hint)
+                if result.trailer_hint else None
             ),
         }
 
-    # ----- crc_identify_checksum -----
+    # ----- crc_identify_trailer -----
 
     @mcp.tool(
         annotations=_READONLY,
-        name="crc_identify_checksum",
+        name="crc_identify_trailer",
         description=(
-            "Identify a NON-CRC checksum in a packet's trailing field -- the "
-            "heads-up for when crc_detect / crc_reverse find no CRC.  "
-            "Recognises 8-bit sum / LRC (two's-complement) / one's-complement / "
+            "Identify a NON-CRC trailing field in a packet -- the heads-up for "
+            "when crc_detect / crc_reverse find no CRC.  Recognises simple "
+            "checksums (8-bit sum / LRC (two's-complement) / one's-complement / "
             "XOR, 16-bit sum, the Internet checksum (RFC 1071), Fletcher-16, "
-            "Fletcher-32, and Adler-32.  IDENTIFICATION ONLY: crcglot does not "
-            "generate code for these (they are one-liners); this just tells you "
-            "the frame is a plain checksum, not a CRC.\n"
+            "Fletcher-32, Adler-32) AND cryptographic digests (MD5, SHA-1, "
+            "SHA-2 and SHA-3 families, BLAKE2, double SHA-256 -- full length or "
+            "the common 4/8-byte leading truncations).  IDENTIFICATION ONLY: "
+            "crcglot does not generate code for these (checksums are "
+            "one-liners; digests live in every stdlib).  The result exists to "
+            "give you -- or the human you are helping -- the next move with an "
+            "unfamiliar packet: it ends the CRC parameter hunt, names the "
+            "likely protocol family, and says whether verification is even "
+            "possible without a key.\n"
+            "\n"
+            "Keyed MACs (HMAC / CMAC) are undetectable without the key; when a "
+            "delimited digest-sized field matches nothing, 'note' says so.\n"
             "\n"
             "Pass SEVERAL frames (same shape as crc_reverse: a list, hex by "
             "default, or base64 / text per packet_format).  Reliability comes "
@@ -319,11 +328,11 @@ def build_server() -> FastMCP:
             "(endian) only affects the 16/32-bit checksums."
         ),
     )
-    def crc_identify_checksum(
+    def crc_identify_trailer(
         packets: list[str],
         packet_format: PACKET_FORMAT_ENUM = "hex",
         endian: ENDIAN_ENUM = "both",
-        checksums: str | None = None,
+        trailers: str | None = None,
         encoding: str = "utf-8",
     ) -> dict[str, Any]:
         if not packets:
@@ -346,11 +355,11 @@ def build_server() -> FastMCP:
                 assert isinstance(raw, bytes)
                 frames_in.append(raw)
         mode = "text" if packet_format == "text" else "binary"
-        result = identify_checksum(
+        result = identify_trailer(
             frames_in, mode=mode, endian=endian, encoding=encoding,
-            checksums=checksums,
+            trailers=trailers,
         )
-        return checksum_result_to_dict(result)
+        return trailer_result_to_dict(result)
 
     # ----- crc_encode -----
 
@@ -639,9 +648,9 @@ def build_server() -> FastMCP:
             "validated_frames": result.validated_frames,
             "candidates": [_model(c) for c in result.candidates],
             "note": result.note,
-            "checksum_hint": (
-                checksum_result_to_dict(result.checksum_hint)
-                if result.checksum_hint else None
+            "trailer_hint": (
+                trailer_result_to_dict(result.trailer_hint)
+                if result.trailer_hint else None
             ),
         }
 

@@ -38,12 +38,14 @@ Public API:
           CRC).
         - _reflect: internal bit-reversal helper.
 
-    Checksum identification (non-CRC, heads-up only -- no code generation):
-        - identify_checksum / ChecksumResult: spot a common non-CRC checksum
-          (8-bit sum / LRC / XOR, Adler-32, Fletcher, Internet checksum) in a
-          packet; also surfaced as detect()/reverse() ``.checksum_hint`` when no
-          CRC matched.  CHECKSUMS / ChecksumInfo / checksum_info mirror the
-          ALGORITHMS metadata pattern.
+    Trailer identification (non-CRC, heads-up only -- no code generation):
+        - identify_trailer / TrailerResult: spot a common non-CRC trailing
+          field in a packet -- a checksum (8-bit sum / LRC / XOR, Adler-32,
+          Fletcher, Internet checksum) or a cryptographic digest (MD5, SHA-1,
+          SHA-2/3, BLAKE2; full or truncated); also surfaced as
+          detect()/reverse() ``.trailer_hint`` when no CRC matched.
+          TRAILERS / TrailerInfo / trailer_info mirror the ALGORITHMS
+          metadata pattern.
 
 Import cost: ``import crcglot`` eagerly loads only the compute core
 (the catalogue + engine and the streaming API).  Everything else --
@@ -95,13 +97,13 @@ if TYPE_CHECKING:
     )
     from crcglot._reverse import ReverseResult, reverse, reverse_packets
     from crcglot.attribution import ACKNOWLEDGMENTS, ATTRIBUTION
-    from crcglot.checksums import (
-        CHECKSUMS,
-        ChecksumInfo,
-        ChecksumMatch,
-        ChecksumResult,
-        checksum_info,
-        identify_checksum,
+    from crcglot._trailers import (
+        TRAILERS,
+        TrailerInfo,
+        TrailerMatch,
+        TrailerResult,
+        identify_trailer,
+        trailer_info,
     )
     from crcglot.lang.c import generate_c, generate_c_from_entry
     from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
@@ -134,13 +136,13 @@ def _lazy_map() -> dict[str, str]:
     """Build the name -> defining-module map for the lazy layers."""
     by_module = {
         "crcglot.attribution": ("ACKNOWLEDGMENTS", "ATTRIBUTION"),
-        "crcglot.checksums": (
-            "CHECKSUMS",
-            "ChecksumInfo",
-            "ChecksumMatch",
-            "ChecksumResult",
-            "checksum_info",
-            "identify_checksum",
+        "crcglot._trailers": (
+            "TRAILERS",
+            "TrailerInfo",
+            "TrailerMatch",
+            "TrailerResult",
+            "identify_trailer",
+            "trailer_info",
         ),
         "crcglot._detect": (
             "Attempt",
@@ -196,7 +198,7 @@ _LAZY: dict[str, str] = _lazy_map()
 # reachable as attributes (``crcglot.targets`` etc.) without a separate
 # ``import crcglot.targets`` statement.
 _LAZY_SUBMODULES = frozenset(
-    {"attribution", "checksums", "comments", "lang", "targets"}
+    {"attribution", "comments", "lang", "targets"}
 )
 
 
@@ -242,13 +244,13 @@ __all__ = [
     "ACKNOWLEDGMENTS",
     "ALGORITHMS",
     "ATTRIBUTION",
-    "CHECKSUMS",
+    "TRAILERS",
     "Advisory",
     "AlgorithmInfo",
     "Attempt",
-    "ChecksumInfo",
-    "ChecksumMatch",
-    "ChecksumResult",
+    "TrailerInfo",
+    "TrailerMatch",
+    "TrailerResult",
     "Crc",
     "CrcStream",
     "DetectMatch",
@@ -271,8 +273,8 @@ __all__ = [
     "variant_info",
     "detect",
     "detect_iter",
-    "identify_checksum",
-    "checksum_info",
+    "identify_trailer",
+    "trailer_info",
     "encode",
     "encode_int",
     "encode_match",

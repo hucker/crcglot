@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Added: digest identification; `identify_checksum` becomes `identify_trailer`
+
+The non-CRC identifier now recognises **cryptographic digests** alongside
+checksums: MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2s/2b, and double
+SHA-256 — at full length or the common 4/8-byte leading truncations
+(base58check's `sha256d[:4]`).  Everything comes from stdlib `hashlib`; the
+zero-dependency footprint is unchanged.  Keyed MACs (HMAC / CMAC) are
+undetectable without the key, and the result says so honestly: an unmatched
+digest-sized field gets a `note` like *"found a 32-byte trailing field
+matching no unkeyed digest; could be a MAC"*.  The purpose of the search is
+information for whoever decides next, human or LLM — it ends the CRC
+parameter hunt, names the likely protocol family, and says whether
+verification is even possible without a key.
+
+Since the surface now covers more than checksums, it is renamed (breaking,
+no deprecation cycle — crcglot has a single consumer):
+
+- `identify_checksum()` → `identify_trailer()` (its `checksums=` glob kwarg
+  → `trailers=`)
+- `ChecksumResult` / `ChecksumMatch` / `ChecksumInfo` → `TrailerResult` /
+  `TrailerMatch` / `TrailerInfo`; `CHECKSUMS` / `checksum_info` →
+  `TRAILERS` / `trailer_info`.  `TrailerInfo` gains `kind`
+  (`"checksum"` | `"digest"`); `TrailerMatch` gains `truncated_to`.
+- `detect()` / `reverse()` `.checksum_hint` → `.trailer_hint`
+- CLI: `crcglot checksum` → `crcglot identify` (`--checksums` → `--trailers`)
+- MCP: `crc_identify_checksum` → `crc_identify_trailer` (candidate key
+  `checksum` → `trailer`, plus `kind` / `truncated_to` / `note` fields)
+- The `crcglot.checksums` module is now `crcglot._trailers` (private, like
+  `_detect` / `_encode` / `_reverse`); import from the package root.
+
 ### Changed: `import crcglot` loads the compute core only
 
 The package `__init__` now resolves the option layers lazily (PEP 562):
