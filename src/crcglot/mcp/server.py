@@ -34,6 +34,7 @@ from crcglot import (
     LANGUAGES,
     AlgorithmInfo,
     detect,
+    identify_checksum,
     encode,
     encode_int,
     encode_text,
@@ -45,6 +46,7 @@ from crcglot import (
 )
 from crcglot.mcp._wire import (
     algorithm_to_dict,
+    checksum_result_to_dict,
     detect_match_to_dict,
     language_to_dict,
     parse_packet,
@@ -288,7 +290,67 @@ def build_server() -> FastMCP:
         return {
             "matched": result.matched,
             "candidates": [detect_match_to_dict(m) for m in result.candidates],
+            "checksum_hint": (
+                checksum_result_to_dict(result.checksum_hint)
+                if result.checksum_hint else None
+            ),
         }
+
+    # ----- crc_identify_checksum -----
+
+    @mcp.tool(
+        annotations=_READONLY,
+        name="crc_identify_checksum",
+        description=(
+            "Identify a NON-CRC checksum in a packet's trailing field -- the "
+            "heads-up for when crc_detect / crc_reverse find no CRC.  "
+            "Recognises 8-bit sum / LRC (two's-complement) / one's-complement / "
+            "XOR, 16-bit sum, the Internet checksum (RFC 1071), Fletcher-16, "
+            "Fletcher-32, and Adler-32.  IDENTIFICATION ONLY: crcglot does not "
+            "generate code for these (they are one-liners); this just tells you "
+            "the frame is a plain checksum, not a CRC.\n"
+            "\n"
+            "Pass SEVERAL frames (same shape as crc_reverse: a list, hex by "
+            "default, or base64 / text per packet_format).  Reliability comes "
+            "from corroboration, not a single packet: an 8-bit checksum matches "
+            "a random frame about 1 in 256, so 'frames_agreed' (how many frames "
+            "a candidate fits) is the confidence signal -- one frame is weak, "
+            "several agreeing frames make a hit trustworthy.  'crc_byte_order' "
+            "(endian) only affects the 16/32-bit checksums."
+        ),
+    )
+    def crc_identify_checksum(
+        packets: list[str],
+        packet_format: PACKET_FORMAT_ENUM = "hex",
+        endian: ENDIAN_ENUM = "both",
+        checksums: str | None = None,
+        encoding: str = "utf-8",
+    ) -> dict[str, Any]:
+        if not packets:
+            raise ValueError(
+                "packets must be a non-empty list of frames (message followed "
+                "by the checksum), each a hex string (or base64 / text per "
+                "packet_format)"
+            )
+        frames_in: list[bytes | str]
+        if packet_format == "text":
+            frames_in = list(packets)
+        else:
+            frames_in = []
+            for i, p in enumerate(packets):
+                try:
+                    raw = (parse_packet(None, None, p) if packet_format == "base64"
+                           else parse_packet(p, None, None))
+                except ValueError as e:
+                    raise ValueError(f"packets[{i}]: {e}") from e
+                assert isinstance(raw, bytes)
+                frames_in.append(raw)
+        mode = "text" if packet_format == "text" else "binary"
+        result = identify_checksum(
+            frames_in, mode=mode, endian=endian, encoding=encoding,
+            checksums=checksums,
+        )
+        return checksum_result_to_dict(result)
 
     # ----- crc_encode -----
 
@@ -577,6 +639,10 @@ def build_server() -> FastMCP:
             "validated_frames": result.validated_frames,
             "candidates": [_model(c) for c in result.candidates],
             "note": result.note,
+            "checksum_hint": (
+                checksum_result_to_dict(result.checksum_hint)
+                if result.checksum_hint else None
+            ),
         }
 
     # ----- crc_verify -----

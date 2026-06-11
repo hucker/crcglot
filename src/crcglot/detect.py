@@ -27,10 +27,13 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
-from typing import Iterator, Literal, cast
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Iterator, Literal, cast
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
+
+if TYPE_CHECKING:
+    from crcglot.checksums import ChecksumResult
 
 
 # A "packet" is either a bytes-like value (binary mode) or a string
@@ -60,6 +63,25 @@ _TEXT_RE = re.compile(
 # ``xxd`` output, MAC addresses, and similar dumps use them as
 # byte separators.
 _HEX_CLEAN = re.compile(r"0[xX]|[\s,:]+")
+
+# Hex digit set, shared by the hex-bytes decoder and the hex-mode validity check.
+_HEXDIGITS = frozenset("0123456789abcdefABCDEF")
+
+
+def _is_odd_hex(text: str) -> bool:
+    """True when ``text`` is all hex digits (after stripping ``0x`` prefixes and
+    whitespace / comma / colon separators) but an **odd** number of them.
+
+    That's a malformed hex byte string -- you can't have half a byte.  Explicit
+    ``hex`` mode raises on it instead of silently treating it as no-match;
+    ``auto`` mode stays lenient (an odd-length string is legitimately text).
+    """
+    cleaned = _HEX_CLEAN.sub("", text)
+    return (
+        bool(cleaned)
+        and len(cleaned) % 2 == 1
+        and all(c in _HEXDIGITS for c in cleaned)
+    )
 
 
 Endianness = Literal["big", "little"]
@@ -217,10 +239,16 @@ class DetectResult:
         matched: ``True`` if at least one candidate matched.
         candidates: All surviving :class:`DetectMatch` entries, in scan
             order (priority head first, then catalogue).
+        checksum_hint: When no CRC matched, a
+            :class:`~crcglot.checksums.ChecksumResult` if the trailing field
+            looks like a non-CRC checksum (8-bit sum / LRC / XOR, Adler-32,
+            Fletcher, Internet checksum); ``None`` otherwise.  A heads-up only
+            -- crcglot does not generate code for these.
     """
 
     matched: bool
     candidates: tuple[DetectMatch, ...] = field(default_factory=tuple)
+    checksum_hint: ChecksumResult | None = None
 
     def __bool__(self) -> bool:
         return self.matched
@@ -232,6 +260,27 @@ class DetectResult:
     @property
     def endianness(self) -> Endianness | None:
         return self.candidates[0].endianness if self.candidates else None
+
+
+def _with_checksum_hint(
+    result: DetectResult,
+    packets: list[Packet],
+    *,
+    mode: str,
+    encoding: str,
+    endian: EndianSelector,
+) -> DetectResult:
+    """Attach a non-CRC checksum hint when no CRC matched (else a no-op).
+
+    Lazily imports :mod:`crcglot.checksums` (which imports from this module) to
+    avoid an import cycle.
+    """
+    if result.matched:
+        return result
+    from crcglot.checksums import identify_checksum
+
+    hint = identify_checksum(packets, mode=mode, endian=endian, encoding=encoding)
+    return replace(result, checksum_hint=hint) if hint.matched else result
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +367,7 @@ def _looks_like_hex(text: str) -> tuple[bytes, HexFormat] | None:
     cleaned = re.sub(r"[\s,:]+", "", text_no_prefix)
     if not cleaned or len(cleaned) % 2 != 0:
         return None
-    if not all(c in "0123456789abcdefABCDEF" for c in cleaned):
+    if not all(c in _HEXDIGITS for c in cleaned):
         return None
 
     # Per-byte vs single-leading prefix.  ``>=`` because the mixed-case
@@ -695,6 +744,11 @@ def detect(
     if mode == "hex":
         if str_count != len(packets):
             raise TypeError("hex mode requires all str packets")
+        for p in packets:
+            if isinstance(p, str) and _is_odd_hex(p):
+                raise ValueError(
+                    f"hex mode: odd number of hex digits in {p!r} -- a hex byte "
+                    "string needs an even count")
         parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
         if any(p is None for p in parsed):
             return DetectResult(matched=False)
@@ -705,7 +759,10 @@ def detect(
         result = _run_detect(
             decoded_bytes_explicit, "binary", names, encoding, match, endian,
         )
-        return _attach_padding(result, hex_format)
+        return _with_checksum_hint(
+            _attach_padding(result, hex_format), packets,
+            mode=mode, encoding=encoding, endian=endian,
+        )
     if mode == "auto" and str_count == len(packets) and str_count > 0:
         parsed = [_looks_like_hex(p) for p in packets if isinstance(p, str)]
         if all(p is not None for p in parsed):
@@ -733,7 +790,10 @@ def detect(
         # Fall through to text mode for the original str packets.
 
     actual_mode = _resolve_mode(packets, mode)
-    return _run_detect(packets, actual_mode, names, encoding, match, endian)
+    result = _run_detect(packets, actual_mode, names, encoding, match, endian)
+    return _with_checksum_hint(
+        result, packets, mode=mode, encoding=encoding, endian=endian,
+    )
 
 
 def _run_detect(

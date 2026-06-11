@@ -1251,3 +1251,28 @@ class TestAutoModeFilterIndependence:
         assert "crc8-dvb-s2" not in algos, (
             f"width=8 must not surface the text-only crc8-dvb-s2 match; got {algos}"
         )
+
+
+class TestHexModeOddDigits:
+    """Explicit ``mode='hex'`` rejects a malformed (odd-length) hex byte
+    string; ``mode='auto'`` stays lenient and reads it as text."""
+
+    def test_hex_mode_odd_raises(self):
+        # "abc" is three hex digits -- half a byte short.
+        with pytest.raises(ValueError, match="odd number of hex digits"):
+            detect("abc", mode="hex")
+
+    def test_hex_mode_odd_with_separators_raises(self):
+        # Separators/prefixes don't count: "0x12 0x3" -> "123" -> odd.
+        with pytest.raises(ValueError, match="odd number of hex digits"):
+            detect("0x12 0x3", mode="hex")
+
+    def test_hex_mode_even_does_not_raise(self):
+        # Even-length valid hex decodes fine (match or not, but no error).
+        result = detect("1234", mode="hex")
+        assert isinstance(result.matched, bool), "even hex must not raise"
+
+    def test_auto_mode_odd_hex_is_lenient(self):
+        # auto: an odd hex-ish string is legitimately text, not an error.
+        result = detect("abc", mode="auto")
+        assert not result.matched, "auto treats odd 'abc' as text -> no match"
