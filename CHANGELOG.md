@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.19.0 — 2026-06-11
 
-An integrator-ergonomics pass over the public surface, prompted by friction a
-downstream app hit.  Several breaking changes; crcglot has a single consumer
-today, so they ship without a deprecation cycle.
+Three threads land in this release: an integrator-ergonomics pass over the
+public surface (several breaking changes), independently-verified self-tests
+baked into the generated code, and a non-CRC checksum identifier.  crcglot has
+a single consumer today, so the breaking changes ship without a deprecation
+cycle.
 
 ### Added: generated self-tests check four independent vectors
 
@@ -64,7 +66,7 @@ is now rejected.
 Both shapes now expose `separator` / `prefix`, so a consumer reads them the same
 way instead of branching on the format type.
 
-### Added
+### Added: checksum identifier and width filters
 
 - `detect()` / `detect_iter()` (and `crcglot detect --width`, plus the MCP
   `crc_detect` tool) take `width=<bits>` — a first-class filter that replaces
