@@ -34,6 +34,31 @@ _STREAM_CASES = [
     for name in sorted(VECTORS) for inp in _LARGE
 ]
 
+# The same 120-byte message (values 1..120), framed three ways that each probe a
+# distinct boundary hazard in the streaming path.  Twelve divisor sizes would
+# re-run one fold at clean boundaries twelve times; these three instead hit
+# clean boundaries, a short trailing write, and a zero-length write -- the cases
+# that actually differ.
+_CHUNK_DATA = bytes(range(1, 121))
+
+
+def _chunk_framings(data: bytes) -> dict[str, list[bytes]]:
+    """Three write sequences for ``data``, keyed by the hazard each one probes."""
+    return {
+        # 8 divides 120: every write lands on a clean boundary.
+        "fixed8-divisor": [data[i:i + 8] for i in range(0, len(data), 8)],
+        # 7 does not: the last write is 120 % 7 == 1 byte (the tail path).
+        "fixed7-remainder": [data[i:i + 7] for i in range(0, len(data), 7)],
+        # A zero-length write mid-stream must not disturb the carried state.
+        "empty-midstream": [data[:50], b"", data[50:]],
+    }
+
+
+_CHUNK_FRAMINGS = ("fixed8-divisor", "fixed7-remainder", "empty-midstream")
+_CHUNK_CASES = [
+    (name, framing) for name in sorted(VECTORS) for framing in _CHUNK_FRAMINGS
+]
+
 
 class TestFixtureIntegrity:
     def test_covers_every_catalogue_algorithm(self) -> None:
@@ -83,4 +108,33 @@ class TestStreamingMatchesGoldens:
         assert actual == expected, (
             f"{name} streamed on {inp!r}: digest=0x{actual:0{hexw}X} != "
             f"golden=0x{expected:0{hexw}X} (anycrc/crccheck)"
+        )
+
+
+class TestChunkingInvariance:
+    """A 120-byte message must stream to the one-shot CRC no matter how the
+    caller frames its writes.  Three framings probe the boundary hazards that
+    actually differ: clean divisor chunks, a short trailing chunk (remainder),
+    and a zero-length write mid-stream.  Pure-stdlib -- the invariant is the
+    assertion, so no external oracle is needed."""
+
+    @pytest.mark.parametrize(
+        "name,framing", _CHUNK_CASES,
+        ids=[f"{c[0]}-{c[1]}" for c in _CHUNK_CASES],
+    )
+    def test_chunked_equals_one_shot(self, name: str, framing: str) -> None:
+        # Arrange -- the one-shot CRC is the reference every framing must match.
+        algo = ALGORITHMS[name]
+        expected = generic_crc(_CHUNK_DATA, algo)
+        chunks = _chunk_framings(_CHUNK_DATA)[framing]
+        # Act -- feed the message as this framing's sequence of writes.
+        stream = CrcStream.from_info(algo)
+        for chunk in chunks:
+            stream.update(chunk)
+        actual = stream.digest()
+        # Assert
+        hexw = (algo.width + 3) // 4
+        assert actual == expected, (
+            f"{name} framed {framing}: digest=0x{actual:0{hexw}X} != "
+            f"one-shot=0x{expected:0{hexw}X}"
         )

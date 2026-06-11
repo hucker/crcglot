@@ -18,8 +18,15 @@ agree, anchored to reveng's published check value — they are not computed by
 crcglot, so the engine never grades itself.  Both oracles are dev-only; the
 shipped package stays pure-stdlib with zero runtime dependencies.  Covers the
 seven software languages (C, Rust, Go, C#, Java, Python, TypeScript); Verilog
-and VHDL keep their single-vector self-test, and a custom (non-catalogue)
-polynomial falls back to the single check-string assertion.
+and VHDL keep their single-vector self-test.
+
+A custom (non-catalogue) polynomial has no independent reference, so its
+self-test is a weaker *kind* of check, not just fewer vectors: it asserts the
+generated code reproduces the one check value crcglot itself computed and
+embedded.  That still catches a compiler / endianness / width mismatch on your
+toolchain, but -- unlike a catalogue algorithm -- it cannot catch an error
+shared by the generator and the generated code, since both come from crcglot.
+Independent two-oracle verification applies to catalogue algorithms only.
 
 ### Breaking: `generic_crc` takes a `Crc` value object
 
