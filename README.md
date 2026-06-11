@@ -1,11 +1,11 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-6500%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-6513%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
-**A multi-language CRC toolkit.**  Generate verified code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌 — and compute, detect, and reverse-engineer CRCs, from Python or over MCP.  Catalogue-driven, execution-verified, self-test embedded.  **Pure-stdlib package, zero runtime dependencies.**
+**A multi-language CRC toolkit.**  Generate verified code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌 — and compute, detect, and reverse-engineer CRCs, from Python or over MCP.  Catalogue-driven, execution-verified, self-test embedded.  **Zero runtime dependencies — stdlib only** (an optional bundled C accelerator speeds up runtime computation; everything works without it).
 
 LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator; it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 100 algorithms across nine languages, verified by execution rather than inspection, and every generated file embeds a self-test over four independent reference vectors so you can re-prove it on your own toolchain.
 
@@ -34,7 +34,7 @@ crcglot c crc8 --small                   # smallest C crc8, to stdout
 | **pip**               | `pip install crcglot`     | You don't have `uv`.  Identical package, slower install.                                            |
 | **pipx**              | `pipx install crcglot`    | Same isolation story as `uv tool`, if pipx is what you have.                                        |
 
-Python 3.11+, no other runtime dependencies: `crcglot` itself is pure stdlib.  Per-target toolchains (`gcc`, `rustc`, `tsx`, `iverilog`, etc.) only matter if you want to *run* the generated code; the generator produces source either way.
+Python 3.11+, zero runtime dependencies: `crcglot` imports nothing beyond the standard library.  (The prebuilt wheels bundle an optional C accelerator for runtime CRC computation — see [Fast runtime CRC](#fast-runtime-crc-optional-c-extension) — so the package is not "pure Python" in the packaging sense, but it runs fully, on any platform, without it.)  Per-target toolchains (`gcc`, `rustc`, `tsx`, `iverilog`, etc.) only matter if you want to *run* the generated code; the generator produces source either way.
 
 Or use it from Python code:
 
@@ -61,9 +61,16 @@ Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go /
 
 CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against its **hardcoded** canonical check value (not the catalogue's own `check` field, so a silent regression in the engine can't hide), and the Python generator is run end-to-end (generated, exec'd, and called on `b"123456789"`) against the same hardcoded vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, Java, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `javac`+`java` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain.
 
-Every generated file also ships its own `_self_test()`.  For a catalogue algorithm it now checks **four** fixed inputs — the empty string, `"123456789"`, all 256 byte values, and a 1 KiB pseudo-random pattern — so the byte-table and the high-bit handling get exercised, not just the one short check string.  The two large inputs are regenerated inside the self-test with a byte-at-a-time loop, so the embedded code carries no big array (it stays friendly to flash- and RAM-constrained targets).  Those four reference CRCs are not computed by crcglot — using the engine to grade itself would be circular.  They come from two independent implementations ([anycrc](https://pypi.org/project/anycrc/) and [crccheck](https://pypi.org/project/crccheck/)) that had to agree, anchored to reveng's published value at the check string; both are dev-only tools, so the shipped package stays pure-stdlib.  A custom (non-catalogue) polynomial has no independent reference, so it falls back to a single check value crcglot computed itself — a weaker check that still catches a toolchain mismatch but, unlike a catalogue algorithm, can't catch an error shared by the generator and the generated code.
+Every generated file also ships its own `_self_test()`.  For a catalogue algorithm it now checks **four** fixed inputs — the empty string, `"123456789"`, all 256 byte values, and a 1 KiB pseudo-random pattern — so the byte-table and the high-bit handling get exercised, not just the one short check string.  The two large inputs are regenerated inside the self-test with a byte-at-a-time loop, so the embedded code carries no big array (it stays friendly to flash- and RAM-constrained targets).  Those four reference CRCs are not computed by crcglot — using the engine to grade itself would be circular.  They come from two independent implementations ([anycrc](https://pypi.org/project/anycrc/) and [crccheck](https://pypi.org/project/crccheck/)) that had to agree, anchored to reveng's published value at the check string; both are dev-only tools, so the shipped package keeps its zero-dependency footprint.  A custom (non-catalogue) polynomial has no independent reference, so it falls back to a single check value crcglot computed itself — a weaker check that still catches a toolchain mismatch but, unlike a catalogue algorithm, can't catch an error shared by the generator and the generated code.
 
 **For every target except Python, you should call `_self_test()` once in your build environment**, wired into a unit test, a startup assertion, or your boot self-check.  Our CI proves the generator emits correct code on our reference toolchain; only running `_self_test()` on yours proves your compiler version, optimization flags, target endianness, and integer widths haven't introduced a subtle disagreement.  Python is the exception: the interpreter that ran the CI suite is the one running your code, so the in-environment check would be redundant.
+
+### What the embedded self-test buys you beyond correctness
+
+- **A boot-time integrity check.**  A table-driven CRC carries ~1 KiB of constants in flash, and a corrupted table entry produces silently wrong CRCs forever.  The all-bytes and 1 KiB vectors drive over a thousand lookups through the table, so calling `_self_test()` at startup doubles as a flash-corruption tripwire — not just a build-time sanity check.
+- **A self-evidencing artifact.**  An auditor holding the generated file needs no access to crcglot, its CI, or the internet: the file states its claim ("this is CRC-16/CCITT-FALSE") and carries executable acceptance criteria for it, derived from references crcglot didn't compute.  Years later, when nobody remembers how the file was generated, it still proves itself.
+- **Tamper-evidence for well-meaning edits.**  Any later hand-edit to the algorithm either keeps the self-test passing or visibly deletes the assertions — both auditable events in a diff.  Silent drift becomes loud drift.
+- **A cleaner story for regulated builds.**  Certification frameworks ask whether your code generator is qualified; the standard alternative is independently verified *output*.  Vectors computed by two independent engines, anchored to a published catalogue, embedded as re-runnable assertions next to the implementation, are that evidence — attached to the artifact, not the tool.
 
 ## Documentation comments
 
@@ -175,6 +182,27 @@ crcglot detect --match set a.bin b.bin               # strict: succeed only on a
 
 `--match` selects the strategy: `first` (default; early-stop on the first hit, priority order is `crc32`, `crc32-jamcrc`, `crc32-iscsi`, then the rest of the catalogue), `all` (exhaustive forensic view), `set` (strict singleton: succeed only if exactly one algorithm survives across all packets).  Exit 0 on match, 1 otherwise.  For text packets the inferred separator + hex leader + case are reported so you can reproduce the same format via `crcglot encode`.
 
+When no CRC matches, `detect` (and `reverse`) also report a `checksum_hint` if the trailing field looks like a common **non-CRC** checksum — see `crcglot checksum` below.
+
+### `crcglot checksum [INPUTS...]`
+
+Identify a common **non-CRC** checksum in a packet's trailing field: 8-bit sum / LRC / one's-complement / XOR, 16-bit sum, Internet checksum, Fletcher-16, Fletcher-32, Adler-32.  Identification only — crcglot doesn't generate code for these; the value is knowing your "mystery CRC" isn't a CRC at all before you burn an afternoon on `detect`.
+
+```bash
+crcglot checksum packet.bin                          # binary file (or '-' for stdin)
+crcglot checksum --hex "74656c656d65...4b8806d2"     # hex-encoded packet
+crcglot checksum --text "data 1f2a"                  # text packet
+crcglot checksum --checksums 'fletcher*' a.bin       # narrow the candidates
+crcglot checksum --endian little a.bin b.bin         # fix byte order (default: try both)
+```
+
+```text
+$ crcglot checksum --hex "74656c656d657472792d6672616d652d3030314b8806d2"
+adler32  width=32  endianness=big  frames_agreed=1  (Adler-32)
+```
+
+Confidence scales with `frames_agreed`: one frame is a hint, several corroborating frames are a finding.  Exit 0 on a match, 1 otherwise.
+
 ### `crcglot encode <algorithm> [<data>]`
 
 Build a packet by appending the CRC.  Round-trip partner to `detect`: feed `detect`'s `(algorithm, endianness, padding)` shape back to `encode` to rebuild a packet in the same format.
@@ -194,6 +222,16 @@ crcglot encode crc32-iscsi --binary --little < data.bin         # binary, little
 | `--leader STR` | `""`                         | Text hex leader: `""`, `"0x"`, or `"0X"`.              |
 | `--upper`      | off                          | Uppercase hex digits.                                  |
 | `--fmt STR`    | `"{data}{sep}{leader}{crc}"` | str.format template; the four tokens may be reordered. |
+
+### `crcglot compute <algorithm> [<data>]`
+
+Compute the raw CRC integer of some data — no packet framing, just the value.  The quick check when you have data in one hand and an expected CRC in the other.
+
+```bash
+crcglot compute crc16-modbus "123456789"        # → 0x4B37
+crcglot compute crc32 "123456789" --dec         # decimal instead of hex
+crcglot compute crc64-xz --binary < data.bin    # bytes from stdin
+```
 
 ### `crcglot credits`
 
@@ -254,6 +292,8 @@ The check value for the custom parameters is computed automatically (`generic_cr
 More than 100 algorithms covering everything from CRC-8 (ATM, AUTOSAR, Bluetooth, Maxim 1-Wire) through CRC-16 (Modbus, XMODEM, CCITT, IBM SDLC) through CRC-32 (Ethernet, bzip2, iSCSI, AUTOSAR) to CRC-64 (XZ, ECMA-182, NVMe, Redis), plus the non-byte-aligned families: CAN (CRC-15), CAN FD (CRC-17/21), FlexRay (CRC-11/24), LTE/BLE/OpenPGP (CRC-24), and the GSM/UMTS/CDMA2000 telecom set.  Browse with `crcglot list`.
 
 ## Programmatic API
+
+`import crcglot` loads only the compute core (the engine, the catalogue, and the streaming API — 4 modules in ~30 ms); detection, reverse-engineering, checksum identification, and the nine generators load on first use.  The public surface is identical either way.
 
 Two registries, both keyed by short code:
 
@@ -324,6 +364,24 @@ code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 ## Use with an MCP client (optional)
 
 `crcglot[mcp]` exposes the CLI surface as a [Model Context Protocol](https://modelcontextprotocol.io) server so LLM clients (Claude Desktop, Cursor, mcp-cli, …) can call `crc_detect` / `crc_reverse` / `crc_verify` / `crc_compute` / `crc_generate` etc. as named tools.  The LLM never has to remember a polynomial, slice bytes off a packet to find the CRC, or write a reflection loop; it asks crcglot.  The three packet tools take the same input shape (a frame with the CRC at the tail, either binary hex/base64 or a `data <sep> hexcrc` text line): `crc_detect` names a *known* CRC, `crc_reverse` recovers an *unknown / custom* one, and `crc_verify` checks a frame against a named algorithm.
+
+Why hand an LLM a tool instead of letting it write the CRC itself?  Because the division of labor is exactly right: the model does the judgment (which tool, which parameters, what the result means) and crcglot does the arithmetic — deterministic, catalogue-grounded, execution-verified.  An LLM can converge on correct *generation* of a known algorithm if it has a compiler and the check value to iterate against, but the problems people actually show up with have no value to converge on: "here are six frames from my device and the checksum matches nothing."  Recovering unknown parameters is a search, not a generation task, and a hand-written searcher that's subtly wrong fails silently.  That's the case where a verified tool isn't merely faster — it's the only thing that works.
+
+Here's that case end to end, as a chat session.  Every value below is a real tool output — paste the same frames at a connected client and you get the same answers:
+
+> **You:** I captured these frames from a serial link.  Last two bytes look like a CRC but nothing standard matches: `5057523a31322e3430569771`, `544d503a34382e31433d4d`, `52504d3a303031343530da2e`, `5354413a4f4bea3b`
+>
+> **Claude** *(calls `crc_detect`)*: No catalogue algorithm matches, and it's not a common non-CRC checksum either — this is a custom CRC.  *(calls `crc_reverse`)*  Four frames aren't enough to pin the polynomial: I need a few more captures, ideally including two or more of the **same length** with different content.
+>
+> **You:** Here are six more: `5057523a31322e333856b10d`, `544d503a34382e3343bde8`, `52504d3a303031343438eebc`, `5354413a52554e0492`, `5057523a31322e3431565723`, `4552523a4e4f4e458030`
+>
+> **Claude** *(calls `crc_reverse`)*: Recovered it: **CRC-16, poly 0xA097, init 0x1D0F, refin/refout true, xorout 0**, CRC field 2 bytes little-endian — verified against a held-out frame.  (Three algebraically equivalent init/xorout labellings also reproduce every frame; all predict identical CRCs, so any of them interoperates.)  Want a drop-in implementation?
+>
+> **You:** C, for an STM32.
+>
+> **Claude** *(calls `crc_generate`)*: Here's `vendor_crc.h` / `vendor_crc.c` — table-driven CRC-16 with your recovered parameters and an embedded `vendor_crc_self_test()` you can call at boot.
+
+Four tool calls, no hand-rolled bit arithmetic anywhere, and the artifact carries its own proof.  Note the middle beat: when the data couldn't support an answer, the tool said so and named exactly what was missing — a deterministic "underdetermined" beats a confident guess.
 
 ```bash
 pip install 'crcglot[mcp]'        # the extra ships the MCP SDK
@@ -422,6 +480,13 @@ See [EXAMPLES.md](EXAMPLES.md) for the actual generated source for `crc32` acros
 ## Benchmarks
 
 See [BENCHMARKS.md](BENCHMARKS.md) for measured `crc32` throughput across every (language × variant) cell at 1 KiB and 1 MiB.  Within each language the trend is monotonic (`bit-by-bit < table < slice-by-8`) but the absolute speedup at each step depends heavily on how well the compiler optimizes the baseline: Rust's LLVM-vectorized bit-by-bit nearly ties its table-driven, while C# / Python see a 10×+ jump just from table-driven because their bitwise loops aren't vectorized.  VHDL and Verilog are excluded: they're simulator references for hardware datapaths, not software runtime.
+
+## When to reach for something else
+
+crcglot tries to be the whole toolbox for CRC *problems*, not the best tool for every CRC-adjacent job.  Two honest pointers:
+
+- **Bulk runtime hashing of non-CRC-32 algorithms:** [anycrc](https://pypi.org/project/anycrc/) computes any ≤64-bit CRC via hardware carry-less multiplication at ~10×, crcglot's C-extension throughput on large in-memory buffers.  If your workload is "checksum gigabytes that are already in RAM with crc16," use it.  (For IEEE CRC-32 crcglot already rides the stdlib's hardware path, and for small framed messages its batch API is the faster of the two.  Behind real file I/O the difference mostly disappears — see [BENCHMARKS.md](BENCHMARKS.md).)  crcglot uses anycrc itself, as one of the two independent engines that generate its reference vectors.
+- **Deep reverse-engineering of pathological captures:** [reveng](https://reveng.sourceforge.io/) (the C tool) has decades of accumulated handling for obscure reversal cases.  crcglot's `reverse()` / `crc_reverse` covers the common paths — catalogue identification plus algebraic recovery of custom parameters — but if it comes up empty on a gnarly capture, reveng is the reference instrument, and its catalogue is the source crcglot's own algorithm data derives from.
 
 ## Acknowledgments
 
