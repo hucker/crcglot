@@ -30,7 +30,7 @@ crcglot info crc64-xz
 
 Brute-force identify which catalogue CRC matches a packet whose tail is the CRC.  Useful for reverse-engineering unfamiliar protocols, debugging captured frames, or confirming a sample really uses the CRC you expect.
 
-Discovering the CRC type of a captured packet: this frame is the bytes `123456789` followed by an unknown 2-byte trailer.
+If you have a hex string you can find the CRC type using `detect` with `--hex` (this frame is the bytes `123456789` followed by an unknown 2-byte trailer):
 
 ```text
 $ crcglot detect --hex "31323334353637383931c3"
@@ -111,15 +111,6 @@ Compute the raw CRC integer of some data: no packet framing, just the value.  Th
 crcglot compute crc16-modbus "123456789"        # → 0x4B37
 crcglot compute crc32 "123456789" --dec         # decimal instead of hex
 crcglot compute crc64-xz --binary < data.bin    # bytes from stdin
-```
-
-## 'crcglot detect'
-
-If you have a hex string you can find the CRC type using `detect` with `--hex`:
-
-```text
-> crcglot detect --hex "31323334353637383931c3"
-crc16-xmodem  width=16  endianness=big
 ```
 
 ## `crcglot credits`
