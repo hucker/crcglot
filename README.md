@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-6119%20passed-brightgreen)
+![tests](https://img.shields.io/badge/tests-6161%20passed-brightgreen)
 ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)
 ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen)
 ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
