@@ -46,11 +46,11 @@ crcglot detect --match set a.bin b.bin               # strict: succeed only on a
 
 `--match` selects the strategy: `first` (default; early-stop on the first hit, priority order is `crc32`, `crc32-jamcrc`, `crc32-iscsi`, then the rest of the catalogue), `all` (exhaustive forensic view), `set` (strict singleton: succeed only if exactly one algorithm survives across all packets).  Exit 0 on match, 1 otherwise.  For text packets the inferred separator + hex leader + case are reported so you can reproduce the same format via `crcglot encode`.
 
-When no CRC matches, `detect` (and `reverse`) also report a `trailer_hint` if the trailing field looks like a common **non-CRC** trailer — see `crcglot identify` below.
+When no CRC matches, `detect` (and `reverse`) also report a `trailer_hint` if the trailing field looks like a common **non-CRC** trailer; see `crcglot identify` below.
 
 ## `crcglot identify [INPUTS...]`
 
-Identify a **non-CRC** trailing field in a packet.  Two kinds: simple checksums (8-bit sum / LRC / one's-complement / XOR, 16-bit sum, Internet checksum, Fletcher-16, Fletcher-32, Adler-32) and cryptographic digests (MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2, double SHA-256 — full length, or the common 4/8-byte leading truncations like base58check's `sha256d[:4]`).  Identification only — crcglot doesn't generate code for these (checksums are one-liners; digests live in every stdlib).  The point is information for whoever decides next, human or LLM: "the trailer is an Adler-32" or "found a 32-byte field that's no unkeyed digest, so likely a MAC" redirects the whole investigation in one step.
+Identify a **non-CRC** trailing field in a packet.  Two kinds: simple checksums (8-bit sum / LRC / one's-complement / XOR, 16-bit sum, Internet checksum, Fletcher-16, Fletcher-32, Adler-32) and cryptographic digests (MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2, double SHA-256; full length, or the common 4/8-byte leading truncations like base58check's `sha256d[:4]`).  Identification only: crcglot doesn't generate code for these (checksums are one-liners; digests live in every stdlib).  The point is information for whoever decides next, human or LLM: "the trailer is an Adler-32" or "found a 32-byte field that's no unkeyed digest, so likely a MAC" redirects the whole investigation in one step.
 
 ```bash
 crcglot identify packet.bin                          # binary file (or '-' for stdin)
@@ -73,7 +73,7 @@ Note: found a 32-byte trailing field matching no un-keyed digest; could be a MAC
 (HMAC / CMAC -- keyed, unverifiable without the key) or an uncommon / truncated hash
 ```
 
-Keyed MACs are undetectable by design — that's the third example's answer, and it's still useful: it ends the CRC hunt and names what the field probably is.  Confidence scales with `frames_agreed`: one frame is a hint, several corroborating frames are a finding.  Exit 0 on a match, 1 otherwise.
+Keyed MACs are undetectable by design; that's the third example's answer, and it's still useful: it ends the CRC hunt and names what the field probably is.  Confidence scales with `frames_agreed`: one frame is a hint, several corroborating frames are a finding.  Exit 0 on a match, 1 otherwise.
 
 ## `crcglot encode <algorithm> [<data>]`
 
@@ -97,7 +97,7 @@ crcglot encode crc32-iscsi --binary --little < data.bin         # binary, little
 
 ## `crcglot compute <algorithm> [<data>]`
 
-Compute the raw CRC integer of some data — no packet framing, just the value.  The quick check when you have data in one hand and an expected CRC in the other.
+Compute the raw CRC integer of some data: no packet framing, just the value.  The quick check when you have data in one hand and an expected CRC in the other.
 
 ```bash
 crcglot compute crc16-modbus "123456789"        # → 0x4B37

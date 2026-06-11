@@ -1,10 +1,10 @@
 # Programmatic API
 
 Everything the CLI does is reachable from Python.  `import crcglot` loads only
-the compute core (the engine, the catalogue, and the streaming API — 4 modules
+the compute core (the engine, the catalogue, and the streaming API: 4 modules
 in ~30 ms); detection, reverse-engineering, trailer identification, and the
 nine generators load on first use.  The public surface is identical either
-way, and the package root is the only import surface you need —
+way, and the package root is the only import surface you need:
 `from crcglot import ...` covers all of it.
 
 Two registries, both keyed by short code:
@@ -118,9 +118,9 @@ Two reasons to use the **streaming** API instead of `generic_crc`: **chunked dat
 from crcglot import crc_stream
 
 s = crc_stream("crc32")           # by catalogue name
-for chunk in chunks:              # any chunking — the answer never changes
+for chunk in chunks:              # any chunking; the answer never changes
     s.update(chunk)
-s.digest()        # 0xCBF43926 — an int; non-destructive, call it again
+s.digest()        # 0xCBF43926 (an int; non-destructive, call it again)
 s.hexdigest()     # 'cbf43926'
 ```
 

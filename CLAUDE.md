@@ -150,12 +150,24 @@ refactor, the Go toolchain detection).
 ## Humanizing end-user prose
 
 Always run `/humanizer` over the **end-user-facing** markdown after editing it —
-`README.md`, `ARCHITECTURE.md`, `BENCHMARKS.md`, `CHANGELOG.md` (not
-`EXAMPLES.md`, which is generated).  These files are read by people evaluating
-the package, and AI tells (em-dash pile-ups, "it's not just X, it's Y"
-constructions, overlong hedged sentences) read as machine-written.  Humanize
-*after* the substantive edits land, so a later content change doesn't reintroduce
-the tells.  Code comments / docstrings are exempt; this is about prose docs.
+`README.md`, the `docs/` files, `ARCHITECTURE.md`, `BENCHMARKS.md`,
+`CHANGELOG.md` (not `EXAMPLES.md`, which is generated).  These files are read
+by people evaluating the package, and AI tells (em-dash pile-ups, "it's not
+just X, it's Y" constructions, overlong hedged sentences) read as
+machine-written.  Humanize *after* the substantive edits land, so a later
+content change doesn't reintroduce the tells.  Code comments / docstrings are
+exempt; this is about prose docs.
+
+Two crutches this project has specifically overused — grep for them on every
+prose pass:
+
+- **"honest" / "honestly".**  Don't advertise candor; state the limitation
+  and let it speak.  "Performance, stated honestly:" becomes "Performance:".
+  "An honest pointer" is just a pointer.  If a sentence stops working without
+  the word, the sentence was padding.
+- **Em dashes.**  One per paragraph is plenty; zero is fine.  Most of ours
+  convert cleanly to a comma, a colon, a period, or parentheses.  List-item
+  separators (`- **Thing** — description`) should use a colon instead.
 
 ## Cruft audit (every release, minimum)
 
