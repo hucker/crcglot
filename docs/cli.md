@@ -2,18 +2,23 @@
 
 Every crcglot capability is a subcommand of the form `crcglot <command> [options...]`:
 
-| Command | What it does |
-| ------- | ------------ |
-| [`list`](#crcglot-list-glob---json) | Browse the catalogue (more than 100 algorithms) |
-| [`info`](#crcglot-info-name) | Full parameters for one algorithm |
-| [`detect`](#crcglot-detect-inputs) | Name the catalogue CRC ending a packet |
-| [`identify`](#crcglot-identify-inputs) | Name a non-CRC trailer (checksum or digest) |
-| [`reverse`](#crcglot-reverse-inputs) | Recover the parameters of an unknown / custom CRC |
-| [`verify`](#crcglot-verify-algorithm-inputs) | Check a frame's trailing CRC against a named algorithm |
-| [`encode`](#crcglot-encode-algorithm-data) | Build a packet by appending the CRC |
-| [`compute`](#crcglot-compute-algorithm-data) | The raw CRC integer of some data |
-| [`credits`](#crcglot-credits) | Acknowledgments for the work crcglot builds on |
-| [`c` / `rust` / `go` / `csharp` / `java` / `python` / `typescript` / `verilog` / `vhdl`](#crcglot-c--csharp--go--java--python--rust--typescript--verilog--vhdl-algorithm-algorithm-options-tokens) | Generate verified source for that language |
+One toolkit, three surfaces.  Every capability has the same name and shape on the CLI, over MCP, and in Python; the same table opens [docs/cli.md](cli.md), [docs/MCP.md](MCP.md), and [docs/api.md](api.md).
+
+| Capability | CLI | MCP tool | Python |
+| ---------- | --- | -------- | ------ |
+| Browse the catalogue | [`list`](#crcglot-list-glob---json) | `crc_list` | `ALGORITHMS` |
+| Algorithm parameters | [`info`](#crcglot-info-name) | `crc_info` | `ALGORITHMS[name]` |
+| Detect a known CRC | [`detect`](#crcglot-detect-inputs) | `crc_detect` | `detect()` |
+| Identify a non-CRC trailer | [`identify`](#crcglot-identify-inputs) | `crc_identify_trailer` | `identify_trailer()` |
+| Reverse an unknown CRC | [`reverse`](#crcglot-reverse-inputs) | `crc_reverse` | `reverse_packets()` |
+| Verify a frame | [`verify`](#crcglot-verify-algorithm-inputs) | `crc_verify` | `verify()` |
+| Compute a CRC | [`compute`](#crcglot-compute-algorithm-data) | `crc_compute` | `compute()` |
+| Batch compute | — | `crc_compute_many` | `generic_crc_many()` |
+| Build a packet | [`encode`](#crcglot-encode-algorithm-data) | `crc_encode` | `encode()` |
+| Stream chunked data | — | — | `crc_stream()` |
+| Generate verified code | [`c`](#crcglot-c--csharp--go--java--python--rust--typescript--verilog--vhdl-algorithm-algorithm-options-tokens) / `rust` / … | `crc_generate` | `generate_c()` … / `LANGUAGES` |
+| Custom polynomial | `--custom` tokens | `custom_params` | `custom_algorithm()` |
+| Credits | [`credits`](#crcglot-credits) | `crc_credits` | `ATTRIBUTION` |
 
 The generation subcommands are named after their target language (`crcglot c crc32`, `crcglot rust crc16-modbus`, …); everything else is a verb.  Exit codes are uniform: `0` on success/match, `1` on no-match/unknown name, `2` on invalid invocation.
 

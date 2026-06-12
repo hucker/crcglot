@@ -264,6 +264,7 @@ when we broke them — honor them when touching public API.
   `docs/` (one file per section: `cli.md`, `api.md`, `generated-code.md`,
   `MCP.md`, indexed by `docs/index.md`).  Keep it that way -- new reference
   detail goes in a docs/ file, with at most a summary row/teaser in README.
+- The **capability matrix** (Capability | CLI | MCP tool | Python) opens docs/cli.md, docs/MCP.md, and docs/api.md and must stay row-identical across the three.  When a capability is added or renamed on any surface, update all three tables in the same commit.
 - Update the badge counts at the top if test count or coverage % changed
 - Update the "what you get per language" table if the API changed
 - Update **docs/cli.md** (and the README "CLI at a glance" table row) if the

@@ -47,19 +47,23 @@ uv tool run --from mcp mcp-cli \
 
 ## Tools
 
-| Tool | What it does |
-| ---- | ------------ |
-| `crc_list` | Browse the catalogue, optionally filtered by glob |
-| `crc_info` | Full parameters for one algorithm |
-| `crc_detect` | Name the catalogue CRC ending a packet |
-| `crc_reverse` | Recover the parameters of an unknown / custom CRC from captured packets |
-| `crc_identify_trailer` | Name a non-CRC trailer: checksum or digest, with a MAC heads-up |
-| `crc_verify` | Check a frame's trailing CRC against a named (or custom) algorithm |
-| `crc_encode` | Build a packet by appending the CRC |
-| `crc_compute` | The raw CRC integer of one message |
-| `crc_compute_many` | CRC a whole batch of messages in one call |
-| `crc_generate` | Emit verified source code for a language |
-| `crc_credits` | Acknowledgments for the work crcglot builds on |
+One toolkit, three surfaces.  Every capability has the same name and shape on the CLI, over MCP, and in Python; the same table opens [docs/cli.md](cli.md), [docs/MCP.md](MCP.md), and [docs/api.md](api.md).
+
+| Capability | CLI | MCP tool | Python |
+| ---------- | --- | -------- | ------ |
+| Browse the catalogue | `list` | `crc_list` | `ALGORITHMS` |
+| Algorithm parameters | `info` | `crc_info` | `ALGORITHMS[name]` |
+| Detect a known CRC | `detect` | `crc_detect` | `detect()` |
+| Identify a non-CRC trailer | `identify` | `crc_identify_trailer` | `identify_trailer()` |
+| Reverse an unknown CRC | `reverse` | `crc_reverse` | `reverse_packets()` |
+| Verify a frame | `verify` | `crc_verify` | `verify()` |
+| Compute a CRC | `compute` | `crc_compute` | `compute()` |
+| Batch compute | — | `crc_compute_many` | `generic_crc_many()` |
+| Build a packet | `encode` | `crc_encode` | `encode()` |
+| Stream chunked data | — | — | `crc_stream()` |
+| Generate verified code | `c` / `rust` / … | `crc_generate` | `generate_c()` … / `LANGUAGES` |
+| Custom polynomial | `--custom` tokens | `custom_params` | `custom_algorithm()` |
+| Credits | `credits` | `crc_credits` | `ATTRIBUTION` |
 
 Resources: `crcglot://catalogue.json`, `crcglot://languages.json`, `crcglot://variants.json`.  One prompt, `design-a-crc`.  Details for each tool follow.
 

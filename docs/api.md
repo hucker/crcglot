@@ -2,6 +2,24 @@
 
 Everything the CLI does is reachable from Python.  `import crcglot` loads only the compute core (the engine, the catalogue, and the streaming API: 4 modules in ~30 ms); detection, reverse-engineering, trailer identification, and the nine generators load on first use.  The public surface is identical either way, and the package root is the only import surface you need: `from crcglot import ...` covers all of it.
 
+One toolkit, three surfaces.  Every capability has the same name and shape on the CLI, over MCP, and in Python; the same table opens [docs/cli.md](cli.md), [docs/MCP.md](MCP.md), and [docs/api.md](api.md).
+
+| Capability | CLI | MCP tool | Python |
+| ---------- | --- | -------- | ------ |
+| Browse the catalogue | `list` | `crc_list` | `ALGORITHMS` |
+| Algorithm parameters | `info` | `crc_info` | `ALGORITHMS[name]` |
+| Detect a known CRC | `detect` | `crc_detect` | `detect()` |
+| Identify a non-CRC trailer | `identify` | `crc_identify_trailer` | `identify_trailer()` |
+| Reverse an unknown CRC | `reverse` | `crc_reverse` | `reverse_packets()` |
+| Verify a frame | `verify` | `crc_verify` | `verify()` |
+| Compute a CRC | `compute` | `crc_compute` | `compute()` |
+| Batch compute | — | `crc_compute_many` | `generic_crc_many()` |
+| Build a packet | `encode` | `crc_encode` | `encode()` |
+| Stream chunked data | — | — | `crc_stream()` |
+| Generate verified code | `c` / `rust` / … | `crc_generate` | `generate_c()` … / `LANGUAGES` |
+| Custom polynomial | `--custom` tokens | `custom_params` | `custom_algorithm()` |
+| Credits | `credits` | `crc_credits` | `ATTRIBUTION` |
+
 Two registries, both keyed by short code:
 
 ## `LANGUAGES`: supported target languages
