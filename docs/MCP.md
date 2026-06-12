@@ -47,6 +47,22 @@ uv tool run --from mcp mcp-cli \
 
 ## Tools
 
+| Tool | What it does |
+| ---- | ------------ |
+| `crc_list` | Browse the catalogue, optionally filtered by glob |
+| `crc_info` | Full parameters for one algorithm |
+| `crc_detect` | Name the catalogue CRC ending a packet |
+| `crc_reverse` | Recover the parameters of an unknown / custom CRC from captured packets |
+| `crc_identify_trailer` | Name a non-CRC trailer: checksum or digest, with a MAC heads-up |
+| `crc_verify` | Check a frame's trailing CRC against a named (or custom) algorithm |
+| `crc_encode` | Build a packet by appending the CRC |
+| `crc_compute` | The raw CRC integer of one message |
+| `crc_compute_many` | CRC a whole batch of messages in one call |
+| `crc_generate` | Emit verified source code for a language |
+| `crc_credits` | Acknowledgments for the work crcglot builds on |
+
+Resources: `crcglot://catalogue.json`, `crcglot://languages.json`, `crcglot://variants.json`.  One prompt, `design-a-crc`.  Details for each tool follow.
+
 Most tools map to a `crcglot` CLI subcommand (`crc_reverse` and `crc_verify` are MCP-only).  Every tool is annotated **read-only / idempotent** (`readOnlyHint`, `idempotentHint`, `destructiveHint=false`, `openWorldHint=false`): they only list / compute / generate, never mutate state or touch the network, so clients can auto-approve them without prompting per call.
 
 The three **packet tools** (`crc_detect`, `crc_reverse`, `crc_verify`) all take the same input shape (a whole frame with the CRC as the trailing field), so an agent learns one convention: `crc_detect` names a *known* CRC, `crc_reverse` recovers an *unknown* one, `crc_verify` checks a frame against a named algorithm.  `crc_encode` is the inverse of `crc_verify` (it builds the frame `crc_verify` checks).
