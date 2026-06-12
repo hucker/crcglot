@@ -66,6 +66,23 @@ project stays clean across all checkers:
 - Non-trivial: use `actual` / `expected` variables
 - Multiple checks: `actual_x == expected_x` pattern
 
+## Test documentation: two questions every test serves
+
+The conventions exist to make two questions cheap to answer: **"how was this feature tested?"** (find the tests from a feature) and **"what is this test testing?"** (understand a test you have landed in).
+
+Finding (feature -> tests):
+
+- Tests live in the file named for their surface (`test_cli.py`, `test_trailers.py`, `test_<lang>_gen.py`).  A feature's tests are in the file named after where the feature lives, not scattered.
+- Test and class names use the feature's **public vocabulary**: the same words the API and docs use (`identify_trailer`, `goldens`, `self_test`).  When a feature is renamed, rename its tests and their vocabulary in the same commit; the contract is that grepping tests/ for the public name lands in the right place.
+- Parametrize with meaningful `ids=` (algorithm / variant / input names), so `uv run pytest --collect-only -k <feature>` reads as an inventory of what is covered.
+
+Understanding (test -> meaning):
+
+- The function name states **one claim**, readable as a sentence (`test_one_breaking_frame_drops_the_candidate`).  It is the only documentation pytest shows at collection and in the failure header, so it carries the spec.
+- The **class docstring** carries the shared story: why the group exists, where its inputs and oracles come from.  Nearly every test class has one; keep it that way.
+- AAA comments give the structure; **assert messages give the failure diagnosis** (which check inside the test diverged, with values).
+- A function docstring is added only when the why is not derivable from the name: a regression test citing the original bug, a magic constant that needs justifying, a non-obvious input shape.  Never write one that restates the name.
+
 ## Execution tests: batch (default) vs `exhaustive` (opt-in)
 
 The slow tier *executes* generated code (compiles + runs it through gcc /
