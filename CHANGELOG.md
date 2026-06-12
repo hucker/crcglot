@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.20.0 — 2026-06-12
+
+The toolkit grows in capability and discipline at once.  The non-CRC identifier learns cryptographic digests and gets a name that fits (`identify_trailer`, breaking).  The three user surfaces (CLI, MCP, Python) now speak the same verbs, with `reverse` and `verify` joining the CLI and `compute()` / `custom_algorithm()` joining the Python API.  Generated C and Verilog adopt MISRA- and lint-discipline emission.  `import crcglot` loads only the compute core.  The README shrinks to an overview backed by a docs/ reference, including a certification page written without overselling.  crcglot still has a single consumer, so the breaking changes ship without a deprecation cycle.
 
 ### Changed: generated Verilog uses lint-discipline conditionals
 
