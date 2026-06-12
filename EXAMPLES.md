@@ -181,7 +181,7 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 256; i++) {
+        for (unsigned int i = 0U; i < 256U; i++) {
             uint8_t b = (uint8_t)i;
             s = crc32_update(s, &b, 1);
         }
@@ -191,8 +191,8 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 1024; i++) {
-            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFFU);
+        for (unsigned int i = 0U; i < 1024U; i++) {
+            uint8_t b = (uint8_t)(((i * 167U) + 13U) & 0xFFU);
             s = crc32_update(s, &b, 1);
         }
         if (crc32_finalize(s) != 0x6D4552DBU) {
@@ -390,7 +390,7 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 256; i++) {
+        for (unsigned int i = 0U; i < 256U; i++) {
             uint8_t b = (uint8_t)i;
             s = crc32_update(s, &b, 1);
         }
@@ -400,8 +400,8 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 1024; i++) {
-            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFFU);
+        for (unsigned int i = 0U; i < 1024U; i++) {
+            uint8_t b = (uint8_t)(((i * 167U) + 13U) & 0xFFU);
             s = crc32_update(s, &b, 1);
         }
         if (crc32_finalize(s) != 0x6D4552DBU) {
@@ -852,7 +852,7 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 256; i++) {
+        for (unsigned int i = 0U; i < 256U; i++) {
             uint8_t b = (uint8_t)i;
             s = crc32_update(s, &b, 1);
         }
@@ -862,8 +862,8 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 1024; i++) {
-            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFFU);
+        for (unsigned int i = 0U; i < 1024U; i++) {
+            uint8_t b = (uint8_t)(((i * 167U) + 13U) & 0xFFU);
             s = crc32_update(s, &b, 1);
         }
         if (crc32_finalize(s) != 0x6D4552DBU) {
@@ -4857,7 +4857,7 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 256; i++) {
+        for (unsigned int i = 0U; i < 256U; i++) {
             uint8_t b = (uint8_t)i;
             s = crc32_update(s, &b, 1);
         }
@@ -4867,8 +4867,8 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 1024; i++) {
-            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFFU);
+        for (unsigned int i = 0U; i < 1024U; i++) {
+            uint8_t b = (uint8_t)(((i * 167U) + 13U) & 0xFFU);
             s = crc32_update(s, &b, 1);
         }
         if (crc32_finalize(s) != 0x6D4552DBU) {
@@ -5033,7 +5033,7 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 256; i++) {
+        for (unsigned int i = 0U; i < 256U; i++) {
             uint8_t b = (uint8_t)i;
             s = crc32_update(s, &b, 1);
         }
@@ -5043,8 +5043,8 @@ int crc32_self_test(void) {
     }
     {
         uint32_t s = crc32_init();
-        for (int i = 0; i < 1024; i++) {
-            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFFU);
+        for (unsigned int i = 0U; i < 1024U; i++) {
+            uint8_t b = (uint8_t)(((i * 167U) + 13U) & 0xFFU);
             s = crc32_update(s, &b, 1);
         }
         if (crc32_finalize(s) != 0x6D4552DBU) {
