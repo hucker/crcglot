@@ -2,6 +2,8 @@
 
 Read this first: **crcglot is not a qualified tool, and its output is not pre-certified.**  Nothing on this page substitutes for your process, your records, or your certification authority's judgment.  What crcglot does is put the pieces your process needs in front of you, in a shape designed to make the work you must do anyway as small as possible.  The claim is "verification-ready inputs," never "certified output."
 
+crcglot is free software under the MIT License, which disclaims all warranties and liability (see [LICENSE](../LICENSE)).  Nothing it generates is certified for, or warranted suitable for, any safety-of-life application.  If you put its output into a system that can hurt someone, the verification that makes that safe, and the responsibility for having done it, are entirely yours.
+
 ## The pieces you get
 
 **The requirement, written down and traceable.**  Every generated file's header carries the full Rocksoft/Williams parameter set (width, poly, init, refin, refout, xorout, check).  For catalogue algorithms those parameters trace to the published [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm), a public reference that is independent of both crcglot and your project.  For most processes this is the low-level requirement and its trace, ready to cite.
