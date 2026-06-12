@@ -1,6 +1,6 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-6537%20passed-brightgreen) ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-6552%20passed-brightgreen) ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
 **A multi-language CRC toolkit.**  Generate verified code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.  Compute, detect, and reverse-engineer CRCs, from Python or over MCP.  Catalogue-driven, execution-verified, self-test embedded.  **Zero runtime dependencies: stdlib only** (an optional bundled C accelerator speeds up runtime computation; everything works without it).
 
@@ -111,6 +111,8 @@ Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_identif
 | `crcglot info <name>`          | Full Rocksoft/Williams parameters for one algorithm                                                                                                               |
 | `crcglot detect`               | Name the catalogue CRC ending a packet (file, hex, or text)                                                                                                       |
 | `crcglot identify`             | Name a **non-CRC** trailer: checksum (sum/LRC/XOR/Fletcher/Adler) or digest (MD5/SHA/BLAKE2, full or truncated); notes a likely MAC when nothing matches |
+| `crcglot reverse`              | Recover the parameters of an unknown / custom CRC; prints ready-to-paste `--custom` tokens                                                                       |
+| `crcglot verify`               | Check a frame's trailing CRC against a named algorithm                                                                                                            |
 | `crcglot encode`               | Build a packet by appending the CRC (round-trip partner to `detect`)                                                                                              |
 | `crcglot compute`              | The raw CRC integer of some data                                                                                                                                  |
 | `crcglot c \| rust \| go \| …` | Generate verified source for that language (`--fast` default, `--small`, `--custom`, bundling, `--comment`, `--naming`)                                           |

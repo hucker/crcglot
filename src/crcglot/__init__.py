@@ -69,6 +69,7 @@ from crcglot.catalogue import (
     AlgorithmInfo,
     Crc,
     _reflect,
+    custom_algorithm,
     generic_crc,
     generic_crc_many,
     has_faster_alternative,
@@ -89,6 +90,7 @@ if TYPE_CHECKING:
     )
     from crcglot._encode import (
         VerifyResult,
+        compute,
         encode,
         encode_int,
         encode_match,
@@ -155,6 +157,7 @@ def _lazy_map() -> dict[str, str]:
         ),
         "crcglot._encode": (
             "VerifyResult",
+            "compute",
             "encode",
             "encode_int",
             "encode_match",
@@ -275,6 +278,8 @@ __all__ = [
     "detect_iter",
     "identify_trailer",
     "trailer_info",
+    "compute",
+    "custom_algorithm",
     "encode",
     "encode_int",
     "encode_match",

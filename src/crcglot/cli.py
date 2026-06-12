@@ -24,17 +24,16 @@ import sys
 from pathlib import Path
 
 from crcglot import (
-    Crc,
     ALGORITHMS,
     ATTRIBUTION,
     LANGUAGES,
     NAMING_ORDER,
     AlgorithmInfo,
+    custom_algorithm,
     detect,
     encode,
     encode_int,
     encode_text,
-    generic_crc,
 )
 from crcglot.comments import styles_for_language
 
@@ -310,6 +309,133 @@ def _cmd_detect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _custom_tokens(c) -> str:
+    """Render an AlgorithmInfo's parameters as ``--custom``-ready tokens."""
+    def b(v: bool) -> str:
+        return "true" if v else "false"
+    return (
+        f"width={c.width} poly=0x{c.poly:X} init=0x{c.init:X} "
+        f"refin={b(c.refin)} refout={b(c.refout)} xorout=0x{c.xorout:X}"
+    )
+
+
+def _cmd_reverse(args: argparse.Namespace) -> int:
+    """Run the ``crcglot reverse`` subcommand.
+
+    Recovers the parameters of an unknown / custom CRC from whole captured
+    frames (the CLI face of :func:`crcglot.reverse_packets`).  Tries the
+    catalogue first; unless ``--std-only`` is given, automatically escalates
+    to algebraic recovery of a custom polynomial.  Recovered candidates are
+    printed as ready-to-paste ``--custom`` tokens, so the loop closes into
+    ``crcglot c --custom ... file=mycrc``.
+
+    Args:
+        args: Parsed argparse namespace for the ``reverse`` subparser.
+
+    Returns:
+        ``0`` when a catalogue algorithm matched or parameters were
+        recovered, ``1`` when underdetermined / no recovery, ``2`` on
+        invalid input.
+    """
+    if args.text is not None:
+        frames: list[str] | list[bytes] = _read_text_packets(args.text)
+    elif args.hex:
+        try:
+            frames = [bytes.fromhex(h) for h in args.hex]
+        except ValueError as e:
+            print(f"Error: invalid hex string: {e}", file=sys.stderr)
+            return 2
+    else:
+        try:
+            frames = _read_binary_packets(args.inputs)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+
+    from crcglot import reverse_packets
+
+    result = reverse_packets(
+        frames, crc_bytes=args.crc_bytes, crc_byte_order=args.byte_order,
+        encoding=args.encoding, std_algo_only=True,
+    )
+    if not result and not args.std_only:
+        result = reverse_packets(
+            frames, crc_bytes=args.crc_bytes, crc_byte_order=args.byte_order,
+            encoding=args.encoding, std_algo_only=False,
+        )
+
+    if not result:
+        print(f"No recovery: {result.note}", file=sys.stderr)
+        if result.trailer_hint is not None:
+            print("Possible non-CRC trailer (heads-up):", file=sys.stderr)
+            for line in _format_trailer_lines(result.trailer_hint):
+                print(f"  {line}", file=sys.stderr)
+        return 1
+
+    print(
+        f"status={result.status}  candidates={len(result.candidates)}"
+        f"  validated_frames={result.validated_frames}"
+    )
+    if result.status == "catalogue":
+        print(result.catalogue_name)
+    for c in result.candidates:
+        print(f"--custom {_custom_tokens(c)}")
+    if result.note:
+        print(f"note: {result.note}")
+    return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    """Run the ``crcglot verify`` subcommand.
+
+    Checks each frame's trailing CRC against a named algorithm (the CLI face
+    of :func:`crcglot.verify`).  Prints one VALID / INVALID line per frame
+    with the expected and actual values, so a bad frame shows *how* it is
+    wrong.
+
+    Args:
+        args: Parsed argparse namespace for the ``verify`` subparser.
+
+    Returns:
+        ``0`` when every frame is valid, ``1`` when any is not, ``2`` on
+        invalid input or unknown algorithm.
+    """
+    if args.text is not None:
+        packets: list[str] | list[bytes] = _read_text_packets(args.text)
+    elif args.hex is not None:
+        try:
+            packets = [bytes.fromhex(args.hex)]
+        except ValueError as e:
+            print(f"Error: invalid hex string: {e}", file=sys.stderr)
+            return 2
+    else:
+        try:
+            packets = _read_binary_packets(args.inputs)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+
+    from crcglot import verify
+
+    endianness = "little" if args.little else "big"
+    all_valid = True
+    for pkt in packets:
+        try:
+            r = verify(pkt, args.algorithm, endianness=endianness,
+                       encoding=args.encoding)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+        hexw = (r.width + 3) // 4
+        status = "VALID" if r.valid else "INVALID"
+        print(
+            f"{status}  {args.algorithm}  expected=0x{r.expected:0{hexw}X}"
+            f"  actual=0x{r.actual:0{hexw}X}"
+        )
+        all_valid = all_valid and r.valid
+    return 0 if all_valid else 1
+
+
 def _cmd_encode(args: argparse.Namespace) -> int:
     """Run the ``crcglot encode`` subcommand.
 
@@ -538,23 +664,9 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
                 file=sys.stderr,
             )
             return 2
-        check = generic_crc(
-            b"123456789", Crc(width, poly, init, refin, refout, xorout)
-        )
-        desc = kv.get("desc") or (
-            f"Custom CRC-{width} (poly=0x{poly:X}, init=0x{init:X}, "
-            f"refin={refin}, refout={refout}, xorout=0x{xorout:X})"
-        )
-        gen_custom = AlgorithmInfo(
-            width=width,
-            poly=poly,
-            init=init,
-            refin=refin,
-            refout=refout,
-            xorout=xorout,
-            check=check,
-            desc=desc,
-            source="custom",
+        gen_custom = custom_algorithm(
+            width=width, poly=poly, init=init, refin=refin, refout=refout,
+            xorout=xorout, desc=kv.get("desc", ""),
         )
         advised_algos: list[str | AlgorithmInfo] = [gen_custom]
     else:
@@ -690,6 +802,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Encoding for text-mode data portion (default: utf-8)",
     )
 
+    # crcglot reverse [packet.bin ...] [--text TEXT|--hex FRAME ...]
+    p_rev = subs.add_parser(
+        "reverse",
+        help="Recover the parameters of an unknown / custom CRC from "
+             "captured packets",
+    )
+    p_rev.add_argument(
+        "inputs", nargs="*",
+        help="Binary packet files (or '-' for stdin); ignored with "
+             "--text/--hex",
+    )
+    p_rev.add_argument(
+        "--text", metavar="TEXT",
+        help="Text packets ('data <sep> hex'; '-' reads one per line "
+             "on stdin)",
+    )
+    p_rev.add_argument(
+        "--hex", metavar="FRAME", action="append",
+        help="Hex-encoded binary frame; repeat the flag for several frames",
+    )
+    p_rev.add_argument(
+        "--crc-bytes", type=int, default=None, metavar="N",
+        help="Trailing CRC field size in bytes (default: auto-detect)",
+    )
+    p_rev.add_argument(
+        "--byte-order", choices=["big", "little", "both"], default="both",
+        help="Byte order of the CRC field (default: both)",
+    )
+    p_rev.add_argument(
+        "--std-only", action="store_true",
+        help="Only match catalogue algorithms; skip the automatic "
+             "escalation to algebraic recovery of a custom polynomial",
+    )
+    p_rev.add_argument(
+        "--encoding", default="utf-8",
+        help="Encoding for text-mode data portion (default: utf-8)",
+    )
+
     # crcglot identify [packet.bin ...] [--text TEXT|--hex HEX]
     p_cksum = subs.add_parser(
         "identify",
@@ -758,6 +908,33 @@ def build_parser() -> argparse.ArgumentParser:
     p_encode.add_argument(
         "--encoding", default="utf-8",
         help="Encoding for text-mode data (default: utf-8)",
+    )
+
+    # crcglot verify <algorithm> [packet.bin ...] [--text TEXT|--hex HEX]
+    p_ver = subs.add_parser(
+        "verify",
+        help="Check a frame's trailing CRC against a named algorithm",
+    )
+    p_ver.add_argument("algorithm", help="Catalogue name (e.g. crc32)")
+    p_ver.add_argument(
+        "inputs", nargs="*",
+        help="Binary packet files (or '-' for stdin); ignored with "
+             "--text/--hex",
+    )
+    p_ver.add_argument(
+        "--text", metavar="TEXT",
+        help="Text packet ('data <sep> hex', or '-' for stdin)",
+    )
+    p_ver.add_argument(
+        "--hex", metavar="HEX", help="Binary packet supplied as a hex string",
+    )
+    p_ver.add_argument(
+        "--little", action="store_true",
+        help="Little-endian CRC field byte order (default: big)",
+    )
+    p_ver.add_argument(
+        "--encoding", default="utf-8",
+        help="Encoding for text-mode data portion (default: utf-8)",
     )
 
     # crcglot compute <algorithm> [<data>] [--binary] [--hex|--dec] [--encoding]
@@ -894,6 +1071,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_list(args)
     if args.command == "info":
         return _cmd_info(args)
+    if args.command == "reverse":
+        return _cmd_reverse(args)
+    if args.command == "verify":
+        return _cmd_verify(args)
     if args.command == "detect":
         return _cmd_detect(args)
     if args.command == "identify":

@@ -63,7 +63,7 @@ uv tool run --from mcp mcp-cli \
 
 Resources: `crcglot://catalogue.json`, `crcglot://languages.json`, `crcglot://variants.json`.  One prompt, `design-a-crc`.  Details for each tool follow.
 
-Most tools map to a `crcglot` CLI subcommand (`crc_reverse` and `crc_verify` are MCP-only).  Every tool is annotated **read-only / idempotent** (`readOnlyHint`, `idempotentHint`, `destructiveHint=false`, `openWorldHint=false`): they only list / compute / generate, never mutate state or touch the network, so clients can auto-approve them without prompting per call.
+Each tool maps to the `crcglot` CLI subcommand of the same name (minus the `crc_` prefix); `crc_compute_many` is the one MCP-only batch form.  Every tool is annotated **read-only / idempotent** (`readOnlyHint`, `idempotentHint`, `destructiveHint=false`, `openWorldHint=false`): they only list / compute / generate, never mutate state or touch the network, so clients can auto-approve them without prompting per call.
 
 The three **packet tools** (`crc_detect`, `crc_reverse`, `crc_verify`) all take the same input shape (a whole frame with the CRC as the trailing field), so an agent learns one convention: `crc_detect` names a *known* CRC, `crc_reverse` recovers an *unknown* one, `crc_verify` checks a frame against a named algorithm.  `crc_encode` is the inverse of `crc_verify` (it builds the frame `crc_verify` checks).
 

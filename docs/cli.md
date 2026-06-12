@@ -8,6 +8,8 @@ Every crcglot capability is a subcommand of the form `crcglot <command> [options
 | [`info`](#crcglot-info-name) | Full parameters for one algorithm |
 | [`detect`](#crcglot-detect-inputs) | Name the catalogue CRC ending a packet |
 | [`identify`](#crcglot-identify-inputs) | Name a non-CRC trailer (checksum or digest) |
+| [`reverse`](#crcglot-reverse-inputs) | Recover the parameters of an unknown / custom CRC |
+| [`verify`](#crcglot-verify-algorithm-inputs) | Check a frame's trailing CRC against a named algorithm |
 | [`encode`](#crcglot-encode-algorithm-data) | Build a packet by appending the CRC |
 | [`compute`](#crcglot-compute-algorithm-data) | The raw CRC integer of some data |
 | [`credits`](#crcglot-credits) | Acknowledgments for the work crcglot builds on |
@@ -67,6 +69,32 @@ crcglot detect --match set a.bin b.bin               # strict: succeed only on a
 
 When no CRC matches, `detect` (and `reverse`) also report a `trailer_hint` if the trailing field looks like a common **non-CRC** trailer; see `crcglot identify` below.
 
+## `crcglot reverse [INPUTS...]`
+
+Recover the parameters of an **unknown / custom** CRC from whole captured frames: the recovery counterpart to `detect`, for when the CRC is not any known algorithm.  Takes the same frame shapes as `detect`; supply several varied frames, including at least two of the **same length** with different content (their difference pins the polynomial) plus other lengths (separating `init` from `xorout`).  The catalogue is tried first; when nothing matches, it automatically escalates to algebraic recovery (suppress with `--std-only`).
+
+Recovered candidates print as ready-to-paste `--custom` tokens, so the loop closes straight into generation:
+
+```text
+$ crcglot reverse --hex 5057523a31322e3430569771 --hex 544d503a34382e31433d4d                   --hex 52504d3a303031343530da2e --hex 5354413a4f4bea3b                   --hex 5057523a31322e333856b10d --hex 544d503a34382e3343bde8
+status=equivalent  candidates=4  validated_frames=0
+--custom width=16 poly=0xA097 init=0x1D0F refin=true refout=true xorout=0x0
+...
+note: 4 (init, xorout) labellings reproduce all codewords identically ...  [CRC field: 2 byte(s), little-endian]
+
+$ crcglot c --custom width=16 poly=0xA097 init=0x1D0F refin=true refout=true xorout=0x0 file=vendor_crc
+```
+
+| Option | Default | Effect |
+| ------ | ------- | ------ |
+| `--hex FRAME` | | One hex-encoded frame; repeat the flag for several. |
+| `--text TEXT` | | Text frames (`data <sep> hex`; `-` reads one per line on stdin). |
+| `--crc-bytes N` | auto | Trailing CRC field size in bytes. |
+| `--byte-order` | `both` | CRC field byte order: `big`, `little`, or `both`. |
+| `--std-only` | off | Catalogue match only; no algebraic recovery. |
+
+Exit 0 when a catalogue algorithm matched or parameters were recovered (statuses `catalogue` / `unique` / `equivalent`; an `equivalent` result lists every (init, xorout) labelling, all of which produce identical CRCs).  Exit 1 when underdetermined or nothing fits; the guidance on stderr says what additional captures would help.
+
 ## `crcglot identify [INPUTS...]`
 
 Identify a **non-CRC** trailing field in a packet.  Two kinds: simple checksums (8-bit sum / LRC / one's-complement / XOR, 16-bit sum, Internet checksum, Fletcher-16, Fletcher-32, Adler-32) and cryptographic digests (MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2, double SHA-256; full length, or the common 4/8-byte leading truncations like base58check's `sha256d[:4]`).  Identification only: crcglot doesn't generate code for these (checksums are one-liners; digests live in every stdlib).  The point is information for whoever decides next, human or LLM: "the trailer is an Adler-32" or "found a 32-byte field that's no unkeyed digest, so likely a MAC" redirects the whole investigation in one step.
@@ -113,6 +141,20 @@ crcglot encode crc32-iscsi --binary --little < data.bin         # binary, little
 | `--leader STR` | `""`                         | Text hex leader: `""`, `"0x"`, or `"0X"`.              |
 | `--upper`      | off                          | Uppercase hex digits.                                  |
 | `--fmt STR`    | `"{data}{sep}{leader}{crc}"` | str.format template; the four tokens may be reordered. |
+
+## `crcglot verify <algorithm> [INPUTS...]`
+
+Check a frame's trailing CRC against a named algorithm: the per-frame yes/no, with the diagnosis when it's a no.  Use `detect` when the algorithm is unknown.
+
+```text
+$ crcglot verify crc16-xmodem --hex "31323334353637383931c3"
+VALID  crc16-xmodem  expected=0x31C3  actual=0x31C3
+
+$ crcglot verify crc16-xmodem --hex "32323334353637383931c3"   # corrupted first byte
+INVALID  crc16-xmodem  expected=0x1C87  actual=0x31C3
+```
+
+Takes the same input shapes as `detect` (`--hex`, `--text`, or binary files; several files verify each in turn).  `--little` reads the CRC field little-endian.  Exit 0 when every frame is valid, 1 otherwise.
 
 ## `crcglot compute <algorithm> [<data>]`
 

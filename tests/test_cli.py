@@ -917,3 +917,112 @@ class TestChecksumCommand:
         # Assert
         assert rc == 1, "no catalogue CRC matches this LRC frame"
         assert "lrc8" in err, f"detect should print the checksum hint, got {err!r}"
+
+
+class TestVerifyCommand:
+    """``crcglot verify``: VALID/INVALID per frame, with expected vs actual."""
+
+    _FRAME_HEX = "31323334353637383931c3"  # "123456789" + crc16-xmodem (0x31C3)
+
+    def test_valid_frame_exits_zero(self, capsys):
+        # Act
+        rc = main(["verify", "crc16-xmodem", "--hex", self._FRAME_HEX])
+        out, _err = capsys.readouterr()
+        # Assert
+        assert rc == 0, "a valid frame must exit 0"
+        assert "VALID" in out and "0x31C3" in out, (
+            f"expected a VALID line with the CRC value, got {out!r}"
+        )
+
+    def test_corrupted_frame_exits_one_with_diagnosis(self, capsys):
+        # Arrange -- flip a payload byte so expected != actual.
+        bad = "32" + self._FRAME_HEX[2:]
+        # Act
+        rc = main(["verify", "crc16-xmodem", "--hex", bad])
+        out, _err = capsys.readouterr()
+        # Assert
+        assert rc == 1, "a corrupted frame must exit 1"
+        assert "INVALID" in out, f"expected INVALID, got {out!r}"
+        assert "expected=" in out and "actual=" in out, (
+            f"diagnosis must show expected vs actual, got {out!r}"
+        )
+
+    def test_unknown_algorithm_exits_two(self, capsys):
+        # Act
+        rc = main(["verify", "not-a-crc", "--hex", self._FRAME_HEX])
+        _out, err = capsys.readouterr()
+        # Assert
+        assert rc == 2, "an unknown algorithm is invalid input (exit 2)"
+        assert err, "the error must be reported on stderr"
+
+
+class TestReverseCommand:
+    """``crcglot reverse``: catalogue identification, custom recovery with
+    ready-to-paste --custom tokens, and the underdetermined path.
+
+    The custom frames are built with ``custom_algorithm`` + ``compute`` (the
+    same engine the recovery is independent of -- recovery is algebra over the
+    frames, it never consults the constructing engine)."""
+
+    @staticmethod
+    def _vendor_frames() -> list[str]:
+        from crcglot import compute, custom_algorithm
+
+        spec = custom_algorithm(width=16, poly=0xA097, init=0x1D0F,
+                                refin=True, refout=True)
+        payloads = [b"PWR:12.40V", b"TMP:48.1C", b"RPM:001450", b"STA:OK",
+                    b"PWR:12.38V", b"TMP:48.3C", b"RPM:001448", b"STA:RUN",
+                    b"PWR:12.41V", b"ERR:NONE"]
+        return [
+            (m + compute(m, spec).to_bytes(2, "little")).hex()
+            for m in payloads
+        ]
+
+    def test_catalogue_frames_identified(self, capsys):
+        # Arrange -- two crc16-xmodem frames of different payloads.
+        frames = ["31323334353637383931c3"]
+        from crcglot import compute
+        frames.append((b"hello" + compute(b"hello", "crc16-xmodem")
+                       .to_bytes(2, "big")).hex())
+        # Act
+        rc = main(["reverse", "--hex", frames[0], "--hex", frames[1]])
+        out, _err = capsys.readouterr()
+        # Assert
+        assert rc == 0, "catalogue frames must exit 0"
+        assert "status=catalogue" in out, f"expected catalogue status, got {out!r}"
+        assert "crc16-xmodem" in out, f"expected the catalogue name, got {out!r}"
+
+    def test_custom_frames_recovered_with_paste_ready_tokens(self, capsys):
+        # Act -- ten vendor frames with a non-catalogue polynomial.
+        argv = ["reverse"]
+        for f in self._vendor_frames():
+            argv += ["--hex", f]
+        rc = main(argv)
+        out, _err = capsys.readouterr()
+        # Assert -- recovered, and the tokens round-trip into --custom.
+        assert rc == 0, "recoverable custom frames must exit 0"
+        assert "--custom width=16 poly=0xA097 init=0x1D0F" in out, (
+            f"expected paste-ready --custom tokens, got {out!r}"
+        )
+
+    def test_underdetermined_exits_one_with_guidance(self, capsys):
+        # Arrange -- two frames of different lengths: the polynomial step
+        # cannot run.
+        frames = self._vendor_frames()[:2]
+        # Act
+        rc = main(["reverse", "--hex", frames[0], "--hex", frames[1],
+                   "--byte-order", "little"])
+        _out, err = capsys.readouterr()
+        # Assert
+        assert rc == 1, "underdetermined input must exit 1"
+        assert "No recovery" in err, f"guidance belongs on stderr, got {err!r}"
+
+    def test_std_only_suppresses_escalation(self, capsys):
+        # Act -- recoverable custom frames, but catalogue-only requested.
+        argv = ["reverse", "--std-only"]
+        for f in self._vendor_frames():
+            argv += ["--hex", f]
+        rc = main(argv)
+        _out, err = capsys.readouterr()
+        # Assert -- no catalogue match and no escalation: failure.
+        assert rc == 1, "--std-only must not silently escalate to recovery"

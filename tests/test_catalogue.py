@@ -38,6 +38,7 @@ from __future__ import annotations
 import pytest
 
 from crcglot import (
+    custom_algorithm,
     ALGORITHMS,
     LANGUAGES,
     AlgorithmInfo,
@@ -1045,3 +1046,65 @@ class TestSliceBy8GeneratorAPI:
         # Act + Assert
         with pytest.raises(ValueError, match="variant='slice8' is not supported"):
             generate_vhdl("crc32", variant='slice8')  # type: ignore[call-arg]  # ty: ignore[invalid-argument-type]
+
+
+class TestCustomAlgorithm:
+    """``custom_algorithm``: the one-call custom AlgorithmInfo builder.
+
+    The same construction the CLI's --custom tokens and the MCP tools'
+    custom_params go through, so the three surfaces cannot drift."""
+
+    def test_check_is_computed(self):
+        # Arrange / Act
+        algo = custom_algorithm(width=16, poly=0x1234, init=0xFFFF,
+                                refin=True, refout=True)
+        # Assert -- check equals the engine's CRC of the canonical input.
+        expected = generic_crc(
+            b"123456789",
+            Crc(16, 0x1234, 0xFFFF, True, True, 0x0000),
+        )
+        assert algo.check == expected, (
+            f"computed check {algo.check:#x} != engine {expected:#x}"
+        )
+
+    def test_defaults_and_source(self):
+        # Act -- only the required parameters.
+        algo = custom_algorithm(width=8, poly=0x07)
+        # Assert
+        assert algo.init == 0 and algo.xorout == 0, "init/xorout default to 0"
+        assert algo.refin is False and algo.refout is False, (
+            "reflections default to False"
+        )
+        assert algo.source == "custom", "provenance must say custom"
+
+    def test_default_desc_carries_the_parameters(self):
+        # Act
+        algo = custom_algorithm(width=16, poly=0xA097, init=0x1D0F,
+                                refin=True, refout=True)
+        # Assert -- the auto-description names the poly so generated comments
+        # are self-explanatory.
+        assert "0xA097" in algo.desc and "0x1D0F" in algo.desc, (
+            f"default desc should carry the parameters, got {algo.desc!r}"
+        )
+
+    def test_explicit_desc_wins(self):
+        # Act
+        algo = custom_algorithm(width=8, poly=0x07, desc="vendor frame CRC")
+        # Assert
+        assert algo.desc == "vendor frame CRC", "explicit desc must be kept"
+
+    def test_feeds_a_generator(self):
+        # Arrange
+        algo = custom_algorithm(width=16, poly=0xA097, init=0x1D0F,
+                                refin=True, refout=True)
+        # Act -- exec the generated Python and run its self-test.
+        from crcglot import LANGUAGES
+
+        src = LANGUAGES["python"].generator_from_entry("vendor_crc", algo)
+        ns: dict = {}
+        exec(src, ns)  # noqa: S102
+        # Assert -- the generated one-shot reproduces the computed check.
+        actual = ns["vendor_crc"](b"123456789")
+        assert actual == algo.check, (
+            f"generated code {actual:#x} != computed check {algo.check:#x}"
+        )

@@ -29,6 +29,7 @@ from mcp.types import ToolAnnotations
 
 from crcglot import (
     Crc,
+    custom_algorithm,
     ALGORITHMS,
     ATTRIBUTION,
     LANGUAGES,
@@ -135,21 +136,14 @@ def _resolve_algorithm(
             "custom_params requires at least 'width' and 'poly' "
             "(plus optional init / refin / refout / xorout)"
         )
-    width, poly = int(cp["width"]), int(cp["poly"])
-    init = int(cp.get("init", 0))
-    refin, refout = bool(cp.get("refin", False)), bool(cp.get("refout", False))
-    xorout = int(cp.get("xorout", 0))
-    check = generic_crc(b"123456789", Crc(width, poly, init, refin, refout, xorout))
-    info = AlgorithmInfo(
-        width=width,
-        poly=poly,
-        init=init,
-        refin=refin,
-        refout=refout,
-        xorout=xorout,
-        check=check,
+    info = custom_algorithm(
+        width=int(cp["width"]),
+        poly=int(cp["poly"]),
+        init=int(cp.get("init", 0)),
+        refin=bool(cp.get("refin", False)),
+        refout=bool(cp.get("refout", False)),
+        xorout=int(cp.get("xorout", 0)),
         desc=str(cp.get("desc", "")),
-        source="custom",
     )
     return info, str(cp.get("name", "custom"))
 

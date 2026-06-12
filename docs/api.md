@@ -52,25 +52,27 @@ Each entry is a frozen `AlgorithmInfo` dataclass with the full Rocksoft / Willia
 
 ## Custom polynomials
 
+One call builds a ready-to-use entry; the check value is computed for you, and the result plugs into every generator and compute function:
+
 ```python
-from crcglot import AlgorithmInfo, Crc, LANGUAGES, generic_crc
+from crcglot import LANGUAGES, custom_algorithm
 
-# Compute the canonical check value for a custom poly.
-spec = Crc(width=16, poly=0x1234, init=0xFFFF, refin=True, refout=True, xorout=0x0000)
-check = generic_crc(b"123456789", spec)
-
-# Build an AlgorithmInfo (a named, checked Crc) and feed it to any generator.
-algo = AlgorithmInfo(
-    width=16, poly=0x1234, init=0xFFFF,
-    refin=True, refout=True, xorout=0x0000, check=check,
-    desc="My custom CRC-16", source="custom",
-)
+algo = custom_algorithm(width=16, poly=0x1234, init=0xFFFF,
+                        refin=True, refout=True, desc="My custom CRC-16")
 code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
 ```
 
+This is the Python twin of the CLI's `--custom width=... poly=...` tokens and the MCP tools' `custom_params` argument; all three build their entries through the same helper.  (The pieces stay public if you need them: `Crc` is the bare parameter set, `generic_crc(b"123456789", spec)` computes a check value, and `AlgorithmInfo` can be constructed field by field.)
+
 ## Runtime CRC computation
 
-Beyond *generating* code, crcglot can *compute* CRCs at runtime, and it's fast.  There's **no variant choice to make**, the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, crc)` (passing a `Crc`, or any `AlgorithmInfo`) and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
+Beyond *generating* code, crcglot can *compute* CRCs at runtime, and it's fast.  The everyday form is by name, sharing the verb with `crcglot compute` and the MCP `crc_compute` tool:
+
+```python
+from crcglot import compute
+
+compute(b"123456789", "crc16-modbus")   # 0x4B37; any catalogue name or Crc/AlgorithmInfo
+```  There's **no variant choice to make**, the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, crc)` (passing a `Crc`, or any `AlgorithmInfo`) and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
 
 Under the hood it dispatches three ways (you never select among them):
 

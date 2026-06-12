@@ -365,6 +365,69 @@ class AlgorithmInfo(Crc):
     source: str
 
 
+def custom_algorithm(
+    *,
+    width: int,
+    poly: int,
+    init: int = 0,
+    refin: bool = False,
+    refout: bool = False,
+    xorout: int = 0,
+    desc: str = "",
+) -> AlgorithmInfo:
+    """Build an :class:`AlgorithmInfo` for a custom polynomial in one call.
+
+    Computes the check value (CRC of ``b"123456789"``) and fills in
+    ``source="custom"``, so the result plugs straight into anything that takes
+    an :class:`AlgorithmInfo`: the generators (``generator_from_entry``),
+    :func:`generic_crc`, :func:`crcglot.encode_int`,
+    :meth:`crcglot.CrcStream.from_info`, and so on.  This is the Python twin
+    of the CLI's ``--custom width=... poly=...`` tokens and the MCP tools'
+    ``custom_params`` argument (both of which build their entries through
+    this helper).
+
+    Args:
+        width: CRC bit width.
+        poly: Generator polynomial, MSB-first (normal form).
+        init: Initial register value.  Default 0.
+        refin: Reflect each input byte.  Default False.
+        refout: Reflect the final CRC value.  Default False.
+        xorout: XOR applied to the final CRC value.  Default 0.
+        desc: Human-readable description; when empty, a parameter summary is
+            generated.
+
+    Returns:
+        A frozen :class:`AlgorithmInfo` with ``check`` computed and
+        ``source="custom"``.
+
+    Examples:
+        >>> from crcglot import custom_algorithm, generic_crc
+        >>> algo = custom_algorithm(width=16, poly=0x1234, init=0xFFFF,
+        ...                         refin=True, refout=True)
+        >>> generic_crc(b"123456789", algo) == algo.check
+        True
+    """
+    check = generic_crc(
+        b"123456789", Crc(width, poly, init, refin, refout, xorout)
+    )
+    if not desc:
+        desc = (
+            f"Custom CRC-{width} (poly=0x{poly:X}, init=0x{init:X}, "
+            f"refin={refin}, refout={refout}, xorout=0x{xorout:X})"
+        )
+    return AlgorithmInfo(
+        width=width,
+        poly=poly,
+        init=init,
+        refin=refin,
+        refout=refout,
+        xorout=xorout,
+        check=check,
+        desc=desc,
+        source="custom",
+    )
+
+
 # ---------------------------------------------------------------------------
 # CRC catalogue - named algorithms from the reveng CRC catalogue
 # ---------------------------------------------------------------------------

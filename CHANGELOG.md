@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added: every surface speaks the same verbs
+
+A structural review of the three user surfaces (CLI, MCP, Python API) closed the gaps it found:
+
+- **CLI `reverse`**: the recovery story (detect fails, reverse recovers, generate ships) now works from the shell, not just over MCP.  Takes the same frame shapes as `detect`, tries the catalogue first, and automatically escalates to algebraic recovery (`--std-only` suppresses).  Recovered candidates print as ready-to-paste `--custom` tokens, so `crcglot c --custom <tokens> file=vendor_crc` closes the loop.
+- **CLI `verify`**: per-frame VALID / INVALID against a named algorithm, with expected vs actual on failure.
+- **`crcglot.compute(data, "crc32")`**: the most common action now shares one verb on all three surfaces (CLI `compute`, MCP `crc_compute`).  An alias of `encode_int`, which stays.
+- **`crcglot.custom_algorithm(width=, poly=, ...)`**: builds a custom `AlgorithmInfo` in one call, computing the check value.  The CLI's `--custom` tokens and the MCP tools' `custom_params` now construct their entries through this same helper, so the three surfaces cannot drift.  (Previously the Python path required hand-assembling `Crc` + check + a nine-field `AlgorithmInfo`.)
+
+
 ### Docs: README slimmed; reference moved to docs/
 
 README.md drops from ~510 lines to ~175: the quick start now opens with the detect→generate pair (`crcglot detect --hex ...` on inline bytes, then `crcglot c crc32`), installation is uv-only, and the reference material moved to a `docs/` folder with one file per section — `docs/cli.md`, `docs/api.md`, `docs/generated-code.md`, joining `docs/MCP.md`, indexed by `docs/index.md`.  The layout is static-site-generator-friendly (mkdocs / zensical) but this change is plain markdown only.

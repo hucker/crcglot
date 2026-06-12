@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 
 from crcglot import (
+    compute,
+    custom_algorithm,
     ALGORITHMS,
     AlgorithmInfo,
     Crc,
@@ -409,3 +411,28 @@ class TestCustomAlgorithmInfo:
         assert result.valid is True, "custom AlgorithmInfo must encode->verify clean"
         actual = encode_int(b"payload", info)
         assert actual == result.expected, "encode_int agrees with verify.expected"
+
+
+class TestCompute:
+    """``compute``: the name-string CRC, sharing the CLI/MCP verb."""
+
+    def test_compute_by_name_matches_check(self):
+        # Assert -- the canonical check value via the shared verb.
+        actual = compute(b"123456789", "crc16-modbus")
+        assert actual == 0x4B37, f"compute crc16-modbus check, got {actual:#x}"
+
+    def test_compute_is_encode_int(self):
+        # Assert -- one implementation, two names; no behavioral drift.
+        data = b"the quick brown fox"
+        actual = compute(data, "crc32")
+        expected = encode_int(data, "crc32")
+        assert actual == expected, "compute must be an alias of encode_int"
+
+    def test_compute_accepts_custom_algorithm(self):
+        # Arrange -- a one-call custom spec.
+        algo = custom_algorithm(width=8, poly=0x07)
+        # Assert -- compute takes the AlgorithmInfo directly.
+        actual = compute(b"123456789", algo)
+        assert actual == algo.check, (
+            f"compute over a custom algorithm: {actual:#x} != {algo.check:#x}"
+        )

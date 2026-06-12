@@ -257,6 +257,40 @@ def encode_int(
     return generic_crc(bytes(data), algo)
 
 
+def compute(
+    data: bytes | bytearray | str,
+    algorithm: str | Crc,
+    *,
+    encoding: str = "utf-8",
+) -> int:
+    """Compute the CRC of ``data`` by algorithm name (or any ``Crc``).
+
+    The Python twin of ``crcglot compute`` on the CLI and ``crc_compute`` over
+    MCP, so the most common action shares one verb on every surface.  An alias
+    of :func:`encode_int`; use :func:`crcglot.generic_crc` when you already
+    hold a :class:`Crc` and want the engine entry directly, or
+    :func:`crcglot.crc_stream` for chunked data and repeated messages.
+
+    Args:
+        data: Payload; ``str`` is encoded via ``encoding`` first.
+        algorithm: Catalogue name (e.g. ``"crc32"``), or any :class:`Crc` /
+            :class:`AlgorithmInfo` for a custom polynomial.
+        encoding: Used only when ``data`` is ``str``.  Default ``"utf-8"``.
+
+    Returns:
+        The CRC value as a non-negative ``int``.
+
+    Raises:
+        ValueError: ``algorithm`` is a name not in the catalogue.
+
+    Examples:
+        >>> from crcglot import compute
+        >>> hex(compute(b"123456789", "crc16-modbus"))
+        '0x4b37'
+    """
+    return encode_int(data, algorithm, encoding=encoding)
+
+
 @dataclass(frozen=True)
 class VerifyResult:
     """Outcome of :func:`verify`.
