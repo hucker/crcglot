@@ -214,10 +214,11 @@ def generate_verilog_from_entry(
         # ({(w-8){1'b0}} is a negative replication for width < 8).
         lines += [
             f"        for (int j = 0; j < 8; j++) begin",
-            f"            if (crc[0] ^ byte_in[j])",
+            f"            if ((crc[0] ^ byte_in[j]) == 1'b1) begin",
             f"                crc = (crc >> 1) ^ {_sv_lit(poly_val, w)};",
-            f"            else",
+            f"            end else begin",
             f"                crc = crc >> 1;",
+            f"            end",
             f"        end",
         ]
     elif refin:
@@ -233,20 +234,22 @@ def generate_verilog_from_entry(
             ]
         lines += [
             f"        for (int j = 0; j < 8; j++) begin",
-            f"            if (crc[0])",
+            f"            if (crc[0] == 1'b1) begin",
             f"                crc = (crc >> 1) ^ {_sv_lit(poly_val, w)};",
-            f"            else",
+            f"            end else begin",
             f"                crc = crc >> 1;",
+            f"            end",
             f"        end",
         ]
     elif w < 8:
         # Sub-byte non-reflected: bit-by-bit, MSB first.
         lines += [
             f"        for (int j = 7; j >= 0; j--) begin",
-            f"            if (crc[{w - 1}] ^ byte_in[j])",
+            f"            if ((crc[{w - 1}] ^ byte_in[j]) == 1'b1) begin",
             f"                crc = (crc << 1) ^ {_sv_lit(poly_val, w)};",
-            f"            else",
+            f"            end else begin",
             f"                crc = crc << 1;",
+            f"            end",
             f"        end",
         ]
     else:
@@ -261,10 +264,11 @@ def generate_verilog_from_entry(
             ]
         lines += [
             f"        for (int j = 0; j < 8; j++) begin",
-            f"            if (crc[{w - 1}])",
+            f"            if (crc[{w - 1}] == 1'b1) begin",
             f"                crc = (crc << 1) ^ {_sv_lit(poly_val, w)};",
-            f"            else",
+            f"            end else begin",
             f"                crc = crc << 1;",
+            f"            end",
             f"        end",
         ]
     lines += [
@@ -306,8 +310,9 @@ def generate_verilog_from_entry(
         f"input byte unsigned data[]);",
         f"        logic [{w - 1}:0] s;",
         f"        s = {names['init']}();",
-        f"        foreach (data[i])",
+        f"        foreach (data[i]) begin",
         f"            s = {names['update']}(s, data[i]);",
+        f"        end",
         f"        {names['oneshot']} = {names['finalize']}(s);",
         f"    endfunction",
     ]

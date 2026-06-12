@@ -4496,10 +4496,11 @@ package crc32_pkg;
         crc = state;
         crc = crc ^ {{24{1'b0}}, byte_in};
         for (int j = 0; j < 8; j++) begin
-            if (crc[0])
+            if (crc[0] == 1'b1) begin
                 crc = (crc >> 1) ^ 32'hEDB88320;
-            else
+            end else begin
                 crc = crc >> 1;
+            end
         end
         crc32_update = crc;
     endfunction
@@ -4525,8 +4526,9 @@ package crc32_pkg;
     function automatic [31:0] crc32(input byte unsigned data[]);
         logic [31:0] s;
         s = crc32_init();
-        foreach (data[i])
+        foreach (data[i]) begin
             s = crc32_update(s, data[i]);
+        end
         crc32 = crc32_finalize(s);
     endfunction
 

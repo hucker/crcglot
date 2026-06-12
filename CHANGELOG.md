@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed: generated Verilog uses lint-discipline conditionals
+
+The Verilog emitters now produce `begin`/`end` on every conditional branch and loop body, and bit tests compare explicitly (`if (crc[15] == 1'b1)` instead of `if (crc[15])`), matching the VHDL emitter's existing `= '1'` style and the C emitter's MISRA posture.  Sized literals, explicit zero-extension, `function automatic`, and `byte unsigned` were already in place.  Behavior is unchanged; the Verilog matrix recompiles and re-executes green under iverilog.  VHDL needed nothing: the language mandates `end if`, and the emission already used `numeric_std` with explicit comparisons (ghdl `-Wall` analyzes the whole matrix clean).
+
+
 ### Changed: generated C uses MISRA-leaning constructions
 
 The C emitters now produce braced `if`/`else`/`for` bodies (MISRA C:2012 rule 15.6), explicit boolean comparisons for bitwise tests (`(crc & 1U) != 0U`, rule 14.4), `U`/`ULL` suffixes on every unsigned constant including all table entries (rule 7.2), single-exit self-tests (rule 15.5), and counted tail loops with no `++` inside expressions (replacing `while (len--)` and `*data++`).  Behavior is unchanged; the whole algorithm x variant matrix recompiles and re-executes green under `-Wall -Wextra -Werror`.  This is emission style, not a conformance claim: no MISRA checker run has been recorded (see docs/certification.md).
