@@ -1,10 +1,17 @@
 # CLI reference
 
-Every crcglot capability is a subcommand:
+Every crcglot capability is a subcommand of the form `crcglot <command> [options...]`:
 
-```text
-crcglot <command> [options...]
-```
+| Command | What it does |
+| ------- | ------------ |
+| [`list`](#crcglot-list-glob---json) | Browse the catalogue (more than 100 algorithms) |
+| [`info`](#crcglot-info-name) | Full parameters for one algorithm |
+| [`detect`](#crcglot-detect-inputs) | Name the catalogue CRC ending a packet |
+| [`identify`](#crcglot-identify-inputs) | Name a non-CRC trailer (checksum or digest) |
+| [`encode`](#crcglot-encode-algorithm-data) | Build a packet by appending the CRC |
+| [`compute`](#crcglot-compute-algorithm-data) | The raw CRC integer of some data |
+| [`credits`](#crcglot-credits) | Acknowledgments for the work crcglot builds on |
+| [`c` / `rust` / `go` / `csharp` / `java` / `python` / `typescript` / `verilog` / `vhdl`](#crcglot-c--csharp--go--java--python--rust--typescript--verilog--vhdl-algorithm-algorithm-options-tokens) | Generate verified source for that language |
 
 The generation subcommands are named after their target language (`crcglot c crc32`, `crcglot rust crc16-modbus`, …); everything else is a verb.  Exit codes are uniform: `0` on success/match, `1` on no-match/unknown name, `2` on invalid invocation.
 
