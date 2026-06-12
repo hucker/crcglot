@@ -170,7 +170,7 @@ class TestEndian:
 class TestFiltersAndEdges:
     """Glob filter, too-short packets, empty input."""
 
-    def test_checksums_glob(self):
+    def test_trailers_glob(self):
         # Act -- restrict to the Fletcher family.
         result = identify_trailer(_frame("fletcher32", b"123456789"),
                                    trailers="fletcher*")
@@ -195,7 +195,7 @@ class TestFiltersAndEdges:
 class TestRegistry:
     """TrailerInfo / trailer_info / TRAILERS mirror the catalogue pattern."""
 
-    def test_checksum_info_lookup(self):
+    def test_trailer_info_lookup(self):
         info = trailer_info("lrc8")
         assert isinstance(info, TrailerInfo), "trailer_info returns a TrailerInfo"
         assert info.width == 8, f"lrc8 width should be 8, got {info.width}"

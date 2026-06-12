@@ -33,9 +33,13 @@ Brute-force identify which catalogue CRC matches a packet whose tail is the CRC.
 If you have a hex string you can find the CRC type using `detect` with `--hex` (this frame is the bytes `123456789` followed by an unknown 2-byte trailer):
 
 ```text
-$ crcglot detect --hex "31323334353637383931c3"
+> crcglot detect --hex "31323334353637383931c3"
 crc16-xmodem  width=16  endianness=big
 ```
+
+```text
+> crcglot detect packet.bin   
+
 
 From there, `crcglot c crc16-xmodem file=mycrc` generates the matching implementation.
 

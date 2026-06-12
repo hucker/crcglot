@@ -902,12 +902,12 @@ class TestChecksumCommand:
         d = b"123456789"
         return (d + bytes([_lrc8(d)])).hex()
 
-    def test_checksum_command_identifies_lrc(self, capsys):
+    def test_identify_command_names_lrc(self, capsys):
         # Act
         rc = main(["identify", "--hex", self._lrc_frame_hex()])
         out, _err = capsys.readouterr()
         # Assert
-        assert rc == 0, "checksum command should match an LRC frame"
+        assert rc == 0, "identify command should match an LRC frame"
         assert "lrc8" in out, f"expected lrc8 in stdout, got {out!r}"
 
     def test_detect_prints_trailer_hint_on_no_match(self, capsys):

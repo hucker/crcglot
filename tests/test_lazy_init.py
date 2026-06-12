@@ -1,6 +1,6 @@
 """The lazy package surface: ``import crcglot`` loads the compute core only.
 
-The option layers (generators, detection, reverse, checksum-id) resolve on
+The option layers (generators, detection, reverse, trailer-id) resolve on
 first attribute access via PEP 562 ``__getattr__``.  Load-order assertions run
 in a fresh subprocess because the in-process interpreter has already imported
 everything by the time pytest gets here.
