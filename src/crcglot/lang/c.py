@@ -40,7 +40,6 @@ from crcglot._helpers import (
     _build_table,
     _func_name,
     _hex,
-    _mask,
     _variant_to_flags,
     resolve_variant,
     crc_function_names,
@@ -56,13 +55,25 @@ from crcglot.comments import (
 )
 
 
+def _c_lit(value: int, width: int) -> str:
+    """A width-padded hex literal with the MISRA 7.2 unsigned suffix.
+
+    ``U`` for widths that fit unsigned int on every C99 target (<= 32);
+    ``ULL`` for 64-bit so the constant is in range on 32-bit ``long``
+    platforms.  Code paths use this; comments keep the bare ``_hex`` form.
+    """
+    return _hex(value, width) + ("U" if width <= 32 else "ULL")
+
+
 def _format_table_c(table: list[int], width: int, ctype: str) -> str:
     """Format a lookup table as a C ``static const`` array."""
     hex_w = (width + 3) // 4
+    suf = "U" if width <= 32 else "ULL"
     lines = [f"static const {ctype} crc_table[256] = {{"]
     for row in range(0, 256, 8):
         vals = ", ".join(
-            f"0x{table[i]:0{hex_w}X}" for i in range(row, min(row + 8, 256))
+            f"0x{table[i]:0{hex_w}X}{suf}"
+            for i in range(row, min(row + 8, 256))
         )
         comma = "," if row + 8 < 256 else ""
         lines.append(f"    {vals}{comma}")
@@ -75,12 +86,13 @@ def _format_slice8_tables_c(
 ) -> str:
     """Format the 8 slice-by-8 tables as a 2D C ``static const`` array."""
     hex_w = (width + 3) // 4
+    suf = "U" if width <= 32 else "ULL"
     lines = [f"static const {ctype} crc_slice_tables[8][256] = {{"]
     for t_idx, table in enumerate(tables):
         lines.append(f"    {{ /* T{t_idx} */")
         for row in range(0, 256, 8):
             vals = ", ".join(
-                f"0x{table[i]:0{hex_w}X}"
+                f"0x{table[i]:0{hex_w}X}{suf}"
                 for i in range(row, min(row + 8, 256))
             )
             comma = "," if row + 8 < 256 else ""
@@ -109,7 +121,7 @@ def _update_loop_c_slice8(w: int, refin: bool, ctype: str) -> list[str]:
             # XOR'd with first 4 input bytes, table indices walk from
             # least-significant byte upward (T7..T0).
             return [
-                "    while (len >= 8) {",
+                "    while (len >= 8U) {",
                 "        uint32_t b03 = (uint32_t)data[0]"
                 " | (uint32_t)data[1] << 8"
                 " | (uint32_t)data[2] << 16"
@@ -119,20 +131,22 @@ def _update_loop_c_slice8(w: int, refin: bool, ctype: str) -> list[str]:
                 " | (uint32_t)data[6] << 16"
                 " | (uint32_t)data[7] << 24;",
                 "        uint32_t xored = crc ^ b03;",
-                "        crc = crc_slice_tables[7][ xored        & 0xFF]"
-                " ^ crc_slice_tables[6][(xored >>  8) & 0xFF]",
-                "            ^ crc_slice_tables[5][(xored >> 16) & 0xFF]"
-                " ^ crc_slice_tables[4][(xored >> 24) & 0xFF]",
-                "            ^ crc_slice_tables[3][ b47          & 0xFF]"
-                " ^ crc_slice_tables[2][(b47   >>  8) & 0xFF]",
-                "            ^ crc_slice_tables[1][(b47   >> 16) & 0xFF]"
-                " ^ crc_slice_tables[0][(b47   >> 24) & 0xFF];",
+                "        crc = crc_slice_tables[7][ xored        & 0xFFU]"
+                " ^ crc_slice_tables[6][(xored >>  8) & 0xFFU]",
+                "            ^ crc_slice_tables[5][(xored >> 16) & 0xFFU]"
+                " ^ crc_slice_tables[4][(xored >> 24) & 0xFFU]",
+                "            ^ crc_slice_tables[3][ b47          & 0xFFU]"
+                " ^ crc_slice_tables[2][(b47   >>  8) & 0xFFU]",
+                "            ^ crc_slice_tables[1][(b47   >> 16) & 0xFFU]"
+                " ^ crc_slice_tables[0][(b47   >> 24) & 0xFFU];",
                 "        data += 8;",
-                "        len -= 8;",
+                "        len -= 8U;",
                 "    }",
-                "    while (len--) {",
-                "        crc = crc_slice_tables[0][(crc ^ *data++) & 0xFF]"
+                "    while (len > 0U) {",
+                "        crc = crc_slice_tables[0][(crc ^ *data) & 0xFFU]"
                 " ^ (crc >> 8);",
+                "        data++;",
+                "        len--;",
                 "    }",
             ]
         # Non-reflected w=32: load big-endian, state's top XOR'd with
@@ -141,7 +155,7 @@ def _update_loop_c_slice8(w: int, refin: bool, ctype: str) -> list[str]:
         # i.e. the byte that has the most zero-bytes processed after
         # it to reach the end of the chunk).
         return [
-            "    while (len >= 8) {",
+            "    while (len >= 8U) {",
             "        uint32_t b03 = (uint32_t)data[0] << 24"
             " | (uint32_t)data[1] << 16"
             " | (uint32_t)data[2] << 8"
@@ -151,27 +165,29 @@ def _update_loop_c_slice8(w: int, refin: bool, ctype: str) -> list[str]:
             " | (uint32_t)data[6] << 8"
             " | (uint32_t)data[7];",
             "        uint32_t xored = crc ^ b03;",
-            "        crc = crc_slice_tables[7][(xored >> 24) & 0xFF]"
-            " ^ crc_slice_tables[6][(xored >> 16) & 0xFF]",
-            "            ^ crc_slice_tables[5][(xored >>  8) & 0xFF]"
-            " ^ crc_slice_tables[4][ xored        & 0xFF]",
-            "            ^ crc_slice_tables[3][(b47   >> 24) & 0xFF]"
-            " ^ crc_slice_tables[2][(b47   >> 16) & 0xFF]",
-            "            ^ crc_slice_tables[1][(b47   >>  8) & 0xFF]"
-            " ^ crc_slice_tables[0][ b47          & 0xFF];",
+            "        crc = crc_slice_tables[7][(xored >> 24) & 0xFFU]"
+            " ^ crc_slice_tables[6][(xored >> 16) & 0xFFU]",
+            "            ^ crc_slice_tables[5][(xored >>  8) & 0xFFU]"
+            " ^ crc_slice_tables[4][ xored        & 0xFFU]",
+            "            ^ crc_slice_tables[3][(b47   >> 24) & 0xFFU]"
+            " ^ crc_slice_tables[2][(b47   >> 16) & 0xFFU]",
+            "            ^ crc_slice_tables[1][(b47   >>  8) & 0xFFU]"
+            " ^ crc_slice_tables[0][ b47          & 0xFFU];",
             "        data += 8;",
-            "        len -= 8;",
+            "        len -= 8U;",
             "    }",
-            "    while (len--) {",
+            "    while (len > 0U) {",
             "        uint32_t top = crc >> 24;",
-            "        crc = crc_slice_tables[0][(top ^ *data++) & 0xFF]"
+            "        crc = crc_slice_tables[0][(top ^ *data) & 0xFFU]"
             " ^ (crc << 8);",
+            "        data++;",
+            "        len--;",
             "    }",
         ]
     # w == 64
     if refin:
         return [
-            "    while (len >= 8) {",
+            "    while (len >= 8U) {",
             "        uint64_t b = (uint64_t)data[0]"
             " | (uint64_t)data[1] << 8"
             " | (uint64_t)data[2] << 16"
@@ -181,26 +197,28 @@ def _update_loop_c_slice8(w: int, refin: bool, ctype: str) -> list[str]:
             " | (uint64_t)data[6] << 48"
             " | (uint64_t)data[7] << 56;",
             "        uint64_t xored = crc ^ b;",
-            "        crc = crc_slice_tables[7][ xored        & 0xFF]"
-            " ^ crc_slice_tables[6][(xored >>  8) & 0xFF]",
-            "            ^ crc_slice_tables[5][(xored >> 16) & 0xFF]"
-            " ^ crc_slice_tables[4][(xored >> 24) & 0xFF]",
-            "            ^ crc_slice_tables[3][(xored >> 32) & 0xFF]"
-            " ^ crc_slice_tables[2][(xored >> 40) & 0xFF]",
-            "            ^ crc_slice_tables[1][(xored >> 48) & 0xFF]"
-            " ^ crc_slice_tables[0][(xored >> 56) & 0xFF];",
+            "        crc = crc_slice_tables[7][ xored        & 0xFFU]"
+            " ^ crc_slice_tables[6][(xored >>  8) & 0xFFU]",
+            "            ^ crc_slice_tables[5][(xored >> 16) & 0xFFU]"
+            " ^ crc_slice_tables[4][(xored >> 24) & 0xFFU]",
+            "            ^ crc_slice_tables[3][(xored >> 32) & 0xFFU]"
+            " ^ crc_slice_tables[2][(xored >> 40) & 0xFFU]",
+            "            ^ crc_slice_tables[1][(xored >> 48) & 0xFFU]"
+            " ^ crc_slice_tables[0][(xored >> 56) & 0xFFU];",
             "        data += 8;",
-            "        len -= 8;",
+            "        len -= 8U;",
             "    }",
-            "    while (len--) {",
-            "        crc = crc_slice_tables[0][(crc ^ *data++) & 0xFF]"
+            "    while (len > 0U) {",
+            "        crc = crc_slice_tables[0][(crc ^ *data) & 0xFFU]"
             " ^ (crc >> 8);",
+            "        data++;",
+            "        len--;",
             "    }",
         ]
     # Non-reflected w=64.  Same index convention as w=32: byte at
     # position k uses T[7-k].
     return [
-        "    while (len >= 8) {",
+        "    while (len >= 8U) {",
         "        uint64_t b = (uint64_t)data[0] << 56"
         " | (uint64_t)data[1] << 48"
         " | (uint64_t)data[2] << 40"
@@ -210,21 +228,23 @@ def _update_loop_c_slice8(w: int, refin: bool, ctype: str) -> list[str]:
         " | (uint64_t)data[6] << 8"
         " | (uint64_t)data[7];",
         "        uint64_t xored = crc ^ b;",
-        "        crc = crc_slice_tables[7][(xored >> 56) & 0xFF]"
-        " ^ crc_slice_tables[6][(xored >> 48) & 0xFF]",
-        "            ^ crc_slice_tables[5][(xored >> 40) & 0xFF]"
-        " ^ crc_slice_tables[4][(xored >> 32) & 0xFF]",
-        "            ^ crc_slice_tables[3][(xored >> 24) & 0xFF]"
-        " ^ crc_slice_tables[2][(xored >> 16) & 0xFF]",
-        "            ^ crc_slice_tables[1][(xored >>  8) & 0xFF]"
-        " ^ crc_slice_tables[0][ xored        & 0xFF];",
+        "        crc = crc_slice_tables[7][(xored >> 56) & 0xFFU]"
+        " ^ crc_slice_tables[6][(xored >> 48) & 0xFFU]",
+        "            ^ crc_slice_tables[5][(xored >> 40) & 0xFFU]"
+        " ^ crc_slice_tables[4][(xored >> 32) & 0xFFU]",
+        "            ^ crc_slice_tables[3][(xored >> 24) & 0xFFU]"
+        " ^ crc_slice_tables[2][(xored >> 16) & 0xFFU]",
+        "            ^ crc_slice_tables[1][(xored >>  8) & 0xFFU]"
+        " ^ crc_slice_tables[0][ xored        & 0xFFU];",
         "        data += 8;",
-        "        len -= 8;",
+        "        len -= 8U;",
         "    }",
-        "    while (len--) {",
+        "    while (len > 0U) {",
         "        uint64_t top = crc >> 56;",
-        "        crc = crc_slice_tables[0][(top ^ *data++) & 0xFF]"
+        "        crc = crc_slice_tables[0][(top ^ *data) & 0xFFU]"
         " ^ (crc << 8);",
+        "        data++;",
+        "        len--;",
         "    }",
     ]
 
@@ -246,8 +266,9 @@ def _update_loop_c(
     if table:
         if refin:
             return [
-                "    for (size_t i = 0; i < len; i++)",
-                "        crc = crc_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);",
+                "    for (size_t i = 0; i < len; i++) {",
+                "        crc = crc_table[(crc ^ data[i]) & 0xFFU] ^ (crc >> 8);",
+                "    }",
             ]
         # Parenthesize the second operand fully -- gcc's -Wparentheses
         # (in -Wall) rejects ``a ^ b & c`` as ambiguous even though
@@ -256,8 +277,9 @@ def _update_loop_c(
         # produce code that survives that.  (Caught by the execution
         # tests in test_crc_codegen_exec.py via the -Werror gcc flag.)
         return [
-            "    for (size_t i = 0; i < len; i++)",
-            f"        crc = crc_table[((crc >> {w - 8}) ^ data[i]) & 0xFF] ^ ((crc << 8) & {mask});",
+            "    for (size_t i = 0; i < len; i++) {",
+            f"        crc = crc_table[((crc >> {w - 8}) ^ data[i]) & 0xFFU] ^ ((crc << 8) & {mask});",
+            "    }",
         ]
     if refin:
         ref_poly = _reflect(poly, w)
@@ -265,10 +287,11 @@ def _update_loop_c(
             "    for (size_t i = 0; i < len; i++) {",
             "        crc ^= data[i];",
             "        for (int j = 0; j < 8; j++) {",
-            "            if (crc & 1)",
-            f"                crc = (crc >> 1) ^ {_hex(ref_poly, w)};",
-            "            else",
+            "            if ((crc & 1U) != 0U) {",
+            f"                crc = (crc >> 1) ^ {_c_lit(ref_poly, w)};",
+            "            } else {",
             "                crc >>= 1;",
+            "            }",
             "        }",
             "    }",
         ]
@@ -279,11 +302,12 @@ def _update_loop_c(
         return [
             "    for (size_t i = 0; i < len; i++) {",
             "        for (int j = 7; j >= 0; j--) {",
-            f"            int bit = (data[i] >> j) & 1;",
-            f"            if (((crc >> {w - 1}) & 1) ^ bit)",
-            f"                crc = (crc << 1) ^ {_hex(poly, w)};",
-            "            else",
+            "            unsigned int bit = ((unsigned int)data[i] >> j) & 1U;",
+            f"            if (((((unsigned int)(crc >> {w - 1})) & 1U) ^ bit) != 0U) {{",
+            f"                crc = (crc << 1) ^ {_c_lit(poly, w)};",
+            "            } else {",
             "                crc <<= 1;",
+            "            }",
             f"            crc &= {mask};",
             "        }",
             "    }",
@@ -296,10 +320,11 @@ def _update_loop_c(
         "    for (size_t i = 0; i < len; i++) {",
         f"        crc ^= ({ctype})data[i] << {w - 8};",
         "        for (int j = 0; j < 8; j++) {",
-        f"            if (crc & {_hex(1 << (w - 1), w)})",
-        f"                crc = (crc << 1) ^ {_hex(poly, w)};",
-        "            else",
+        f"            if ((crc & {_c_lit(1 << (w - 1), w)}) != 0U) {{",
+        f"                crc = (crc << 1) ^ {_c_lit(poly, w)};",
+        "            } else {",
         "                crc <<= 1;",
+        "            }",
         f"            crc &= {mask};",
         "        }",
         "    }",
@@ -325,7 +350,7 @@ def _self_test_c(names, check: int, width: int, ctype: str, goldens) -> str:
         lines = [
             f"int {n['self_test']}(void) {{",
             '    static const uint8_t kCheckInput[] = "123456789";',
-            f"    return {n['oneshot']}(kCheckInput, 9) == {_hex(check, width)} ? 0 : 1;",
+            f"    return ({n['oneshot']}(kCheckInput, 9) == {_c_lit(check, width)}) ? 0 : 1;",
             "}",
         ]
         return "\n".join(lines)
@@ -333,25 +358,34 @@ def _self_test_c(names, check: int, width: int, ctype: str, goldens) -> str:
     lines = [
         f"int {n['self_test']}(void) {{",
         '    static const uint8_t kCheckInput[] = "123456789";',
-        f"    if ({n['oneshot']}(kCheckInput, 0) != {_hex(g['empty'], width)}) return 1;",
-        f"    if ({n['oneshot']}(kCheckInput, 9) != {_hex(g['check'], width)}) return 1;",
+        "    int failed = 0;",
+        f"    if ({n['oneshot']}(kCheckInput, 0) != {_c_lit(g['empty'], width)}) {{",
+        "        failed = 1;",
+        "    }",
+        f"    if ({n['oneshot']}(kCheckInput, 9) != {_c_lit(g['check'], width)}) {{",
+        "        failed = 1;",
+        "    }",
         "    {",
         f"        {ctype} s = {n['init']}();",
         "        for (int i = 0; i < 256; i++) {",
         "            uint8_t b = (uint8_t)i;",
         f"            s = {n['update']}(s, &b, 1);",
         "        }",
-        f"        if ({n['finalize']}(s) != {_hex(g['all_bytes'], width)}) return 1;",
+        f"        if ({n['finalize']}(s) != {_c_lit(g['all_bytes'], width)}) {{",
+        "            failed = 1;",
+        "        }",
         "    }",
         "    {",
         f"        {ctype} s = {n['init']}();",
         "        for (int i = 0; i < 1024; i++) {",
-        "            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFF);",
+        "            uint8_t b = (uint8_t)((i * 167 + 13) & 0xFFU);",
         f"            s = {n['update']}(s, &b, 1);",
         "        }",
-        f"        if ({n['finalize']}(s) != {_hex(g['binary_1k'], width)}) return 1;",
+        f"        if ({n['finalize']}(s) != {_c_lit(g['binary_1k'], width)}) {{",
+        "            failed = 1;",
+        "        }",
         "    }",
-        "    return 0;",
+        "    return (failed != 0) ? 1 : 0;",
         "}",
     ]
     return "\n".join(lines)
@@ -530,7 +564,7 @@ def generate_c_from_entry(
     naming = naming_convention_for("c", naming)
     base = symbol if symbol else _func_name(name)
     names = crc_function_names(base, naming, is_override=symbol is not None)
-    mask = _mask(w)
+    mask = _c_lit((1 << w) - 1, w)
 
     if w <= 8:
         ctype = "uint8_t"
@@ -594,7 +628,7 @@ def generate_c_from_entry(
 
     # ----- <init>() -----
     lines.append(f"{ctype} {names['init']}(void) {{")
-    lines.append(f"    return {_hex(init_state, w)};")
+    lines.append(f"    return {_c_lit(init_state, w)};")
     lines.append(f"}}")
     lines.append("")
 
@@ -615,12 +649,15 @@ def generate_c_from_entry(
     lines.append(f"{ctype} {names['finalize']}({ctype} state) {{")
     if refout != refin:
         lines.append(f"    /* reflect output (refout != refin) */")
-        lines.append(f"    {ctype} reflected = 0;")
-        lines.append(f"    for (int k = 0; k < {w}; k++)")
-        lines.append(f"        reflected |= ((state >> k) & 1) << ({w - 1} - k);")
+        lines.append(f"    {ctype} reflected = 0U;")
+        lines.append(f"    for (int k = 0; k < {w}; k++) {{")
+        lines.append(
+            f"        reflected |= ((state >> k) & 1U) << ({w - 1} - k);"
+        )
+        lines.append("    }")
         lines.append(f"    state = reflected;")
     if xorout:
-        lines.append(f"    return state ^ {_hex(xorout, w)};")
+        lines.append(f"    return state ^ {_c_lit(xorout, w)};")
     else:
         lines.append(f"    return state;")
     lines.append(f"}}")

@@ -35,7 +35,7 @@ These items are yours in every regime, and no supplier can take them:
 
 ## What we do not claim
 
-- **No coding-standard conformance has been assessed.**  The generated C has not been run through a MISRA-C (or CERT-C) checker, and no conformance statement exists.
+- **No coding-standard conformance has been assessed.**  The generated C deliberately uses MISRA-leaning constructions (braced bodies, explicit `!= 0U` comparisons, suffixed unsigned constants, single-exit self-tests, no `++` inside expressions), but no checker run has been recorded and no conformance statement exists.
 - **No structural coverage figures are published.**  The four vectors exercise the code broadly, including every byte value, but nobody has measured statement, branch, or MC/DC coverage from them; measure on your toolchain.
 - **Custom polynomials carry a weaker check.**  A non-catalogue polynomial has no independent reference, so its embedded self-test compares against a value crcglot computed itself.  That still catches a toolchain mismatch; it cannot catch an error shared by the generator and its output.  For certified use of a custom polynomial, supply your own independently-derived vectors.
 - **crcglot's CI is not your evidence.**  It ran outside your quality system, on hardware you do not control.

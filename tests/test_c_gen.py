@@ -153,7 +153,7 @@ class TestGenerateCTableVariants:
 
         # Assert
         assert (
-            "crc = crcglot_table_crc16_modbus[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);"
+            "crc = crcglot_table_crc16_modbus[(crc ^ data[i]) & 0xFFU] ^ (crc >> 8);"
             in source
         ), "reflected table loop right-shifts and uses simple xor index"
 
@@ -165,8 +165,8 @@ class TestGenerateCTableVariants:
 
         # Assert -- fully parenthesized for -Wall -Werror survival.
         assert (
-            "crc = crcglot_table_crc16_xmodem[((crc >> 8) ^ data[i]) & 0xFF]"
-            " ^ ((crc << 8) & 0xFFFF);" in source
+            "crc = crcglot_table_crc16_xmodem[((crc >> 8) ^ data[i]) & 0xFFU]"
+            " ^ ((crc << 8) & 0xFFFFU);" in source
         ), "non-reflected w=16 table loop is the fully-parenthesized form"
 
 
@@ -208,9 +208,9 @@ class TestGenerateCSliceBy8Variants:
         )
         # Tail right-shifts state by 8 each iteration.
         assert (
-            "crc = crcglot_slice_crc64_xz[0][(crc ^ *data++) & 0xFF] ^ (crc >> 8);"
+            "crc = crcglot_slice_crc64_xz[0][(crc ^ *data) & 0xFFU] ^ (crc >> 8);"
             in source
-        ), "reflected w=64 tail right-shifts"
+        ), "reflected w=64 tail right-shifts (counted loop, no in-expression ++)"
 
     def test_slice8_w64_normal(self):
         # Act -- crc64-ecma-182 is w=64 refin=False.
@@ -260,13 +260,13 @@ class TestGenerateCFromEntryReflectionPaths:
         assert "/* reflect output (refout != refin) */" in source, (
             "comment marks the mixed-reflection branch"
         )
-        assert "uint16_t reflected = 0;" in source, (
+        assert "uint16_t reflected = 0U;" in source, (
             "reflection accumulator declared at uint16_t"
         )
-        assert "for (int k = 0; k < 16; k++)" in source, (
-            "loop over all 16 state bits"
+        assert "for (int k = 0; k < 16; k++) {" in source, (
+            "loop over all 16 state bits, braced"
         )
-        assert "reflected |= ((state >> k) & 1) << (15 - k);" in source, (
+        assert "reflected |= ((state >> k) & 1U) << (15 - k);" in source, (
             "bit-reverse formula"
         )
         assert "state = reflected;" in source, (

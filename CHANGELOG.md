@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed: generated C uses MISRA-leaning constructions
+
+The C emitters now produce braced `if`/`else`/`for` bodies (MISRA C:2012 rule 15.6), explicit boolean comparisons for bitwise tests (`(crc & 1U) != 0U`, rule 14.4), `U`/`ULL` suffixes on every unsigned constant including all table entries (rule 7.2), single-exit self-tests (rule 15.5), and counted tail loops with no `++` inside expressions (replacing `while (len--)` and `*data++`).  Behavior is unchanged; the whole algorithm x variant matrix recompiles and re-executes green under `-Wall -Wextra -Werror`.  This is emission style, not a conformance claim: no MISRA checker run has been recorded (see docs/certification.md).
+
+
 ### Docs: the certification story, stated without overselling
 
 New `docs/certification.md`: what crcglot puts in front of a safety-certification process (the traceable requirement, independently-derived on-target test vectors with an inspectable provenance chain, review-sized deterministic code), what always remains the integrator's, regime notes for DO-178C/DO-330 and IEC 62304/FDA, and an explicit list of what is **not** claimed (no MISRA assessment, no published coverage figures, the weaker custom-poly check, no fitness claim).  The README's verification section now reflects the four-vector reality (null, trivial, and complex inputs from two agreeing engines) and explains that the four-digit test badge measures the algorithms × languages × variants × inputs matrix, not coverage chasing.
