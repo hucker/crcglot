@@ -1,10 +1,14 @@
 # crcglot
 
-![tests](https://img.shields.io/badge/tests-6552%20passed-brightgreen) ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
+[![PyPI](https://img.shields.io/pypi/v/crcglot)](https://pypi.org/project/crcglot/) ![license](https://img.shields.io/badge/license-MIT-blue) ![tests](https://img.shields.io/badge/tests-6553%20passed-brightgreen) ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
 **A multi-language CRC toolkit.**  Generate verified code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.  Compute, detect, and reverse-engineer CRCs, from Python or over MCP.  Catalogue-driven, execution-verified, self-test embedded.  **Zero runtime dependencies: stdlib only** (an optional bundled C accelerator speeds up runtime computation; everything works without it).
 
 LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator; it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 100 algorithms across nine languages, verified by execution rather than inspection, and every generated file embeds a self-test over four independent reference vectors so you can re-prove it on your own toolchain.
+
+If you work with CRCs, this is most of the toolbox in one install: the package that generates the code also computes, detects, reverse-engineers, and identifies non-CRC trailers, so one tool covers the workflow end to end.  The deliberate exception is bulk runtime hashing throughput; [when to reach for something else](#when-to-reach-for-something-else) names the better tool for that.
+
+crcglot is developed with AI assistance, on these terms: every release gates on the verification matrix below, the reference values come from engines that are not ours, and the suite is yours to run.  If a vector fails, file an issue.
 
 ## Quick start
 
@@ -51,13 +55,27 @@ Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go /
 
 **The guarantee is behavioral, not structural.**  crcglot doesn't lint the generated code, it runs it.  Three axes, fully crossed: every one of the **more than 100 algorithms**, in **every variant** the target supports (bit-by-bit, table-driven, slice-by-8), in **every one of the nine languages**, is executed and its output checked against the hardcoded canonical vector.  Nothing ships on "the generator looks correct."
 
+| Language | bit-by-bit | table | slice-by-8 | executed via |
+| -------- | :--------: | :---: | :--------: | ------------ |
+| C / C++ | ✓ | ✓ | ✓ | `gcc` |
+| Rust | ✓ | ✓ | ✓ | `rustc` |
+| Go | ✓ | ✓ | ✓ | `go` |
+| C# | ✓ | ✓ | ✓ | `dotnet` |
+| Java | ✓ | ✓ | ✓ | `javac` + `java` |
+| TypeScript | ✓ | ✓ | ✓ | `tsx` (Node) |
+| Python | ✓ | ✓ | — | CPython |
+| Verilog | ✓ | — | — | `iverilog` |
+| VHDL | ✓ | — | — | `ghdl` |
+
+Every ✓ is the **whole catalogue** (all 100+ algorithms) generated, compiled, and executed through that real toolchain in CI, with outputs checked against the reference vectors.  The em-dash cells are variants the target deliberately does not offer, not gaps in coverage.
+
 That cross is also why the test badge reads in the thousands.  The count is not coverage chasing: it is a small set of assertions parametrized over algorithms × languages × variants × reference inputs, because CRC correctness is a finite, enumerable space and covering an enumerable space exhaustively is cheap (the whole cross runs in about a minute).  The number measures the size of the matrix, not the size of the test code.
 
 That cross is also why the test badge reads in the thousands.  The count is not coverage chasing: it is a small set of assertions parametrized over algorithms × languages × variants × reference inputs, because CRC correctness is a finite, enumerable space and covering an enumerable space exhaustively is cheap (the whole cross runs in about a minute).  The number measures the size of the matrix, not the size of the test code.
 
 CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against **four independent reference vectors** (the empty input, the canonical `"123456789"` check string, all 256 byte values, and a 1 KiB pseudo-random pattern), computed by two independent engines that had to agree, so the null, the trivial, and the complex cases are all covered and a silent regression in crcglot's own engine can't hide.  The Python generator is run end-to-end (generated, exec'd, and exercised) against those same vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, Java, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `javac`+`java` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain.
 
-Every generated file also ships its own `_self_test()`.  For a catalogue algorithm it now checks **four** fixed inputs (the empty string, `"123456789"`, all 256 byte values, and a 1 KiB pseudo-random pattern), so the byte-table and the high-bit handling get exercised, not just the one short check string.  The two large inputs are regenerated inside the self-test with a byte-at-a-time loop, so the embedded code carries no big array (it stays friendly to flash- and RAM-constrained targets).  Those four reference CRCs are not computed by crcglot: using the engine to grade itself would be circular.  They come from two independent implementations ([anycrc](https://pypi.org/project/anycrc/) and [crccheck](https://pypi.org/project/crccheck/)) that had to agree, anchored to reveng's published value at the check string; both are dev-only tools, so the shipped package keeps its zero-dependency footprint.  A custom (non-catalogue) polynomial has no independent reference, so it falls back to a single check value crcglot computed itself, a weaker check that still catches a toolchain mismatch but, unlike a catalogue algorithm, can't catch an error shared by the generator and the generated code.
+Every generated file also ships its own `_self_test()`.  For a catalogue algorithm it now checks **four** fixed inputs (the empty string, `"123456789"`, all 256 byte values, and a 1 KiB pseudo-random pattern), so the byte-table and the high-bit handling get exercised, not just the one short check string.  The two large inputs are regenerated inside the self-test with a byte-at-a-time loop, so the embedded code carries no big array (it stays friendly to flash- and RAM-constrained targets).  Those four reference CRCs are not computed by crcglot: using the engine to grade itself would be circular.  They come from two independent implementations ([anycrc](https://pypi.org/project/anycrc/) and [crccheck](https://pypi.org/project/crccheck/)) that had to agree, anchored to reveng's published value at the check string; both are dev-only tools, so the shipped package keeps its zero-dependency footprint.  In short: crcglot agrees with every reference implementation it can be compared against, including the stdlib's `zlib.crc32`, which it uses directly at runtime for IEEE CRC-32.  A custom (non-catalogue) polynomial has no independent reference, so it falls back to a single check value crcglot computed itself, a weaker check that still catches a toolchain mismatch but, unlike a catalogue algorithm, can't catch an error shared by the generator and the generated code.
 
 **For every target except Python, you should call `_self_test()` once in your build environment**, wired into a unit test, a startup assertion, or your boot self-check.  Our CI proves the generator emits correct code on our reference toolchain; only running `_self_test()` on yours proves your compiler version, optimization flags, target endianness, and integer widths haven't introduced a subtle disagreement.  Python is the exception: the interpreter that ran the CI suite is the one running your code, so the in-environment check would be redundant.
 
