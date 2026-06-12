@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Docs: the certification story, stated without overselling
+
+New `docs/certification.md`: what crcglot puts in front of a safety-certification process (the traceable requirement, independently-derived on-target test vectors with an inspectable provenance chain, review-sized deterministic code), what always remains the integrator's, regime notes for DO-178C/DO-330 and IEC 62304/FDA, and an explicit list of what is **not** claimed (no MISRA assessment, no published coverage figures, the weaker custom-poly check, no fitness claim).  The README's verification section now reflects the four-vector reality (null, trivial, and complex inputs from two agreeing engines) and explains that the four-digit test badge measures the algorithms × languages × variants × inputs matrix, not coverage chasing.
+
+
 ### Added: every surface speaks the same verbs
 
 A structural review of the three user surfaces (CLI, MCP, Python API) closed the gaps it found:

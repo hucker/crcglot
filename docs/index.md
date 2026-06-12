@@ -6,6 +6,7 @@ The [README](../README.md) is the overview; the reference lives here, one sectio
 - **[Programmatic API](api.md)**: the `LANGUAGES` / `ALGORITHMS` registries, custom polynomials, the runtime engine, streaming (`CrcStream`) and batch (`generic_crc_many`).
 - **[Generated code style](generated-code.md)**: documentation-comment styles per language, naming conventions, and why the generated docs are deterministic.
 - **[MCP server](MCP.md)**: exposing crcglot's tools to LLM clients (Claude Desktop, Cursor, …): setup, every tool, resources, prompts.
+- **[Certification story](certification.md)**: using the output in safety-certified software; what you get, what stays yours, what is not claimed.
 - **[Architecture](ARCHITECTURE.md)**: how the package is put together.
 
 Also in the repository root:
