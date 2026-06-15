@@ -49,6 +49,12 @@ You still can: point an LLM at the output and let it write whatever prose you li
 
 Layer an LLM on top when you want richer prose.  The point is that the *baseline* everyone ships by default is deterministic, uniform, and reviewable.
 
+## Provenance
+
+Every file header carries a `Reproduce with crcglot` block of the resolved parameters: algorithm, target, variant, comment style, symbol, and naming.  It is always on (no flag), and it costs nothing once the compiler discards comments.  The crcglot **version** is deliberately kept out of the comment so a version bump does not re-diff every file.
+
+C goes one step further and emits the same record as **linkable data**: a public `const crcglot_provenance_t <symbol>_provenance` (with the crcglot version included) that a program can read at runtime, e.g. firmware reporting its CRC configuration over a diagnostic channel.  Because it is a public symbol it never trips `-Wunused-const-variable` under `-Werror`.  A linker with `--gc-sections` drops it when nothing references it, so it is free unless you use it; on a toolchain without section GC, define `CRCGLOT_NO_PROVENANCE` to omit it. The values are constrained tokens (catalogue name, enum, identifier), so the record never needs escaping.
+
 ## Naming conventions
 
 The generated public functions read like hand-written code in each target: Go and C# get `PascalCase` (`Crc16ModbusUpdate`), Java and TypeScript get `camelCase` (`crc16ModbusUpdate`), and C, Rust, Python, Verilog, and VHDL get `snake_case` (`crc16_modbus_update`).  Those are the **defaults**, so a linter (`govet`, StyleCop, ESLint, …) won't flag the output.  Override with `--naming=<convention>`; each language offers only the conventions its ecosystem actually uses (C is a free-for-all, Python and Rust are snake-only):

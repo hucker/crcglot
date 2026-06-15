@@ -37,7 +37,9 @@ from .model import (
     AlgoMeta,
     DocBlock,
     DocParam,
+    ProvInfo,
     UsageExample,
+    build_prov,
     standard_doc_blocks,
 )
 from .registry import (
@@ -55,8 +57,10 @@ __all__ = [
     "AlgoMeta",
     "DocBlock",
     "DocParam",
+    "ProvInfo",
     "StyleInfo",
     "UsageExample",
+    "build_prov",
     "comment_style_for",
     "comment_styles_for_language",
     "languages_for_style",

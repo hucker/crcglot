@@ -67,6 +67,7 @@ from crcglot.comments import (
     AlgoMeta,
     DocParam,
     UsageExample,
+    build_prov,
     comment_style_for,
     standard_doc_blocks,
 )
@@ -525,9 +526,14 @@ def generate_java_from_entry(
         "high bit is set); call Integer.toUnsignedLong(x) for a 0..2^32-1 value.",
     )
     style = comment_style_for("java", comment_style)
+    provenance = build_prov(
+        algo_source=algo.source, algorithm=name, target="java",
+        variant=resolved, comment=comment_style, symbol=base, naming=naming,
+    )
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=algo.init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
+        provenance=provenance,
     )
     usage = UsageExample(
         streaming=(

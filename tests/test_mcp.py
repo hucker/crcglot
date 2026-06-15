@@ -730,6 +730,19 @@ class TestCrcGenerate:
         assert out["variant"] == "bitwise", "explicit bitwise must be honoured"
         assert "slice" not in out["files"][0]["content"].lower(), "no slice table"
 
+    def test_provenance_always_present(self):
+        # Act -- provenance is unconditional (no flag).
+        out = _call("crc_generate", {"language": "c", "algorithm": "crc16-xmodem"})
+
+        # Assert -- comment block in the header + linkable const record in C.
+        content = out["files"][0]["content"]
+        assert "Reproduce with crcglot:" in content, (
+            "header should carry the reproduce-with comment block"
+        )
+        assert "crcglot_provenance_t crc16_xmodem_provenance" in content, (
+            "C output should carry the linkable const provenance record"
+        )
+
     def test_response_carries_advisories(self):
         # crc32 on a compiled target -> a stdlib-crc32 info advisory (dict-shaped
         # for the JSON wire, mirroring LanguageInfo.advisories_for).

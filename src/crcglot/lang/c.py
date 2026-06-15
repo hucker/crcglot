@@ -49,7 +49,9 @@ from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
     AlgoMeta,
     DocParam,
+    ProvInfo,
     UsageExample,
+    build_prov,
     comment_style_for,
     standard_doc_blocks,
 )
@@ -391,6 +393,69 @@ def _self_test_c(names, check: int, width: int, ctype: str, goldens) -> str:
     return "\n".join(lines)
 
 
+#: Opt-out macro: define it to omit the linkable provenance record on a
+#: toolchain that lacks section garbage collection (so the bytes would
+#: otherwise always ship).  See :func:`_provenance_decl_c`.
+_PROV_GUARD = "CRCGLOT_NO_PROVENANCE"
+
+#: Field order of the emitted ``crcglot_provenance_t`` (mirrors ProvInfo).
+_PROV_FIELDS = (
+    "tool_version", "algorithm", "target", "variant", "comment", "symbol", "naming",
+)
+
+
+def _provenance_decl_c(base: str) -> list[str]:
+    """The ``.h`` side of the linkable provenance record.
+
+    Emits the shared ``crcglot_provenance_t`` struct type (behind a one-shot
+    guard so a bundle of concatenated headers defines it once) and this
+    symbol's ``extern`` declaration.  The whole thing is wrapped in
+    ``CRCGLOT_NO_PROVENANCE`` so a toolchain without section GC can compile it
+    out.  Because the record is a *public* symbol, it never trips
+    ``-Wunused-const-variable`` (the compiler must emit it); a linker with
+    ``--gc-sections`` drops it when nothing references it.
+    """
+    members = [f"    const char *{field};" for field in _PROV_FIELDS]
+    return [
+        f"#ifndef {_PROV_GUARD}",
+        "#ifndef CRCGLOT_PROVENANCE_T_DEFINED",
+        "#define CRCGLOT_PROVENANCE_T_DEFINED",
+        "typedef struct {",
+        *members,
+        "} crcglot_provenance_t;",
+        "#endif",
+        f"extern const crcglot_provenance_t {base}_provenance;",
+        "#endif",
+    ]
+
+
+def _provenance_def_c(base: str, prov: ProvInfo) -> list[str]:
+    """The ``.c`` side: the ``const`` definition, designated-initializer style.
+
+    Values are constrained tokens (catalogue name / enums / identifier), so no
+    escaping is needed.  Guarded by ``CRCGLOT_NO_PROVENANCE`` to match the
+    declaration.
+    """
+    values = {
+        "tool_version": prov.tool_version,
+        "algorithm": prov.algorithm,
+        "target": prov.target,
+        "variant": prov.variant,
+        "comment": prov.comment,
+        "symbol": prov.symbol,
+        "naming": prov.naming,
+    }
+    width = max(len(field) for field in _PROV_FIELDS)
+    body = [f'    .{field:<{width}} = "{values[field]}",' for field in _PROV_FIELDS]
+    return [
+        f"#ifndef {_PROV_GUARD}",
+        f"const crcglot_provenance_t {base}_provenance = {{",
+        *body,
+        "};",
+        "#endif",
+    ]
+
+
 def _header_c(base, names, ctype, style, meta, usage, docs) -> str:
     """Emit the ``.h`` header: file overview + per-prototype doc comments.
 
@@ -430,6 +495,8 @@ def _header_c(base, names, ctype, style, meta, usage, docs) -> str:
     lines.append("")
     lines += style.doc_block(docs["self_test"])
     lines.append(f"int {names['self_test']}(void);")
+    lines.append("")
+    lines += _provenance_decl_c(base)
     lines += [
         f"",
         f"#ifdef __cplusplus",
@@ -589,9 +656,14 @@ def generate_c_from_entry(
     init_state = _reflect(init, w) if refin else init
 
     style = comment_style_for("c", comment_style)
+    provenance = build_prov(
+        algo_source=algo.source, algorithm=name, target="c",
+        variant=resolved, comment=comment_style, symbol=base, naming=naming,
+    )
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
+        provenance=provenance,
     )
     usage = UsageExample(
         streaming=(
@@ -673,6 +745,10 @@ def generate_c_from_entry(
 
     # ----- self-test -----
     lines.append(_self_test_c(names, check, w, ctype, goldens_for(algo)))
+    lines.append("")
+
+    # ----- linkable provenance record (stripped by --gc-sections if unused) -----
+    lines += _provenance_def_c(base, provenance)
 
     header = _header_c(base, names, ctype, style, meta, usage, docs)
     source = "\n".join(lines)

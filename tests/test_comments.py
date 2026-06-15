@@ -724,3 +724,108 @@ def test_no_catalogue_description_contains_block_marker() -> None:
         f"catalogue descriptions must not contain block-comment markers: "
         f"{offenders}"
     )
+
+
+# ── reproduce-with-crcglot provenance block ──────────────────────────────
+#
+# Every file header carries a "Reproduce with crcglot" block of the resolved
+# generation parameters (always on, no flag).  It flows through the shared
+# `_header_body` (plain / numpy / rest / rustdoc / godoc / docfx / jsdoc /
+# javadoc) and the two hand-written header bodies (google, doxygen), so it
+# must render in EVERY (language, style) cell with balanced delimiters where
+# the style is block-based.  `tool_version` is deliberately NOT in the comment
+# (it would churn every file / EXAMPLES cell per release); it lives in the C
+# `const` provenance record instead (see test_c_gen.py).
+
+_PROV_MARKER = "Reproduce with crcglot:"
+_PROV_KEYS = ("algorithm", "target", "variant", "comment", "symbol", "naming")
+
+# Every (language, style) pair, derived from the registry so a new style is
+# covered automatically (age-proof, per the project's cruft-audit guidance).
+_PROV_STYLE_CELLS = [
+    (lang, style)
+    for lang in sorted(LANGUAGES)
+    for style in styles_for_language(lang)
+]
+
+
+def _prov_source(lang: str, *, style: str, name: str = "crc32",
+                 variant: str = "bitwise") -> str:
+    """Generate ``name`` for ``lang`` in ``style`` and flatten to one string."""
+    out = LANGUAGES[lang].generator(
+        name, variant=variant, comment_style=style,
+    )
+    assert out is not None, f"{lang}/{style}: generator returned None for {name!r}"
+    return "\n".join(out) if isinstance(out, tuple) else out
+
+
+def test_prov_block_omits_volatile_version() -> None:
+    """The comment block carries no tool_version (kept out to avoid per-release
+    churn of every file and EXAMPLES cell)."""
+    # Act
+    src = _prov_source("c", style="plain")
+
+    # Assert -- the block is present but tool_version is not one of its keys.
+    assert _PROV_MARKER in src, "header missing the reproduce-with block"
+    block = src.split(_PROV_MARKER, 1)[1]
+    assert "tool_version" not in block.split("*/")[0], (
+        "comment provenance block must not carry the volatile tool_version"
+    )
+
+
+@pytest.mark.parametrize("lang, style", _PROV_STYLE_CELLS)
+def test_prov_block_present_in_every_style(lang: str, style: str) -> None:
+    """Every (language, style) cell emits the marker plus all six key lines,
+    and block-comment styles stay delimiter-balanced (no injection)."""
+    # Act
+    src = _prov_source(lang, style=style)
+
+    # Assert -- the block and each reconstruction key are present.
+    assert _PROV_MARKER in src, f"{lang}/{style}: reproduce-with block missing"
+    for key in _PROV_KEYS:
+        assert f"{key}:" in src, f"{lang}/{style}: provenance block missing {key!r}"
+
+    # Assert -- block-comment renderings remain balanced.
+    actual_open, actual_close = src.count("/*"), src.count("*/")
+    assert actual_open == actual_close, (
+        f"{lang}/{style}: provenance block unbalanced the comment "
+        f"({actual_open} '/*' vs {actual_close} '*/')"
+    )
+
+
+def test_prov_variant_is_canonical() -> None:
+    """The block records the resolved variant, not the raw flag or ``auto``.
+
+    Rust ``crc32`` with ``variant="auto"`` resolves to slice-by-8; the block
+    must show ``slice8``, the load-bearing proof we emit ``resolved``.
+    """
+    # Act
+    src = _prov_source("rust", style="plain", name="crc32", variant="auto")
+
+    # Assert
+    line = next(ln for ln in src.splitlines() if "variant:" in ln)
+    actual = line.split("variant:", 1)[1].strip()
+    expected = "slice8"
+    assert actual == expected, (
+        f"provenance variant should be the resolved {expected!r}, got {actual!r}"
+    )
+
+
+def test_prov_labels_custom_polynomial_as_custom() -> None:
+    """A custom (non-catalogue) polynomial is labelled ``algorithm: custom``."""
+    # Arrange
+    from crcglot.catalogue import custom_algorithm
+
+    cust = custom_algorithm(width=16, poly=0x1021, desc="a custom crc")
+
+    # Act
+    files = LANGUAGES["rust"].generate_files(custom=cust)
+    src = files[0].content
+
+    # Assert
+    line = next(ln for ln in src.splitlines() if "algorithm:" in ln)
+    actual = line.split("algorithm:", 1)[1].strip()
+    expected = "custom"
+    assert actual == expected, (
+        f"custom polynomial should be labelled {expected!r}, got {actual!r}"
+    )

@@ -45,6 +45,7 @@ from crcglot.comments import (
     AlgoMeta,
     DocParam,
     UsageExample,
+    build_prov,
     comment_style_for,
     standard_doc_blocks,
 )
@@ -253,9 +254,14 @@ def generate_python_from_entry(
     init_state = _reflect(init, w) if refin else init
 
     style = comment_style_for("python", comment_style)
+    provenance = build_prov(
+        algo_source=algo.source, algorithm=name, target="python",
+        variant=resolved, comment=comment_style, symbol=base, naming=naming,
+    )
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
+        provenance=provenance,
     )
     usage = UsageExample(
         streaming=(

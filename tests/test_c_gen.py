@@ -126,6 +126,154 @@ class TestGenerateC:
         assert "uint64_t crc64_xz(" in header, "header declares u64-return func"
 
 
+class TestCProvenanceRecord:
+    """Every C pair carries a linkable ``const crcglot_provenance_t`` record.
+
+    Declared (``extern``) in the header, defined in the source, behind a
+    ``CRCGLOT_NO_PROVENANCE`` guard so a toolchain without section GC can
+    compile it out.  It is a *public* symbol, so it never trips
+    ``-Wunused-const-variable``; a linker with ``--gc-sections`` drops it when
+    unused.  It carries the ``tool_version`` that the comment block omits.
+    """
+
+    def _pair(self, name: str, **kw) -> tuple[str, str]:
+        """``generate_c`` pair with the ``None`` (unknown algorithm) narrowed."""
+        out = generate_c(name, **kw)
+        assert out is not None, f"generate_c({name!r}) returned None"
+        return out
+
+    def _prov_value(self, source: str, field: str) -> str:
+        """The string assigned to ``.field`` in the const initializer."""
+        line = next(ln for ln in source.splitlines() if f".{field}" in ln)
+        return line.split('"')[1]
+
+    def test_header_declares_extern_record(self):
+        # Act
+        header, _ = self._pair("crc16-xmodem")
+
+        # Assert
+        assert "} crcglot_provenance_t;" in header, "header defines the record type"
+        actual = "extern const crcglot_provenance_t crc16_xmodem_provenance;"
+        assert actual in header, "header declares the per-symbol extern record"
+
+    def test_source_defines_const_record_with_params(self):
+        # Act
+        _, source = self._pair("crc16-xmodem", variant="table")
+
+        # Assert -- the resolved generation parameters are in the const.
+        assert "const crcglot_provenance_t crc16_xmodem_provenance = {" in source, (
+            "source defines the const record"
+        )
+        actual = {
+            "algorithm": self._prov_value(source, "algorithm"),
+            "target": self._prov_value(source, "target"),
+            "variant": self._prov_value(source, "variant"),
+        }
+        expected = {"algorithm": "crc16-xmodem", "target": "c", "variant": "table"}
+        assert actual == expected, f"record params {actual} != {expected}"
+
+    def test_record_carries_tool_version(self):
+        """The volatile version lives here (not in the comment block)."""
+        # Act
+        _, source = self._pair("crc16-xmodem")
+
+        # Assert -- a non-empty version string is assigned.
+        actual = self._prov_value(source, "tool_version")
+        assert actual, "const record must carry a non-empty tool_version"
+
+    def test_record_is_macro_guarded_both_sides(self):
+        # Act
+        header, source = self._pair("crc16-xmodem")
+
+        # Assert
+        assert "#ifndef CRCGLOT_NO_PROVENANCE" in header, "header guards the decl"
+        assert "#ifndef CRCGLOT_NO_PROVENANCE" in source, "source guards the def"
+
+    def test_record_variant_is_canonical(self):
+        """``auto`` on crc32 resolves to slice-by-8; the record shows it."""
+        # Act
+        _, source = self._pair("crc32", variant="auto")
+
+        # Assert
+        actual = self._prov_value(source, "variant")
+        expected = "slice8"
+        assert actual == expected, f"record variant {actual!r} != {expected!r}"
+
+    def test_record_labels_custom_polynomial(self):
+        # Arrange
+        from crcglot.catalogue import custom_algorithm
+
+        cust = custom_algorithm(width=16, poly=0x1021, desc="a custom crc")
+
+        # Act
+        from crcglot.lang.c import generate_c_from_entry
+
+        _, source = generate_c_from_entry("mycrc", cust)
+
+        # Assert
+        actual = self._prov_value(source, "algorithm")
+        expected = "custom"
+        assert actual == expected, f"custom record algorithm {actual!r} != {expected!r}"
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GCC, reason="gcc not in PATH")
+def test_c_provenance_record_compiles_both_ways(tmp_path):
+    """The const record compiles clean under ``-Werror`` (public symbol, so no
+    unused-const warning), is readable at runtime, and is removed entirely by
+    ``-DCRCGLOT_NO_PROVENANCE`` -- the escape hatch for a no-GC toolchain.
+    """
+    # Arrange
+    pair = generate_c("crc16-xmodem", variant="table")
+    assert pair is not None, "generate_c returned None"
+    header, source = pair
+    fname = "crc16_xmodem"
+    (tmp_path / f"{fname}.h").write_text(header)
+    (tmp_path / f"{fname}.c").write_text(source)
+    (tmp_path / "ref.c").write_text(
+        f'#include "{fname}.h"\n'
+        "int main(void) {\n"
+        f"    if ({fname}_self_test() != 0) return 1;\n"
+        f"    return {fname}_provenance.tool_version[0] == 0;\n"
+        "}\n"
+    )
+    (tmp_path / "noref.c").write_text(
+        f'#include "{fname}.h"\n'
+        f"int main(void) {{ return {fname}_self_test(); }}\n"
+    )
+    base = ["gcc", "-std=c99", "-Wall", "-Wextra", "-Werror",
+            "-Wunused-const-variable"]
+
+    # Act / Assert -- default build references the record and runs.
+    on_bin = tmp_path / "on"
+    on = subprocess.run(
+        [*base, "-o", str(on_bin), str(tmp_path / f"{fname}.c"),
+         str(tmp_path / "ref.c")],
+        capture_output=True, cwd=tmp_path,
+    )
+    assert on.returncode == 0, (
+        f"default build failed: {on.stderr.decode(errors='replace')}"
+    )
+    assert subprocess.run([str(on_bin)], cwd=tmp_path).returncode == 0, (
+        "runtime read of the provenance record failed"
+    )
+
+    # Act / Assert -- macro-off build compiles the record out and still runs.
+    off_bin = tmp_path / "off"
+    off = subprocess.run(
+        [*base, "-DCRCGLOT_NO_PROVENANCE", "-o", str(off_bin),
+         str(tmp_path / f"{fname}.c"), str(tmp_path / "noref.c")],
+        capture_output=True, cwd=tmp_path,
+    )
+    assert off.returncode == 0, (
+        f"-DCRCGLOT_NO_PROVENANCE build failed: "
+        f"{off.stderr.decode(errors='replace')}"
+    )
+    assert subprocess.run([str(off_bin)], cwd=tmp_path).returncode == 0, (
+        "macro-off build did not run"
+    )
+
+
 class TestGenerateCTableVariants:
     """Table-driven update-loop variants emit different inner loops:
 

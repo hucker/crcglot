@@ -283,6 +283,40 @@ class TestCodegenStdout:
         assert "def crc32(" in out
 
 
+class TestCodegenProvenance:
+    """Provenance is always present: a 'Reproduce with crcglot' comment block
+    in every language, plus a linkable const record in C."""
+
+    def test_comment_block_always_present(self, capsys):
+        # Act -- no flag; the block is unconditional.
+        rc = main(["python", "crc16-xmodem", "--comment", "google"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        assert rc == 0, "codegen should succeed"
+        assert "Reproduce with crcglot:" in out, "comment provenance block present"
+        assert "tool_version" not in out, "comment block omits the volatile version"
+
+    def test_c_emits_linkable_record(self, capsys):
+        # Act
+        rc = main(["c", "crc16-xmodem"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        assert rc == 0, "C codegen should succeed"
+        assert "crcglot_provenance_t crc16_xmodem_provenance" in out, (
+            "C output should carry the linkable const provenance record"
+        )
+        assert "#ifndef CRCGLOT_NO_PROVENANCE" in out, "record is macro-guarded"
+
+    def test_no_prov_flag_exists(self):
+        """The provenance is unconditional, so there is no --prov flag."""
+        # Act / Assert -- argparse rejects the removed flag with a nonzero exit.
+        with pytest.raises(SystemExit) as exc:
+            main(["c", "crc16-xmodem", "--prov"])
+        assert exc.value.code != 0, "--prov should no longer be a recognised flag"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Codegen -- file= output path.
 # ─────────────────────────────────────────────────────────────────────

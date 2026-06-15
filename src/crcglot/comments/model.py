@@ -14,6 +14,71 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class ProvInfo:
+    """The resolved generation parameters, for the opt-in provenance block.
+
+    Every field is an already-constrained value (catalogue name, target /
+    variant / comment enums, an identifier symbol), so the rendered block is
+    reconstruction-complete and carries no comment-injection risk.  ``variant``
+    is the canonical resolved name (``bitwise`` / ``table`` / ``slice8``), never
+    the raw flag spelling or ``auto``.
+    """
+
+    tool_version: str
+    algorithm: str
+    target: str
+    variant: str
+    comment: str
+    symbol: str
+    naming: str
+
+
+def build_prov(
+    *,
+    algo_source: str,
+    algorithm: str,
+    target: str,
+    variant: str,
+    comment: str,
+    symbol: str,
+    naming: str,
+) -> ProvInfo:
+    """Build the :class:`ProvInfo` for a generation.
+
+    Centralizes the two cross-cutting decisions so every generator shares them:
+    the lazy ``crcglot.__version__`` read, and the ``"custom"`` algorithm label
+    for non-catalogue polynomials.  Provenance is always built now (the comment
+    block is always on); ``tool_version`` is consumed by the C ``const`` record,
+    not the comment block (see :func:`crcglot.comments.base._prov_block_lines`).
+
+    Args:
+        algo_source: The algorithm's ``source`` field (``"custom"`` for a
+            custom polynomial, else a catalogue provenance string).
+        algorithm: The catalogue name, used unless ``algo_source`` is custom.
+        target: The target language code.
+        variant: The canonical resolved variant (``bitwise`` / ``table`` /
+            ``slice8``), never the raw flag or ``"auto"``.
+        comment: The comment style.
+        symbol: The resolved function symbol base.
+        naming: The resolved naming convention.
+
+    Returns:
+        A populated :class:`ProvInfo`.
+    """
+    from crcglot import __version__
+
+    return ProvInfo(
+        tool_version=str(__version__),
+        algorithm="custom" if algo_source == "custom" else algorithm,
+        target=target,
+        variant=variant,
+        comment=comment,
+        symbol=symbol,
+        naming=naming,
+    )
+
+
+@dataclass(frozen=True)
 class AlgoMeta:
     """Algorithm parameters, for the file-header overview."""
 
@@ -27,6 +92,10 @@ class AlgoMeta:
     xorout: int
     check: int
     variant: str
+    #: Resolved generation provenance, emitted as a block when ``--prov`` /
+    #: ``prov=True`` is requested; ``None`` (the default) emits nothing, so
+    #: existing output is byte-unchanged.
+    provenance: ProvInfo | None = None
 
 
 @dataclass(frozen=True)
