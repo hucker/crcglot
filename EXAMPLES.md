@@ -125,7 +125,6 @@ int crc32_self_test(void);
 #ifndef CRCGLOT_PROVENANCE_T_DEFINED
 #define CRCGLOT_PROVENANCE_T_DEFINED
 typedef struct {
-    const char *tool_version;
     const char *algorithm;
     const char *target;
     const char *variant;
@@ -234,13 +233,12 @@ int crc32_self_test(void) {
 
 #ifndef CRCGLOT_NO_PROVENANCE
 const crcglot_provenance_t crc32_provenance = {
-    .tool_version = "0.20.0",
-    .algorithm    = "crc32",
-    .target       = "c",
-    .variant      = "bitwise",
-    .comment      = "plain",
-    .symbol       = "crc32",
-    .naming       = "snake",
+    .algorithm = "crc32",
+    .target    = "c",
+    .variant   = "bitwise",
+    .comment   = "plain",
+    .symbol    = "crc32",
+    .naming    = "snake",
 };
 #endif
 ```
@@ -348,7 +346,6 @@ int crc32_self_test(void);
 #ifndef CRCGLOT_PROVENANCE_T_DEFINED
 #define CRCGLOT_PROVENANCE_T_DEFINED
 typedef struct {
-    const char *tool_version;
     const char *algorithm;
     const char *target;
     const char *variant;
@@ -485,13 +482,12 @@ int crc32_self_test(void) {
 
 #ifndef CRCGLOT_NO_PROVENANCE
 const crcglot_provenance_t crc32_provenance = {
-    .tool_version = "0.20.0",
-    .algorithm    = "crc32",
-    .target       = "c",
-    .variant      = "table",
-    .comment      = "plain",
-    .symbol       = "crc32",
-    .naming       = "snake",
+    .algorithm = "crc32",
+    .target    = "c",
+    .variant   = "table",
+    .comment   = "plain",
+    .symbol    = "crc32",
+    .naming    = "snake",
 };
 #endif
 ```
@@ -599,7 +595,6 @@ int crc32_self_test(void);
 #ifndef CRCGLOT_PROVENANCE_T_DEFINED
 #define CRCGLOT_PROVENANCE_T_DEFINED
 typedef struct {
-    const char *tool_version;
     const char *algorithm;
     const char *target;
     const char *variant;
@@ -989,13 +984,12 @@ int crc32_self_test(void) {
 
 #ifndef CRCGLOT_NO_PROVENANCE
 const crcglot_provenance_t crc32_provenance = {
-    .tool_version = "0.20.0",
-    .algorithm    = "crc32",
-    .target       = "c",
-    .variant      = "slice8",
-    .comment      = "plain",
-    .symbol       = "crc32",
-    .naming       = "snake",
+    .algorithm = "crc32",
+    .target    = "c",
+    .variant   = "slice8",
+    .comment   = "plain",
+    .symbol    = "crc32",
+    .naming    = "snake",
 };
 #endif
 ```
@@ -5062,7 +5056,6 @@ int crc32_self_test(void);
 #ifndef CRCGLOT_PROVENANCE_T_DEFINED
 #define CRCGLOT_PROVENANCE_T_DEFINED
 typedef struct {
-    const char *tool_version;
     const char *algorithm;
     const char *target;
     const char *variant;
@@ -5171,13 +5164,12 @@ int crc32_self_test(void) {
 
 #ifndef CRCGLOT_NO_PROVENANCE
 const crcglot_provenance_t crc32_provenance = {
-    .tool_version = "0.20.0",
-    .algorithm    = "crc32",
-    .target       = "c",
-    .variant      = "bitwise",
-    .comment      = "plain",
-    .symbol       = "crc32",
-    .naming       = "snake",
+    .algorithm = "crc32",
+    .target    = "c",
+    .variant   = "bitwise",
+    .comment   = "plain",
+    .symbol    = "crc32",
+    .naming    = "snake",
 };
 #endif
 ```
@@ -5279,7 +5271,6 @@ int crc32_self_test(void);
 #ifndef CRCGLOT_PROVENANCE_T_DEFINED
 #define CRCGLOT_PROVENANCE_T_DEFINED
 typedef struct {
-    const char *tool_version;
     const char *algorithm;
     const char *target;
     const char *variant;
@@ -5389,13 +5380,12 @@ int crc32_self_test(void) {
 
 #ifndef CRCGLOT_NO_PROVENANCE
 const crcglot_provenance_t crc32_provenance = {
-    .tool_version = "0.20.0",
-    .algorithm    = "crc32",
-    .target       = "c",
-    .variant      = "bitwise",
-    .comment      = "doxygen",
-    .symbol       = "crc32",
-    .naming       = "snake",
+    .algorithm = "crc32",
+    .target    = "c",
+    .variant   = "bitwise",
+    .comment   = "doxygen",
+    .symbol    = "crc32",
+    .naming    = "snake",
 };
 #endif
 ```

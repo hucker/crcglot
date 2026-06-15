@@ -135,7 +135,7 @@ Emit verified source code for a (language, variant) cell.  `language` ∈ {`c`, 
 
 `algorithm` accepts **one name, a list of names, or a space-separated string** (`"crc32 crc16-modbus crc8"`); multiple names **bundle into one file** (one `.h` + one `.c` for C), each keeping its catalogue-derived function names; per-symbol tables keep the bundle collision-free.  The chosen `variant` must be legal for every algorithm's width (`slice8` is width 32/64 only), `symbol` is rejected with more than one algorithm, and the response's `algorithms` field lists what was generated.  Mirrors `crcglot <lang> crc32 crc16-modbus … file=STEM`.
 
-Every generated file header carries a `Reproduce with crcglot` block of the resolved parameters (algorithm, target, variant, comment style, symbol, naming); it is always on, with no flag.  C additionally emits a linkable `const crcglot_provenance_t <symbol>_provenance` (carrying the crcglot version) for runtime introspection, dropped by `--gc-sections` when unused or `-DCRCGLOT_NO_PROVENANCE` on a toolchain without section GC.
+Every generated file header carries a `Reproduce with crcglot` block of the resolved parameters (algorithm, target, variant, comment style, symbol, naming); it is always on, with no flag.  C additionally emits a linkable `const crcglot_provenance_t <symbol>_provenance` for runtime introspection of the CRC configuration, dropped by `--gc-sections` when unused or `-DCRCGLOT_NO_PROVENANCE` on a toolchain without section GC.  The record carries only request-derived values (no tool version).
 
 ### `crc_credits()`
 

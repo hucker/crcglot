@@ -759,17 +759,17 @@ def _prov_source(lang: str, *, style: str, name: str = "crc32",
     return "\n".join(out) if isinstance(out, tuple) else out
 
 
-def test_prov_block_omits_volatile_version() -> None:
-    """The comment block carries no tool_version (kept out to avoid per-release
-    churn of every file and EXAMPLES cell)."""
+def test_prov_is_request_derived_no_version() -> None:
+    """Provenance carries only request-derived params, never a tool version, so
+    generated output stays a pure function of the request (no install-env
+    dependence).  Guards against re-introducing an env-dependent field."""
     # Act
     src = _prov_source("c", style="plain")
 
-    # Assert -- the block is present but tool_version is not one of its keys.
+    # Assert -- the block is present and the C const carries no version field.
     assert _PROV_MARKER in src, "header missing the reproduce-with block"
-    block = src.split(_PROV_MARKER, 1)[1]
-    assert "tool_version" not in block.split("*/")[0], (
-        "comment provenance block must not carry the volatile tool_version"
+    assert "tool_version" not in src, (
+        "provenance must not carry a tool version (env-dependent, non-reproducible)"
     )
 
 

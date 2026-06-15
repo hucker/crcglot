@@ -809,7 +809,7 @@ def build_server() -> FastMCP:
             "<returns> XML doc comments for C#.  Every file header also carries "
             "a 'Reproduce with crcglot' block (the resolved algorithm, target, "
             "variant, comment style, symbol, naming); C additionally emits a "
-            "linkable const provenance record (with the tool version), dropped "
+            "linkable const provenance record for runtime introspection, dropped "
             "by --gc-sections when unused or via -DCRCGLOT_NO_PROVENANCE.  The "
             "returned 'algorithms' "
             "lists what was generated; 'advisories' carries any "

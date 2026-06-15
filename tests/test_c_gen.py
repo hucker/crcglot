@@ -172,15 +172,6 @@ class TestCProvenanceRecord:
         expected = {"algorithm": "crc16-xmodem", "target": "c", "variant": "table"}
         assert actual == expected, f"record params {actual} != {expected}"
 
-    def test_record_carries_tool_version(self):
-        """The volatile version lives here (not in the comment block)."""
-        # Act
-        _, source = self._pair("crc16-xmodem")
-
-        # Assert -- a non-empty version string is assigned.
-        actual = self._prov_value(source, "tool_version")
-        assert actual, "const record must carry a non-empty tool_version"
-
     def test_record_is_macro_guarded_both_sides(self):
         # Act
         header, source = self._pair("crc16-xmodem")
@@ -234,7 +225,7 @@ def test_c_provenance_record_compiles_both_ways(tmp_path):
         f'#include "{fname}.h"\n'
         "int main(void) {\n"
         f"    if ({fname}_self_test() != 0) return 1;\n"
-        f"    return {fname}_provenance.tool_version[0] == 0;\n"
+        f"    return {fname}_provenance.algorithm[0] == 0;\n"
         "}\n"
     )
     (tmp_path / "noref.c").write_text(

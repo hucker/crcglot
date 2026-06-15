@@ -15,16 +15,17 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ProvInfo:
-    """The resolved generation parameters, for the opt-in provenance block.
+    """The resolved generation parameters, for the provenance block.
 
-    Every field is an already-constrained value (catalogue name, target /
-    variant / comment enums, an identifier symbol), so the rendered block is
-    reconstruction-complete and carries no comment-injection risk.  ``variant``
-    is the canonical resolved name (``bitwise`` / ``table`` / ``slice8``), never
-    the raw flag spelling or ``auto``.
+    Every field is an already-constrained value derived from the request
+    (catalogue name, target / variant / comment enums, an identifier symbol),
+    so the block is reconstruction-complete, carries no comment-injection risk,
+    and keeps generated output a pure function of the request -- no install-
+    environment dependence (e.g. no tool version).  ``variant`` is the canonical
+    resolved name (``bitwise`` / ``table`` / ``slice8``), never the raw flag
+    spelling or ``auto``.
     """
 
-    tool_version: str
     algorithm: str
     target: str
     variant: str
@@ -45,11 +46,10 @@ def build_prov(
 ) -> ProvInfo:
     """Build the :class:`ProvInfo` for a generation.
 
-    Centralizes the two cross-cutting decisions so every generator shares them:
-    the lazy ``crcglot.__version__`` read, and the ``"custom"`` algorithm label
-    for non-catalogue polynomials.  Provenance is always built now (the comment
-    block is always on); ``tool_version`` is consumed by the C ``const`` record,
-    not the comment block (see :func:`crcglot.comments.base._prov_block_lines`).
+    Centralizes the ``"custom"`` algorithm label for non-catalogue polynomials
+    so every generator shares it.  Provenance is always built (the block is
+    always on) and is derived purely from the request, so generated output does
+    not depend on the install environment.
 
     Args:
         algo_source: The algorithm's ``source`` field (``"custom"`` for a
@@ -65,10 +65,7 @@ def build_prov(
     Returns:
         A populated :class:`ProvInfo`.
     """
-    from crcglot import __version__
-
     return ProvInfo(
-        tool_version=str(__version__),
         algorithm="custom" if algo_source == "custom" else algorithm,
         target=target,
         variant=variant,

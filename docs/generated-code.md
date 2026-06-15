@@ -51,9 +51,9 @@ Layer an LLM on top when you want richer prose.  The point is that the *baseline
 
 ## Provenance
 
-Every file header carries a `Reproduce with crcglot` block of the resolved parameters: algorithm, target, variant, comment style, symbol, and naming.  It is always on (no flag), and it costs nothing once the compiler discards comments.  The crcglot **version** is deliberately kept out of the comment so a version bump does not re-diff every file.
+Every file header carries a `Reproduce with crcglot` block of the resolved parameters: algorithm, target, variant, comment style, symbol, and naming.  It is always on (no flag), and it costs nothing once the compiler discards comments.  The block records only request-derived values, so the same request always produces the same bytes: there is no tool version or other install-environment field to break that.
 
-C goes one step further and emits the same record as **linkable data**: a public `const crcglot_provenance_t <symbol>_provenance` (with the crcglot version included) that a program can read at runtime, e.g. firmware reporting its CRC configuration over a diagnostic channel.  Because it is a public symbol it never trips `-Wunused-const-variable` under `-Werror`.  A linker with `--gc-sections` drops it when nothing references it, so it is free unless you use it; on a toolchain without section GC, define `CRCGLOT_NO_PROVENANCE` to omit it. The values are constrained tokens (catalogue name, enum, identifier), so the record never needs escaping.
+C goes one step further and emits the same record as **linkable data**: a public `const crcglot_provenance_t <symbol>_provenance` that a program can read at runtime, e.g. firmware reporting its CRC configuration over a diagnostic channel.  Because it is a public symbol it never trips `-Wunused-const-variable` under `-Werror`.  A linker with `--gc-sections` drops it when nothing references it, so it is free unless you use it; on a toolchain without section GC, define `CRCGLOT_NO_PROVENANCE` to omit it. The values are constrained tokens (catalogue name, enum, identifier), so the record never needs escaping.
 
 ## Naming conventions
 

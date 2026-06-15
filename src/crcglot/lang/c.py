@@ -399,9 +399,7 @@ def _self_test_c(names, check: int, width: int, ctype: str, goldens) -> str:
 _PROV_GUARD = "CRCGLOT_NO_PROVENANCE"
 
 #: Field order of the emitted ``crcglot_provenance_t`` (mirrors ProvInfo).
-_PROV_FIELDS = (
-    "tool_version", "algorithm", "target", "variant", "comment", "symbol", "naming",
-)
+_PROV_FIELDS = ("algorithm", "target", "variant", "comment", "symbol", "naming")
 
 
 def _provenance_decl_c(base: str) -> list[str]:
@@ -437,7 +435,6 @@ def _provenance_def_c(base: str, prov: ProvInfo) -> list[str]:
     declaration.
     """
     values = {
-        "tool_version": prov.tool_version,
         "algorithm": prov.algorithm,
         "target": prov.target,
         "variant": prov.variant,
