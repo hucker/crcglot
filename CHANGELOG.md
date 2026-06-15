@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.21.0 — 2026-06-15
+
+Generated code now records how it was produced, with nothing to turn on.
+
+### Added: every generated file says how it was generated
+
+Every file header now carries a `Reproduce with crcglot` block listing the resolved generation parameters (algorithm, target, variant, comment style, symbol, and naming), so a reader of the output can see exactly what produced it and regenerate it.  It is always on, with no flag; it renders in all nine languages and every comment style; and it costs nothing once the compiler discards comments.  The block records only request-derived values, so the same request still produces the same bytes: there is no tool version or other install-environment field to break that.
+
+C goes one step further and emits the same record as linkable data: a public `const crcglot_provenance_t <symbol>_provenance` a program can read at runtime, for example firmware reporting its CRC configuration over a diagnostic channel.
+
+```c
+const crcglot_provenance_t crc16_xmodem_provenance = {
+    .algorithm = "crc16-xmodem",
+    .target    = "c",
+    .variant   = "table",
+    .comment   = "plain",
+    .symbol    = "crc16_xmodem",
+    .naming    = "snake",
+};
+```
+
+Because it is a public symbol it never trips `-Wunused-const-variable` under `-Werror`.  A linker with `--gc-sections` drops it when nothing references it, so it is free unless you use it; on a toolchain without section garbage collection, define `CRCGLOT_NO_PROVENANCE` to omit it.  The shared struct type is guarded so a multi-algorithm bundle defines it once.  A new public `ProvInfo` dataclass in `crcglot.comments` models the record, carried on `AlgoMeta.provenance`.
+
 ## v0.20.0 — 2026-06-12
 
 The toolkit grows in capability and discipline at once.  The non-CRC identifier learns cryptographic digests and gets a name that fits (`identify_trailer`, breaking).  The three user surfaces (CLI, MCP, Python) now speak the same verbs, with `reverse` and `verify` joining the CLI and `compute()` / `custom_algorithm()` joining the Python API.  Generated C and Verilog adopt MISRA- and lint-discipline emission.  `import crcglot` loads only the compute core.  The README shrinks to an overview backed by a docs/ reference, including a certification page written without overselling.  crcglot still has a single consumer, so the breaking changes ship without a deprecation cycle.
