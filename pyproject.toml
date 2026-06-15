@@ -1,6 +1,6 @@
 [project]
 name = "crcglot"
-version = "0.20.0"
+version = "0.21.0"
 description = "Multi-language CRC toolkit: generate verified code (C/C++, C#, Go, Java, Python, Rust, TypeScript, Verilog, VHDL), plus compute, detect, and reverse-engineer CRCs. Catalogue-driven, zero runtime dependencies, MCP server included."
 license = "MIT"
 requires-python = ">=3.11"
