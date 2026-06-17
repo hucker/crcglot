@@ -269,7 +269,13 @@ when we broke them — honor them when touching public API.
 - Update the "what you get per language" table if the API changed
 - Update **docs/cli.md** (and the README "CLI at a glance" table row) if the
   CLI changed; **docs/api.md** if the public API changed
-- Ensure that there are no auto-fixable markdown lint issues (run `uvx ruff check README.md` to verify)
+- Markdown lint: the repo is configured by `.markdownlint.jsonc` (MD013
+  line-length and a couple of others deliberately off; MD012 double-blank-lines
+  and MD022 blank-around-headings stay on).  Verify with
+  `npx markdownlint-cli2 "**/*.md"` and auto-fix with
+  `npx markdownlint-cli2 --fix "**/*.md"` (NOT `ruff`, which only lints Python).
+  Don't introduce double blank lines or headings without a blank line after
+  them; fix any you touch.
 
 ## EXAMPLES.md
 
