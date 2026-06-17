@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.22.0 — 2026-06-17
 
 ### Generated code now records which crcglot produced it
 
