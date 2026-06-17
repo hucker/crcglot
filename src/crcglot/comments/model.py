@@ -17,21 +17,41 @@ from dataclasses import dataclass
 class ProvInfo:
     """The resolved generation parameters, for the provenance block.
 
-    Every field is an already-constrained value derived from the request
-    (catalogue name, target / variant / comment enums, an identifier symbol),
-    so the block is reconstruction-complete, carries no comment-injection risk,
-    and keeps generated output a pure function of the request -- no install-
-    environment dependence (e.g. no tool version).  ``variant`` is the canonical
-    resolved name (``bitwise`` / ``table`` / ``slice8``), never the raw flag
-    spelling or ``auto``.
+    ``version`` is the crcglot release that produced the file (``crcglot
+    .__version__``); the rest are already-constrained values derived from the
+    request (catalogue name, target / variant / comment enums, an identifier
+    symbol), so the block is reconstruction-complete and carries no
+    comment-injection risk.  ``variant`` is the canonical resolved name
+    (``bitwise`` / ``table`` / ``slice8``), never the raw flag spelling or
+    ``auto``.
+
+    The version is included deliberately: generators change between releases
+    (a fixed reflection bug, a new variant), so without it a reader cannot tell
+    which crcglot emitted a given file or whether regenerating would change it.
+    The cost is that bumping crcglot re-diffs the block in every generated file
+    and EXAMPLES cell, which is the truthful record that the producing version
+    moved.
     """
 
+    version: str
     algorithm: str
     target: str
     variant: str
     comment: str
     symbol: str
     naming: str
+
+
+def _tool_version() -> str:
+    """The installed crcglot version, for the provenance block.
+
+    Read lazily (function-local import) so building the model never triggers a
+    package-import cycle, and resolved through ``crcglot.__version__`` so there
+    is a single source of truth shared with ``crcglot version``.
+    """
+    import crcglot
+
+    return crcglot.__version__
 
 
 def build_prov(
@@ -43,13 +63,13 @@ def build_prov(
     comment: str,
     symbol: str,
     naming: str,
+    version: str | None = None,
 ) -> ProvInfo:
     """Build the :class:`ProvInfo` for a generation.
 
     Centralizes the ``"custom"`` algorithm label for non-catalogue polynomials
     so every generator shares it.  Provenance is always built (the block is
-    always on) and is derived purely from the request, so generated output does
-    not depend on the install environment.
+    always on).
 
     Args:
         algo_source: The algorithm's ``source`` field (``"custom"`` for a
@@ -61,11 +81,15 @@ def build_prov(
         comment: The comment style.
         symbol: The resolved function symbol base.
         naming: The resolved naming convention.
+        version: The crcglot version to stamp; defaults to the installed
+            ``crcglot.__version__``.  Pass an explicit value only to pin the
+            stamp (e.g. in a test).
 
     Returns:
         A populated :class:`ProvInfo`.
     """
     return ProvInfo(
+        version=version if version is not None else _tool_version(),
         algorithm="custom" if algo_source == "custom" else algorithm,
         target=target,
         variant=variant,

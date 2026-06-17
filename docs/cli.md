@@ -175,6 +175,14 @@ crcglot compute crc64-xz --binary < data.bin    # bytes from stdin
 
 Print acknowledgments for the upstream work crcglot builds on (also exported as `crcglot.ATTRIBUTION` / `crcglot.ACKNOWLEDGMENTS`).
 
+## `crcglot version`
+
+Print the installed crcglot version (also exported as `crcglot.__version__`).  It is the same string stamped into the `Reproduce with crcglot` block at the top of every generated file, so you can match a file in hand to the release that produced it.
+
+```bash
+crcglot version        # e.g. 0.21.0
+```
+
 ## `crcglot {c | csharp | go | java | python | rust | typescript | verilog | vhdl} <algorithm> [<algorithm>...] [options...] [tokens...]`
 
 Generate source code for the chosen target language.  Pick your intent; crcglot picks the implementation:

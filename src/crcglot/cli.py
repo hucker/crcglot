@@ -10,6 +10,7 @@ Usage:
     crcglot detect packet.bin                 # identify CRC from a packet
     crcglot encode crc32 "123456789"          # build a packet (round-trip pair)
     crcglot credits                           # acknowledgments
+    crcglot version                           # installed crcglot version
 
     # Custom Rocksoft/Williams polynomial:
     crcglot c --custom width=16 poly=0x1234 init=0xFFFF \\
@@ -548,6 +549,27 @@ def _cmd_credits(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_version(args: argparse.Namespace) -> int:
+    """Run the ``crcglot version`` subcommand.
+
+    Prints ``crcglot.__version__`` -- the same string stamped into the
+    ``Reproduce with crcglot`` block of generated code, so a user can confirm
+    which release produced a file.
+
+    Args:
+        args: Parsed argparse namespace (unused; included for the uniform
+            dispatch shape).
+
+    Returns:
+        Always ``0``.
+    """
+    del args  # uniform handler shape; nothing to read from the namespace.
+    import crcglot
+
+    print(crcglot.__version__)
+    return 0
+
+
 def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
     """Generate source code for the given language."""
     # At most one variant selector.  Intent flags (--small/--fast) and
@@ -971,6 +993,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show acknowledgments for the projects crcglot builds on",
     )
 
+    # crcglot version
+    subs.add_parser(
+        "version",
+        help="Print the installed crcglot version (as stamped into generated code)",
+    )
+
     # crcglot {c,csharp,go,java,python,rust,typescript,verilog,vhdl} <algo>
     # [--table|--slice8] [file=STEM] [symbol=NAME]
     # Or: crcglot c --custom width=... poly=... ...
@@ -1085,6 +1113,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_compute(args)
     if args.command == "credits":
         return _cmd_credits(args)
+    if args.command == "version":
+        return _cmd_version(args)
     if args.command in LANGUAGES:
         return _cmd_codegen(args, args.command)
     parser.print_help(sys.stderr)

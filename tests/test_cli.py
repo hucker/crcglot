@@ -238,6 +238,25 @@ class TestComputeCommand:
         assert out.strip() == "3421780262"
 
 
+class TestVersionCommand:
+    """``crcglot version`` prints ``crcglot.__version__`` -- the same string the
+    generated ``Reproduce with crcglot`` block stamps, so the two never drift."""
+
+    def test_version_prints_installed_version(self, capsys):
+        # Arrange
+        import crcglot
+
+        # Act
+        rc = main(["version"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        actual = out.strip()
+        expected = crcglot.__version__
+        assert rc == 0, "version command should exit 0"
+        assert actual == expected, f"printed version {actual!r} != {expected!r}"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Codegen -- stdout path.
 # ─────────────────────────────────────────────────────────────────────
@@ -293,9 +312,13 @@ class TestCodegenProvenance:
         out, _err = capsys.readouterr()
 
         # Assert
+        import crcglot
+
         assert rc == 0, "codegen should succeed"
         assert "Reproduce with crcglot:" in out, "comment provenance block present"
-        assert "tool_version" not in out, "comment block omits the volatile version"
+        assert f"version:   {crcglot.__version__}" in out, (
+            "comment block stamps the producing crcglot version"
+        )
 
     def test_c_emits_linkable_record(self, capsys):
         # Act

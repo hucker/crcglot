@@ -133,7 +133,8 @@ class TestCProvenanceRecord:
     ``CRCGLOT_NO_PROVENANCE`` guard so a toolchain without section GC can
     compile it out.  It is a *public* symbol, so it never trips
     ``-Wunused-const-variable``; a linker with ``--gc-sections`` drops it when
-    unused.  It carries the ``tool_version`` that the comment block omits.
+    unused.  It mirrors the comment block, including the producing crcglot
+    ``version``, so firmware can report its CRC configuration at runtime.
     """
 
     def _pair(self, name: str, **kw) -> tuple[str, str]:
@@ -179,6 +180,19 @@ class TestCProvenanceRecord:
         # Assert
         assert "#ifndef CRCGLOT_NO_PROVENANCE" in header, "header guards the decl"
         assert "#ifndef CRCGLOT_NO_PROVENANCE" in source, "source guards the def"
+
+    def test_record_carries_version(self):
+        """The record stamps the producing ``crcglot.__version__``."""
+        # Arrange
+        import crcglot
+
+        # Act
+        _, source = self._pair("crc16-xmodem")
+
+        # Assert
+        actual = self._prov_value(source, "version")
+        expected = crcglot.__version__
+        assert actual == expected, f"record version {actual!r} != {expected!r}"
 
     def test_record_variant_is_canonical(self):
         """``auto`` on crc32 resolves to slice-by-8; the record shows it."""

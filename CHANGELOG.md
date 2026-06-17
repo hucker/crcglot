@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Generated code now records which crcglot produced it
+
+The `Reproduce with crcglot` block gains a `version` line at the top, read from `crcglot.__version__`.  Generators change between releases (a fixed reflection bug, a new variant), so the version is what lets a reader of a generated file tell which crcglot emitted it and whether regenerating with a newer one would change the output.  It renders in all nine languages and every comment style, and C carries it in the linkable `const crcglot_provenance_t` record too, so firmware can report its crcglot version over a diagnostic channel.
+
+One consequence is worth calling out: generated output is no longer identical across releases.  Bumping crcglot changes the `version` line in every file and every EXAMPLES cell, even on a release that touches no generator logic.  That diff is the point, the truthful record that the producing version moved.  Output stays fully reproducible within a single crcglot version.
+
+### New `crcglot version` command
+
+`crcglot version` prints the installed version: the same string the provenance block stamps, and the same value as `crcglot.__version__`.
+
 ## v0.21.0 — 2026-06-15
 
 Generated code now records how it was produced, with nothing to turn on.

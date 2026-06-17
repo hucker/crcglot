@@ -98,21 +98,21 @@ def _param_summary(meta: AlgoMeta) -> str:
 def _prov_block_lines(prov: ProvInfo) -> list[str]:
     """The always-on provenance block (pre-render), shared by every style.
 
-    Renders the deterministic reconstruction parameters as column-aligned
-    ``key: value`` lines under a single lead.  ``tool_version`` is deliberately
-    omitted here (it would re-diff every file and every EXAMPLES cell on each
-    release); it lives in the C ``const`` provenance record instead.  All values
-    are constrained tokens, so the block is safe in any comment syntax.
+    Renders the reconstruction parameters as column-aligned ``key: value``
+    lines under a single lead, with the producing crcglot ``version`` first so a
+    reader knows which release to regenerate with.  All values are constrained
+    tokens, so the block is safe in any comment syntax.
 
     Examples:
-        >>> p = ProvInfo("0.20.0", "crc16-xmodem", "c", "table",
+        >>> p = ProvInfo("0.21.0", "crc16-xmodem", "c", "table",
         ...              "plain", "crc16_xmodem", "snake")
         >>> _prov_block_lines(p)[0]
         'Reproduce with crcglot:'
         >>> _prov_block_lines(p)[1]
-        '    algorithm: crc16-xmodem'
+        '    version:   0.21.0'
     """
     fields = (
+        ("version", prov.version),
         ("algorithm", prov.algorithm),
         ("target", prov.target),
         ("variant", prov.variant),

@@ -139,6 +139,7 @@ Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_identif
 | `crcglot compute`              | The raw CRC integer of some data                                                                                                                                  |
 | `crcglot c \| rust \| go \| …` | Generate verified source for that language (`--fast` default, `--small`, `--custom`, bundling, `--comment`, `--naming`)                                           |
 | `crcglot credits`              | Acknowledgments for the work crcglot builds on                                                                                                                    |
+| `crcglot version`              | Installed crcglot version (the same string stamped into generated code)                                                                                          |
 
 Every option, token, and example lives in [docs/cli.md](docs/cli.md).
 

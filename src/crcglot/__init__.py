@@ -134,6 +134,10 @@ if TYPE_CHECKING:
         variant_info,
     )
 
+    # Computed in __getattr__ below (PEP 562); declared here so type checkers
+    # resolve ``crcglot.__version__`` as ``str`` without executing the lookup.
+    __version__: str
+
 def _lazy_map() -> dict[str, str]:
     """Build the name -> defining-module map for the lazy layers."""
     by_module = {

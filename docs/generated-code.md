@@ -43,7 +43,7 @@ The generators take the chosen name directly (`LANGUAGES["python"].generator("cr
 
 You still can: point an LLM at the output and let it write whatever prose you like; nothing here stops you.  But the generated code is **fully known**: the parameters, the API contract, and the streaming semantics are deterministic facts, so the *documentation* can be deterministic too.  That buys three things an LLM pass can't:
 
-- **Reproducible.**  The same request produces the same comment, byte for byte.  Everyone who generates `crc32` gets the *identical* documentation: no drift, no "it phrased it differently this time," no diff churn between two runs.
+- **Reproducible.**  The same request on the same crcglot version produces the same comment, byte for byte.  Everyone who generates `crc32` gets the *identical* documentation: no drift, no "it phrased it differently this time," no diff churn between two runs.
 - **Correct by construction, or wrong in exactly one place.**  The comment is rendered from the same source of truth as the code, so it can't hallucinate a parameter or misdescribe the API.  And if a description *is* wrong, it's wrong *uniformly*: caught once, fixed once in the generator, and the fix reaches every output everywhere.  Per-invocation LLM wrongness is the opposite: subtly different each time, and far harder to audit.
 - **Free, offline, auditable.**  No API call, no token cost, no network; it runs in CI and on an air-gapped build.  A reviewer (the class-III-medical-device kind) audits the comment generator *once* and can then trust every file it emits.
 
@@ -51,9 +51,9 @@ Layer an LLM on top when you want richer prose.  The point is that the *baseline
 
 ## Provenance
 
-Every file header carries a `Reproduce with crcglot` block of the resolved parameters: algorithm, target, variant, comment style, symbol, and naming.  It is always on (no flag), and it costs nothing once the compiler discards comments.  The block records only request-derived values, so the same request always produces the same bytes: there is no tool version or other install-environment field to break that.
+Every file header carries a `Reproduce with crcglot` block: the producing crcglot `version`, then the resolved parameters (algorithm, target, variant, comment style, symbol, and naming).  It is always on (no flag), and it costs nothing once the compiler discards comments.  The version comes first because generators do change between releases (a fixed reflection bug, a new variant), so it is the one field that tells a reader which crcglot emitted a file and whether regenerating with a newer one would change it.  Everything else is fully reproducible: the same request on the same crcglot version produces the same bytes.
 
-C goes one step further and emits the same record as **linkable data**: a public `const crcglot_provenance_t <symbol>_provenance` that a program can read at runtime, e.g. firmware reporting its CRC configuration over a diagnostic channel.  Because it is a public symbol it never trips `-Wunused-const-variable` under `-Werror`.  A linker with `--gc-sections` drops it when nothing references it, so it is free unless you use it; on a toolchain without section GC, define `CRCGLOT_NO_PROVENANCE` to omit it. The values are constrained tokens (catalogue name, enum, identifier), so the record never needs escaping.
+C goes one step further and emits the same record as **linkable data**: a public `const crcglot_provenance_t <symbol>_provenance` that a program can read at runtime, e.g. firmware reporting its CRC configuration and crcglot version over a diagnostic channel.  Because it is a public symbol it never trips `-Wunused-const-variable` under `-Werror`.  A linker with `--gc-sections` drops it when nothing references it, so it is free unless you use it; on a toolchain without section GC, define `CRCGLOT_NO_PROVENANCE` to omit it. The values are constrained tokens (catalogue name, enum, identifier), so the record never needs escaping.
 
 ## Naming conventions
 

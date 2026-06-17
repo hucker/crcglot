@@ -728,17 +728,19 @@ def test_no_catalogue_description_contains_block_marker() -> None:
 
 # ── reproduce-with-crcglot provenance block ──────────────────────────────
 #
-# Every file header carries a "Reproduce with crcglot" block of the resolved
-# generation parameters (always on, no flag).  It flows through the shared
-# `_header_body` (plain / numpy / rest / rustdoc / godoc / docfx / jsdoc /
-# javadoc) and the two hand-written header bodies (google, doxygen), so it
-# must render in EVERY (language, style) cell with balanced delimiters where
-# the style is block-based.  `tool_version` is deliberately NOT in the comment
-# (it would churn every file / EXAMPLES cell per release); it lives in the C
-# `const` provenance record instead (see test_c_gen.py).
+# Every file header carries a "Reproduce with crcglot" block of the producing
+# version plus the resolved generation parameters (always on, no flag).  It
+# flows through the shared `_header_body` (plain / numpy / rest / rustdoc /
+# godoc / docfx / jsdoc / javadoc) and the two hand-written header bodies
+# (google, doxygen), so it must render in EVERY (language, style) cell with
+# balanced delimiters where the style is block-based.  The `version` is stamped
+# from `crcglot.__version__` so a reader knows which release to regenerate with;
+# C also carries it in the linkable `const` provenance record (see test_c_gen.py).
 
 _PROV_MARKER = "Reproduce with crcglot:"
-_PROV_KEYS = ("algorithm", "target", "variant", "comment", "symbol", "naming")
+_PROV_KEYS = (
+    "version", "algorithm", "target", "variant", "comment", "symbol", "naming",
+)
 
 # Every (language, style) pair, derived from the registry so a new style is
 # covered automatically (age-proof, per the project's cruft-audit guidance).
@@ -759,17 +761,23 @@ def _prov_source(lang: str, *, style: str, name: str = "crc32",
     return "\n".join(out) if isinstance(out, tuple) else out
 
 
-def test_prov_is_request_derived_no_version() -> None:
-    """Provenance carries only request-derived params, never a tool version, so
-    generated output stays a pure function of the request (no install-env
-    dependence).  Guards against re-introducing an env-dependent field."""
+def test_prov_stamps_the_crcglot_version() -> None:
+    """The block stamps the producing ``crcglot.__version__`` so a reader knows
+    which release emitted the file and can regenerate it with the same one."""
+    # Arrange
+    import crcglot
+
     # Act
     src = _prov_source("c", style="plain")
 
-    # Assert -- the block is present and the C const carries no version field.
+    # Assert -- the block is present and carries a ``version:`` line equal to
+    # the installed crcglot version.
     assert _PROV_MARKER in src, "header missing the reproduce-with block"
-    assert "tool_version" not in src, (
-        "provenance must not carry a tool version (env-dependent, non-reproducible)"
+    line = next(ln for ln in src.splitlines() if "version:" in ln)
+    actual = line.split("version:", 1)[1].strip()
+    expected = crcglot.__version__
+    assert actual == expected, (
+        f"block version should be the installed {expected!r}, got {actual!r}"
     )
 
 
