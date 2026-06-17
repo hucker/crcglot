@@ -146,6 +146,30 @@ def run_full_suite_and_measure() -> tuple[int, int]:
     return passed, cov
 
 
+def fast_test_count() -> int:
+    """Count the fast-tier tests (``-m "not slow"``) for the per-version badges.
+
+    CI runs the fast tier on every Python version (see
+    ``.github/workflows/tests.yml``), so that is the count those badges advertise
+    in their hover tooltips.  Collection-only: the full-suite run above already
+    proved every test passes, so we only need to count the fast subset (cheap, no
+    toolchains).
+    """
+    out = run_out(
+        ["uv", "run", "pytest", "-m", "not slow", "--collect-only", "-q"],
+        check=False,
+    )
+    # e.g. "4860/8835 tests collected (3975 deselected) in 2.20s", or a plain
+    # "4860 tests collected" when nothing is deselected.
+    m = re.search(r"(\d+)/\d+ tests collected", out) or re.search(
+        r"(\d+) tests? collected", out
+    )
+    if not m:
+        print(out)
+        die("could not parse the fast-tier test count from pytest --collect-only")
+    return int(m.group(1))
+
+
 def coverage_badge_color(percent: int) -> str:
     """shields.io color for a coverage percentage.
 
@@ -159,23 +183,24 @@ def coverage_badge_color(percent: int) -> str:
     return "red"
 
 
-def update_readme_badges(passed: int, cov_percent: int) -> None:
-    """Refresh the test-count and coverage shields at the top of README.md.
+def update_readme_badges(fast_passed: int, cov_percent: int) -> None:
+    """Refresh the per-Python-version tooltips and coverage shield in README.md.
 
-    The ruff + ty badges are static ``passing`` shields gated by
-    assert_zero_lint(), so they need no per-release rewrite.
+    The per-version badges (Py 3.11 ... Py 3.14) advertise the CI fast-tier count
+    in their hover tooltips (the markdown image ``title``); the coverage shield
+    uses the full-suite percentage.  The ruff + ty badges are static ``passing``
+    shields gated by assert_zero_lint(), so they need no per-release rewrite.
     """
     path = REPO_ROOT / "README.md"
     text = path.read_text(encoding="utf-8")
 
-    new_text, n_tests = re.subn(
-        r"badge/tests-\d+%20passed-[a-z]+",
-        f"badge/tests-{passed}%20passed-brightgreen",
+    new_text, n_tips = re.subn(
+        r"\d+ tests pass on CPython",
+        f"{fast_passed} tests pass on CPython",
         text,
-        count=1,
     )
-    if n_tests != 1:
-        die("could not find the tests badge in README.md")
+    if n_tips == 0:
+        die("could not find the per-version badge tooltips in README.md")
 
     color = coverage_badge_color(cov_percent)
     new_text, n_cov = re.subn(
@@ -188,7 +213,10 @@ def update_readme_badges(passed: int, cov_percent: int) -> None:
         die("could not find the coverage badge in README.md")
 
     path.write_text(new_text, encoding="utf-8")
-    ok(f"README badges updated (tests={passed}, coverage={cov_percent}% ({color}))")
+    ok(
+        f"README badges updated (per-version tests={fast_passed} across "
+        f"{n_tips} tooltips, coverage={cov_percent}% ({color}))"
+    )
 
 
 # ── changelog ────────────────────────────────────────────────────────────────────
@@ -321,8 +349,9 @@ def main() -> None:
     regenerate_examples()
 
     step(5, "Running full suite + refreshing README badges...")
-    passed, cov = run_full_suite_and_measure()
-    update_readme_badges(passed, cov)
+    _full_passed, cov = run_full_suite_and_measure()
+    fast_passed = fast_test_count()
+    update_readme_badges(fast_passed, cov)
 
     step(6, "Inserting CHANGELOG stub...")
     insert_changelog_stub(version)
