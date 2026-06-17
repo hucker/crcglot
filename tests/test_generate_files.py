@@ -149,12 +149,7 @@ class TestNameKeepsAlgorithmLabel:
     used to reproduce the file is the catalogue name, independent of the stem.
     """
 
-    # Java is excluded: ``generate_files`` always routes it through
-    # ``combine_java``, which keeps only the class body and drops the file
-    # header (so it carries no provenance block at all -- a separate gap).
-    @pytest.mark.parametrize(
-        "language", [c for c in sorted(LANGUAGES) if c != "java"]
-    )
+    @pytest.mark.parametrize("language", sorted(LANGUAGES))
     def test_provenance_algorithm_is_the_catalogue_name(self, language):
         # Arrange -- a stem that differs from the catalogue name.
         stem = "widget"

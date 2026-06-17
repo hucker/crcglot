@@ -396,13 +396,17 @@ def _self_test_java(names, check, width, jtype, style, docs, goldens) -> list[st
 def combine_java(outputs: list[str], stem: str | None = None) -> str:
     """Combine several Java outputs into one flat container class.
 
-    Each output is a ``public final class CrcGlot { ... }``.  Java permits
-    only one public top-level class per file, so the members of each output
-    are lifted out (everything between the class's opening ``{`` and its
-    closing ``}``) and re-emitted under ONE ``public final class <stem>``.
-    Per-symbol table names and algorithm-named methods keep the members
-    collision-free.  Used for every Java emission (single algorithm too), so
-    the container name flows from one place.
+    Each output is a file header (carrying its ``Reproduce with crcglot``
+    provenance block) followed by a ``public final class CrcGlot { ... }``.
+    Java permits only one public top-level class per file, so the members of
+    each output are lifted out (everything between the class's opening ``{``
+    and its closing ``}``) and re-emitted under ONE ``public final class
+    <stem>``.  Each output's header is preserved, with ``CrcGlot`` renamed to
+    the container so the usage examples match, so every algorithm keeps its
+    provenance block -- the same per-algorithm-header shape the other
+    languages' bundles use.  Per-symbol table names and algorithm-named methods
+    keep the members collision-free.  Used for every Java emission (single
+    algorithm too), so the container name flows from one place.
 
     Args:
         outputs: Individual :func:`generate_java` results, one per algorithm.
@@ -419,16 +423,19 @@ def combine_java(outputs: list[str], stem: str | None = None) -> str:
         1
     """
     cls = stem or _DEFAULT_CLASS
-    members = [
-        o.split("{", 1)[1].rsplit("}", 1)[0].strip("\n")
-        for o in outputs
-    ]
+    decl = f"public final class {cls} {{"
+    headers: list[str] = []
+    members: list[str] = []
+    for o in outputs:
+        # Rename the default container everywhere (class declaration, header
+        # usage examples, internal references) so the preserved header matches
+        # the emitted class, then split the file header from the class body.
+        head, _sep, rest = o.replace(_DEFAULT_CLASS, cls).partition(decl)
+        headers.append(head.rstrip("\n"))
+        members.append(rest.rsplit("}", 1)[0].strip("\n"))
     return (
-        "// crcglot-generated CRC bundle\n"
-        "//\n"
-        f"// One-shot:  call {cls}.<algorithm>(data).\n"
-        "\n"
-        f"public final class {cls} {{\n"
+        "\n\n".join(h for h in headers if h)
+        + f"\n\n{decl}\n"
         + "\n\n".join(members)
         + "\n}\n"
     )

@@ -199,6 +199,22 @@ class TestCombineJava:
         ), "both algorithms present"
         assert "CrcGlot" not in bundle, "default name fully renamed"
 
+    def test_bundle_preserves_each_provenance_block(self):
+        """combine_java keeps every algorithm's header, so each one's
+        ``Reproduce with crcglot`` block survives (regression: the file header
+        was dropped, leaving Java with no provenance block via the CLI)."""
+        # Act
+        a = generate_java("crc32")
+        b = generate_java("crc16-modbus")
+        assert a is not None and b is not None, "both generated"
+        bundle = LANGUAGES["java"].combiner([a, b], "Bundle")
+
+        # Assert -- one provenance block per algorithm, each correctly labelled.
+        actual_blocks = bundle.count("Reproduce with crcglot:")
+        assert actual_blocks == 2, f"expected 2 provenance blocks, got {actual_blocks}"
+        assert "algorithm: crc32" in bundle, "crc32 provenance present"
+        assert "algorithm: crc16-modbus" in bundle, "crc16-modbus provenance present"
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Execution-verified -- compile with javac, run with java.

@@ -10,6 +10,10 @@ Generating with a file stem that differs from the catalogue name, for example `c
 
 Files written with `file=STEM` now end with a newline, matching the stdout path and the POSIX text-file convention.
 
+### Fixed: Java now carries the provenance block
+
+Java was the one target that shipped no `Reproduce with crcglot` block: `generate_files` (and so the CLI) always routes Java through `combine_java`, which dropped each algorithm's file header.  The header is now preserved, renamed to the container class, so Java single files and bundles carry per-algorithm provenance like every other language.
+
 ## v0.22.0 — 2026-06-17
 
 ### Generated code now records which crcglot produced it
