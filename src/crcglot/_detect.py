@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Iterator, Literal, cast
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
 
 if TYPE_CHECKING:
+    from crcglot._formats import FormatMatch
     from crcglot._trailers import TrailerResult
 
 
@@ -202,14 +203,17 @@ class DetectMatch:
             ``None`` for a plain binary packet,
             :class:`TextFormat` for a ``"data <sep> hex"`` text packet,
             :class:`HexFormat` for a hex-encoded byte string
-            (``"0x12 0x34"`` and friends).  ``encode_match`` dispatches
-            on this type to round-trip the exact same shape.
+            (``"0x12 0x34"`` and friends), or
+            :class:`~crcglot._formats.FormatMatch` for a named payload form
+            (a CRC wrapped in a text/JSON frame, e.g. a crclink frame).
+            ``encode_match`` dispatches on this type to round-trip the
+            exact same shape (form round-trip is not yet supported).
     """
 
     algorithm: str
     info: AlgorithmInfo
     endianness: Endianness
-    padding: TextFormat | HexFormat | None = None
+    padding: TextFormat | HexFormat | FormatMatch | None = None
 
 
 @dataclass(frozen=True)
@@ -629,6 +633,7 @@ def detect(
     match: Literal["first", "all", "set"] = "first",
     target_crc: int | None = None,
     endian: EndianSelector = "both",
+    form: str | None = None,
 ) -> DetectResult:
     """Identify which catalogue CRC produced the trailing bytes of a packet.
 
@@ -693,6 +698,13 @@ def detect(
             known.  Also narrows the ``target_crc`` path: ``"big"``
             tests only the natural integer reading; ``"little"`` tests
             only the byte-reversed-at-width form.
+        form: Optional ``fnmatch`` glob over named payload forms (e.g.
+            ``"crclink"``) -- CRC-bearing text/JSON wrappers where the CRC is
+            not a bare tail.  A single ``str`` packet is tried against each
+            matching form before text-mode parsing; on a hit the form strips
+            the wrapper and the ordinary matcher names the algorithm.  ``None``
+            (default) tries every form; a non-matching glob disables them.  See
+            :data:`crcglot.FORMATS`.
 
     Returns:
         A :class:`DetectResult` truthy on match.  ``.candidates`` lists
@@ -717,6 +729,10 @@ def detect(
         >>> result = detect(b"123456789", target_crc=0xCBF43926)
         >>> result.algorithm
         'crc32'
+        >>> # A crclink JSON frame: the CRC is wrapped inside the object.
+        >>> m = detect('{"t":1234,"v":42,"crc":"1352"}').candidates[0]
+        >>> m.algorithm, m.padding.info.name
+        ('crc16-xmodem', 'crclink')
     """
     packets = _normalize_packets(packet)
     if not packets:
@@ -791,6 +807,18 @@ def detect(
                 return _attach_padding(hex_result, hex_format)
         # Fall through to text mode for the original str packets.
 
+    # Payload-form pre-pass: a single str packet may carry a CRC wrapped in a
+    # named form (e.g. a crclink JSON frame) rather than a hex byte string or a
+    # ``data <sep> hex`` tail.  Try the form regexes before text-mode parsing;
+    # on a hit the form strips the wrapper and the ordinary matcher names the
+    # algorithm.  ``None`` means no form fired -- fall through to text mode.
+    if mode in ("auto", "text") and str_count == len(packets) and str_count > 0:
+        from crcglot._formats import _detect_formats
+
+        formed = _detect_formats(packets, names, encoding, match, form)
+        if formed is not None and formed.matched:
+            return formed
+
     actual_mode = _resolve_mode(packets, mode)
     result = _run_detect(packets, actual_mode, names, encoding, match, endian)
     return _with_trailer_hint(
@@ -818,7 +846,7 @@ def _run_detect(
 
 def _attach_padding(
     result: DetectResult,
-    padding: TextFormat | HexFormat | None,
+    padding: TextFormat | HexFormat | FormatMatch | None,
 ) -> DetectResult:
     """Rebuild candidates with the given ``padding`` value.
 

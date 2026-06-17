@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added: `detect` recognises CRC-bearing payload forms (crclink JSON frames)
+
+`detect` now sees a CRC wrapped in a named text/JSON form, not just a bare tail.  The first form is crclink (PyPI), which frames a JSON object with a trailing CRC-16/XMODEM field: `{"t":1234,"v":42,"crc":"1352"}`, where the `"crc"` value covers the text up to that key.  `detect('{"t":1234,"v":42,"crc":"1352"}')` returns `crc16-xmodem` with `form=crclink`, reusing the same matcher that names every other CRC; the form only strips the wrapper.
+
+Forms ship as a registry mirroring the catalogue: `FORMATS` (the dict), `FormatInfo` (the record), `format_info(name)` (the lookup).  A matched form rides on the candidate's `padding` as a `FormatMatch`.  The CLI gains `crcglot detect --form GLOB` and the MCP `crc_detect` tool a `form` argument; a form match reports `padding_kind="form"` over the wire.  Recognition only for now: `encode_match` raises `NotImplementedError` for a form rather than emit a wrong frame.
+
 ## v0.22.0 — 2026-06-17
 
 ### Generated code now records which crcglot produced it
@@ -43,16 +51,13 @@ The toolkit grows in capability and discipline at once.  The non-CRC identifier 
 
 The Verilog emitters now produce `begin`/`end` on every conditional branch and loop body, and bit tests compare explicitly (`if (crc[15] == 1'b1)` instead of `if (crc[15])`), matching the VHDL emitter's existing `= '1'` style and the C emitter's MISRA posture.  Sized literals, explicit zero-extension, `function automatic`, and `byte unsigned` were already in place.  Behavior is unchanged; the Verilog matrix recompiles and re-executes green under iverilog.  VHDL needed nothing: the language mandates `end if`, and the emission already used `numeric_std` with explicit comparisons (ghdl `-Wall` analyzes the whole matrix clean).
 
-
 ### Changed: generated C uses MISRA-leaning constructions
 
 The C emitters now produce braced `if`/`else`/`for` bodies (MISRA C:2012 rule 15.6), explicit boolean comparisons for bitwise tests (`(crc & 1U) != 0U`, rule 14.4), `U`/`ULL` suffixes on every unsigned constant including all table entries (rule 7.2), single-exit self-tests (rule 15.5), and counted tail loops with no `++` inside expressions (replacing `while (len--)` and `*data++`).  Behavior is unchanged; the whole algorithm x variant matrix recompiles and re-executes green under `-Wall -Wextra -Werror`.  This is emission style, not a conformance claim: no MISRA checker run has been recorded (see docs/certification.md).
 
-
 ### Docs: the certification story, stated without overselling
 
 New `docs/certification.md`: what crcglot puts in front of a safety-certification process (the traceable requirement, independently-derived on-target test vectors with an inspectable provenance chain, review-sized deterministic code), what always remains the integrator's, regime notes for DO-178C/DO-330 and IEC 62304/FDA, and an explicit list of what is **not** claimed (no MISRA assessment, no published coverage figures, the weaker custom-poly check, no fitness claim).  The README's verification section now reflects the four-vector reality (null, trivial, and complex inputs from two agreeing engines) and explains that the four-digit test badge measures the algorithms × languages × variants × inputs matrix, not coverage chasing.
-
 
 ### Added: every surface speaks the same verbs
 
@@ -70,7 +75,7 @@ README.md drops from ~510 lines to ~175: the quick start now opens with the dete
 
 ### Added: digest identification; `identify_checksum` becomes `identify_trailer`
 
-The non-CRC identifier now recognises **cryptographic digests** alongside checksums: MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2s/2b, and double SHA-256 — at full length or the common 4/8-byte leading truncations (base58check's `sha256d[:4]`).  Everything comes from stdlib `hashlib`; the zero-dependency footprint is unchanged.  Keyed MACs (HMAC / CMAC) are undetectable without the key, and the result says so: an unmatched digest-sized field gets a `note` like *"found a 32-byte trailing field matching no unkeyed digest; could be a MAC"*.  The purpose of the search is information for whoever decides next, human or LLM — it ends the CRC parameter hunt, names the likely protocol family, and says whether verification is even possible without a key.
+The non-CRC identifier now recognizes **cryptographic digests** alongside checksums: MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2s/2b, and double SHA-256 — at full length or the common 4/8-byte leading truncations (base58check's `sha256d[:4]`).  Everything comes from stdlib `hashlib`; the zero-dependency footprint is unchanged.  Keyed MACs (HMAC / CMAC) are undetectable without the key, and the result says so: an unmatched digest-sized field gets a `note` like *"found a 32-byte trailing field matching no unkeyed digest; could be a MAC"*.  The purpose of the search is information for whoever decides next, human or LLM — it ends the CRC parameter hunt, names the likely protocol family, and says whether verification is even possible without a key.
 
 Since the surface now covers more than checksums, it is renamed (breaking, no deprecation cycle — crcglot has a single consumer):
 

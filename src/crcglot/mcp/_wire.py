@@ -195,10 +195,12 @@ def detect_match_to_dict(match: Any) -> dict[str, Any]:
     bytes are little-endian within the packet."  The relabel happens
     only at the JSON boundary; the internal field name is untouched.
 
-    ``padding`` (TextFormat / HexFormat / None) is also flattened into a
-    discriminated dict so the consumer doesn't need to know the
-    dataclass types.
+    ``padding`` (TextFormat / HexFormat / FormatMatch / None) is also
+    flattened into a discriminated dict so the consumer doesn't need to know
+    the dataclass types.
     """
+    from crcglot import FormatMatch
+
     out: dict[str, Any] = {
         "algorithm": match.algorithm,
         "width": match.info.width,
@@ -207,6 +209,16 @@ def detect_match_to_dict(match: Any) -> dict[str, Any]:
     pad = match.padding
     if pad is None:
         out["padding_kind"] = "binary"
+    elif isinstance(pad, FormatMatch):
+        # A named payload form: a bare vars() would leave the nested FormatInfo
+        # dataclass unserializable, so project the JSON-relevant fields.
+        out["padding_kind"] = "form"
+        out["form"] = {
+            "name": pad.info.name,
+            "label": pad.info.label,
+            "category": pad.info.category,
+            "crc": pad.crc_text,
+        }
     else:
         # TextFormat or HexFormat: surface every attr as a dict.
         out["padding_kind"] = type(pad).__name__

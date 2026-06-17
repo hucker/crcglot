@@ -272,7 +272,12 @@ def build_server() -> FastMCP:
             "and pass the data-only bytes as the packet.\n"
             "\n"
             "Narrow the scan with 'width' (e.g. 16 for a 2-byte CRC field) "
-            "and/or 'algorithms' (an fnmatch glob like 'crc16-*')."
+            "and/or 'algorithms' (an fnmatch glob like 'crc16-*').\n"
+            "\n"
+            "For a CRC wrapped in a text/JSON frame rather than a bare tail -- "
+            "such as a crclink JSON frame {\"t\":1234,\"v\":42,\"crc\":\"1352\"} "
+            "-- pass packet_text; matching frames report padding_kind='form' "
+            "with the form name.  'form' is an fnmatch glob over the named forms."
         ),
     )
     def crc_detect(
@@ -286,6 +291,7 @@ def build_server() -> FastMCP:
         width: int | None = None,
         match: MATCH_ENUM = "first",
         encoding: str = "utf-8",
+        form: str | None = None,
     ) -> dict[str, Any]:
         packet = parse_packet(packet_hex, packet_text, packet_b64)
         target = parse_target_crc(target_crc, target_crc_hex)
@@ -297,6 +303,7 @@ def build_server() -> FastMCP:
             match=match,
             encoding=encoding,
             target_crc=target,
+            form=form,
         )
         return {
             "matched": result.matched,

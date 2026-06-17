@@ -47,6 +47,13 @@ Public API:
           TRAILERS / TrailerInfo / trailer_info mirror the ALGORITHMS
           metadata pattern.
 
+    Payload forms (CRC-bearing text / JSON wrappers):
+        - detect(..., form=...): recognise a CRC wrapped in a named form (e.g.
+          a crclink JSON frame {"t":1234,"v":42,"crc":"1352"}) rather than a
+          bare tail; the match reports the algorithm plus a FormatMatch padding
+          carrying the matched FormatInfo.  FORMATS / FormatInfo / format_info
+          mirror the TRAILERS metadata pattern.
+
 Import cost: ``import crcglot`` eagerly loads only the compute core
 (the catalogue + engine and the streaming API).  Everything else --
 the per-language generators, detection, reverse-engineering, checksum
@@ -87,6 +94,12 @@ if TYPE_CHECKING:
         TextFormat,
         detect,
         detect_iter,
+    )
+    from crcglot._formats import (
+        FORMATS,
+        FormatInfo,
+        FormatMatch,
+        format_info,
     )
     from crcglot._encode import (
         VerifyResult,
@@ -158,6 +171,12 @@ def _lazy_map() -> dict[str, str]:
             "TextFormat",
             "detect",
             "detect_iter",
+        ),
+        "crcglot._formats": (
+            "FORMATS",
+            "FormatInfo",
+            "FormatMatch",
+            "format_info",
         ),
         "crcglot._encode": (
             "VerifyResult",
@@ -251,6 +270,7 @@ __all__ = [
     "ACKNOWLEDGMENTS",
     "ALGORITHMS",
     "ATTRIBUTION",
+    "FORMATS",
     "TRAILERS",
     "Advisory",
     "AlgorithmInfo",
@@ -262,6 +282,8 @@ __all__ = [
     "CrcStream",
     "DetectMatch",
     "DetectResult",
+    "FormatInfo",
+    "FormatMatch",
     "GeneratedFile",
     "HexFormat",
     "LANGUAGES",
@@ -280,6 +302,7 @@ __all__ = [
     "variant_info",
     "detect",
     "detect_iter",
+    "format_info",
     "identify_trailer",
     "trailer_info",
     "compute",

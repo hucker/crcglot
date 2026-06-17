@@ -175,6 +175,9 @@ def encode_match(
       bytes-like; CRC is appended to the bytes and then the whole
       thing is hex-formatted per the captured prefix / separator /
       case).
+    * :class:`~crcglot._formats.FormatMatch` -> identify-only;
+      reconstructing a wrapped payload form (e.g. a crclink frame) is not
+      yet supported and raises ``NotImplementedError``.
 
     Mismatches raise ``TypeError`` rather than silently misinterpret.
 
@@ -188,6 +191,8 @@ def encode_match(
 
     Raises:
         TypeError: ``data`` does not fit the match's padding type.
+        NotImplementedError: ``match.padding`` is a payload form; forms are
+            identify-only for now.
 
     Examples:
         >>> from crcglot import detect
@@ -209,6 +214,17 @@ def encode_match(
             )
         full = encode(data, match.algorithm, endianness=match.endianness)
         return _format_bytes_as_hex_text(full, match.padding)
+    from crcglot._formats import FormatMatch
+
+    if isinstance(match.padding, FormatMatch):
+        # Payload forms (e.g. crclink) wrap the CRC inside a structure; rebuilding
+        # the exact frame is not supported yet.  Raise rather than fall through to
+        # the TextFormat branch below, which would emit a wrong packet.
+        raise NotImplementedError(
+            "encode_match does not support payload forms "
+            f"(form={match.padding.info.name!r}) yet; use detect() to identify "
+            "the frame, then rebuild it yourself"
+        )
     if not isinstance(data, str):
         raise TypeError(
             "text match (padding=TextFormat) requires str data"
