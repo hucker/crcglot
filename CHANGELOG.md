@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.23.0 — 2026-06-17
 
 ### Added: `detect` recognises CRC-bearing payload forms (crclink JSON frames)
 
@@ -19,6 +19,10 @@ Files written with `file=STEM` now end with a newline, matching the stdout path 
 ### Fixed: Java now carries the provenance block
 
 Java was the one target that shipped no `Reproduce with crcglot` block: `generate_files` (and so the CLI) always routes Java through `combine_java`, which dropped each algorithm's file header.  The header is now preserved, renamed to the container class, so Java single files and bundles carry per-algorithm provenance like every other language.
+
+### Docs
+
+The README now spells out that the generated Python is pure (interpreted) Python and points to crcglot's own C-accelerated runtime when speed matters, and the badge row shows a per-version "passing" badge for CPython 3.11 through 3.14.
 
 ## v0.22.0 — 2026-06-17
 
