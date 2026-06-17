@@ -51,6 +51,8 @@ Python 3.11+, zero runtime dependencies: `crcglot` imports nothing beyond the st
 
 Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go / C# / Java / TypeScript / Python / Verilog / VHDL return `bool` / `boolean` / `bit`.  No `#[cfg(test)]` gating, so you can call it from your release build, a boot self-check, or a startup assertion.  The generated files are also documented (per-language doc-tool styles) and named in each target's idiomatic casing; see [docs/generated-code.md](docs/generated-code.md).
 
+The generated **Python is pure Python**: portable and dependency-free, but interpreted, so it is the slow path.  When you want speed in Python, don't run the generated file -- reach for crcglot's own runtime: `crcglot.compute(data, "crc32")` dispatches to a bundled C extension (near-C speed, on the order of 2,000× the interpreted code), and IEEE CRC-32 rides the stdlib's hardware `zlib.crc32` (CPU CRC instructions, roughly another 30× on top).  Generate the `.py` to port a CRC into a zero-dependency codebase; call the package to compute one fast.  Details in [docs/api.md](docs/api.md).
+
 ## How it's verified
 
 **The guarantee is behavioral, not structural.**  crcglot doesn't lint the generated code, it runs it.  Three axes, fully crossed: every one of the **more than 100 algorithms**, in **every variant** the target supports (bit-by-bit, table-driven, slice-by-8), in **every one of the nine languages**, is executed and its output checked against the hardcoded canonical vector.  Nothing ships on "the generator looks correct."
@@ -68,8 +70,6 @@ Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go /
 | VHDL | ✓ | — | — | `ghdl` |
 
 Every ✓ is the **whole catalogue** (all 100+ algorithms) generated, compiled, and executed through that real toolchain in CI, with outputs checked against the reference vectors.  The em-dash cells are variants the target deliberately does not offer, not gaps in coverage.
-
-That cross is also why the test badge reads in the thousands.  The count is not coverage chasing: it is a small set of assertions parametrized over algorithms × languages × variants × reference inputs, because CRC correctness is a finite, enumerable space and covering an enumerable space exhaustively is cheap (the whole cross runs in about a minute).  The number measures the size of the matrix, not the size of the test code.
 
 That cross is also why the test badge reads in the thousands.  The count is not coverage chasing: it is a small set of assertions parametrized over algorithms × languages × variants × reference inputs, because CRC correctness is a finite, enumerable space and covering an enumerable space exhaustively is cheap (the whole cross runs in about a minute).  The number measures the size of the matrix, not the size of the test code.
 
