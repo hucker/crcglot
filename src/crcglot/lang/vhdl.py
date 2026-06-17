@@ -119,6 +119,7 @@ def generate_vhdl_from_entry(
     variant: Literal["auto", "bitwise"] = "auto",
     comment_style: str = "plain",
     naming: str = "snake",
+    stem: str | None = None,
 ) -> str:
     """Generate a VHDL package from an :class:`AlgorithmInfo`.
 
@@ -128,6 +129,8 @@ def generate_vhdl_from_entry(
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  Package name derives
             from the symbol so include references match.
+        stem: Optional identifier-base override (cased per ``naming``,
+            unlike the verbatim ``symbol``); ``name`` still labels the code.
         variant: ``"auto"`` / ``"bitwise"`` (both bit-by-bit; the only
             shape this generator emits) -- accepted for API symmetry with
             the other generators.  Passing ``"table"`` or ``"slice8"``
@@ -149,7 +152,7 @@ def generate_vhdl_from_entry(
     from crcglot.targets import naming_convention_for
 
     naming = naming_convention_for("vhdl", naming)
-    base = symbol if symbol else _func_name(name)
+    base = symbol if symbol else _func_name(stem if stem is not None else name)
     names = crc_function_names(base, naming, is_override=symbol is not None)
     pkg = f"{base}_pkg"
 

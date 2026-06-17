@@ -90,7 +90,10 @@ class TestLockstep:
 
 
 class TestNameOverrideCased:
-    """``name=`` replaces the algorithm name and is cased per target."""
+    """``name=`` sets the in-code identifier (and filename), cased per target.
+
+    It renames the identifier only; it does not relabel the algorithm (see
+    :class:`TestNameKeepsAlgorithmLabel`)."""
 
     def test_rust_snake(self):
         f = generate_files("rust", "crc32", name="my-widget")[0]
@@ -133,6 +136,56 @@ class TestNameSymbolDivergence:
         f = generate_files("rust", "crc32", name="outname", symbol="explicit")[0]
         assert f.filename == "outname.rs", f.filename
         assert "fn explicit_update(" in f.content, "functions follow symbol="
+
+
+class TestNameKeepsAlgorithmLabel:
+    """``name=`` / ``file=`` retargets the identifier but must NOT relabel the
+    algorithm.
+
+    Regression: the file stem leaked into the algorithm label, so
+    ``crcglot c crc16-xmodem file=widget`` recorded ``algorithm: widget`` in the
+    reproduce-with block (and ``reveng/widget``) instead of the catalogue name.
+    The stem belongs in the identifier and the filename; the algorithm identity
+    used to reproduce the file is the catalogue name, independent of the stem.
+    """
+
+    # Java is excluded: ``generate_files`` always routes it through
+    # ``combine_java``, which keeps only the class body and drops the file
+    # header (so it carries no provenance block at all -- a separate gap).
+    @pytest.mark.parametrize(
+        "language", [c for c in sorted(LANGUAGES) if c != "java"]
+    )
+    def test_provenance_algorithm_is_the_catalogue_name(self, language):
+        # Arrange -- a stem that differs from the catalogue name.
+        stem = "widget"
+
+        # Act
+        content = generate_files(language, "crc16-xmodem", name=stem)[0].content
+
+        # Assert -- the reproduce-with block + reveng line keep the algorithm,
+        # and the stem does not masquerade as the algorithm.
+        assert "algorithm: crc16-xmodem" in content, (
+            f"{language}: provenance must label the catalogue algorithm"
+        )
+        assert "reveng/crc16-xmodem" in content, (
+            f"{language}: reveng path must cite the catalogue algorithm"
+        )
+        assert f"algorithm: {stem}" not in content, (
+            f"{language}: the file stem must not leak into the algorithm label"
+        )
+
+    def test_c_record_separates_algorithm_from_symbol(self):
+        # Act -- C's linkable record carries both the algorithm and the symbol.
+        _hdr, src = (
+            f.content for f in generate_files("c", "crc16-xmodem", name="widget")
+        )
+
+        # Assert -- algorithm is the catalogue name; the identifier is the stem.
+        assert '.algorithm = "crc16-xmodem"' in src, (
+            "record algorithm is the catalogue name, not the stem"
+        )
+        assert '"widget"' in src, "record symbol carries the stem identifier"
+        assert "widget_update(" in src, "functions follow the stem identifier"
 
 
 class TestBundle:

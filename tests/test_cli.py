@@ -405,6 +405,34 @@ class TestCodegenFile:
         assert rc == 2
         assert "symbol= requires a value" in err
 
+    def test_written_file_ends_with_newline(self, tmp_path, monkeypatch):
+        """The file= write terminates the file with a newline, matching the
+        stdout path (regression: file= dropped the trailing newline)."""
+        # Act
+        monkeypatch.chdir(tmp_path)
+        rc = main(["c", "crc16-modbus", "file=mycrc"])
+
+        # Assert -- both members of the pair end with a newline.
+        assert rc == 0, "codegen should succeed"
+        for ext in (".h", ".c"):
+            text = (tmp_path / f"mycrc{ext}").read_text()
+            assert text.endswith("\n"), f"mycrc{ext} should end with a newline"
+
+    def test_file_stem_does_not_relabel_the_algorithm(self, tmp_path, monkeypatch):
+        """file= renames the file + identifier but keeps the algorithm label
+        (regression: the stem leaked into the reproduce-with ``algorithm`` and
+        the C ``.algorithm`` record)."""
+        # Act -- the user's exact case: catalogue name vs a distinct file stem.
+        monkeypatch.chdir(tmp_path)
+        rc = main(["c", "crc16-xmodem", "file=mycrc"])
+
+        # Assert
+        assert rc == 0, "codegen should succeed"
+        src = (tmp_path / "mycrc.c").read_text()
+        assert "algorithm: crc16-xmodem" in src, "block labels the catalogue algorithm"
+        assert '.algorithm = "crc16-xmodem"' in src, "record labels the catalogue algorithm"
+        assert "mycrc(" in src, "the identifier still follows the file stem"
+
 
 # ─────────────────────────────────────────────────────────────────────
 # Codegen -- multiple algorithms bundled into one output file.

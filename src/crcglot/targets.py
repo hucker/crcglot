@@ -696,8 +696,13 @@ class LanguageInfo:
             file_base = default_stem(display0)
 
         def _gen(disp, algo, *, sym=None, nm=None):
+            # ``disp`` (the catalogue / display name) is always the algorithm
+            # label -- it drives the header title, the ``reveng/`` line, and the
+            # provenance ``algorithm`` field.  ``nm`` (the file stem from
+            # ``name=`` / ``file=``) only retargets the in-code identifier, via
+            # ``stem``; it must not relabel the algorithm.
             return self.generator_from_entry(
-                nm if nm is not None else disp, algo, symbol=sym,
+                disp, algo, symbol=sym, stem=nm,
                 variant=variant, comment_style=comment_style, naming=naming_resolved,
             )
 

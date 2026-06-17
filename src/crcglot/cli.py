@@ -749,7 +749,11 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
     if file_stem is not None:
         for f in gfiles:
             path = Path.cwd() / f.filename
-            path.write_text(f.content, encoding="utf-8")
+            # Terminate the file with a trailing newline, matching the stdout
+            # path below (and POSIX text-file convention); the generators join
+            # lines without a trailing newline, so add one when absent.
+            content = f.content if f.content.endswith("\n") else f.content + "\n"
+            path.write_text(content, encoding="utf-8")
             print(f"Wrote {path}")
         return 0
 

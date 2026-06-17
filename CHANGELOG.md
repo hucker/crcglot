@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed: `file=` / `name=` no longer relabels the algorithm
+
+Generating with a file stem that differs from the catalogue name, for example `crcglot c crc16-xmodem file=mycrc`, wrongly recorded the stem as the algorithm: the `Reproduce with crcglot` block and the C `crcglot_provenance_t` record showed `algorithm: mycrc`, and the header cited `reveng/mycrc`, instead of `crc16-xmodem`.  The stem now only retargets the in-code identifier and the filename; the algorithm label is the catalogue name, and the `symbol` field records the identifier.  This affected every target that emits the block, on `file=` and `name=` alike, and predates the version stamp added in 0.22.0.
+
+### Fixed: `file=` output ends with a trailing newline
+
+Files written with `file=STEM` now end with a newline, matching the stdout path and the POSIX text-file convention.
+
 ## v0.22.0 — 2026-06-17
 
 ### Generated code now records which crcglot produced it

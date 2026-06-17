@@ -446,6 +446,7 @@ def generate_typescript_from_entry(
     variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "camel",
+    stem: str | None = None,
 ) -> str:
     """Generate TypeScript source from an :class:`AlgorithmInfo`.
 
@@ -454,6 +455,8 @@ def generate_typescript_from_entry(
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).
+        stem: Optional identifier-base override (cased per ``naming``,
+            unlike the verbatim ``symbol``); ``name`` still labels the code.
         variant: Implementation shape -- ``"auto"`` (default -- fastest valid), ``"bitwise"``,
             ``"table"`` (256-entry lookup), or ``"slice8"`` (8 tables;
             requires ``algo.width`` to be 32 or 64; ``ValueError``
@@ -480,7 +483,7 @@ def generate_typescript_from_entry(
     from crcglot.targets import naming_convention_for
 
     naming = naming_convention_for("typescript", naming)
-    base = symbol if symbol else _func_name(name)
+    base = symbol if symbol else _func_name(stem if stem is not None else name)
     names = crc_function_names(base, naming, is_override=symbol is not None)
     ttype = _ts_type(w)
 

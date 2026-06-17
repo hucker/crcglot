@@ -495,6 +495,7 @@ def generate_csharp_from_entry(
     variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "pascal",
+    stem: str | None = None,
 ) -> str:
     """Generate a C# source file from an :class:`AlgorithmInfo`.
 
@@ -505,6 +506,8 @@ def generate_csharp_from_entry(
         symbol: Optional override for the generated function name
             (default: ``_func_name(name)``).  The class name is
             derived as the PascalCase'd form of the function name.
+        stem: Optional identifier-base override (cased per ``naming``,
+            unlike the verbatim ``symbol``); ``name`` still labels the code.
         variant: Implementation shape -- ``"auto"`` (default -- fastest valid), ``"bitwise"``,
             ``"table"`` (256-entry lookup), or ``"slice8"`` (8 tables;
             requires ``algo.width`` to be 32 or 64; ``ValueError``
@@ -531,7 +534,7 @@ def generate_csharp_from_entry(
     from crcglot.targets import naming_convention_for
 
     naming = naming_convention_for("csharp", naming)
-    base = symbol if symbol else _func_name(name)
+    base = symbol if symbol else _func_name(stem if stem is not None else name)
     names = crc_function_names(base, naming, is_override=symbol is not None)
     cstype = _cs_type(w)
     cls = _cs_pascal_class(base)

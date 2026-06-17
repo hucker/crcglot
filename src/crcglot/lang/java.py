@@ -467,6 +467,7 @@ def generate_java_from_entry(
     variant: Literal["auto", "bitwise", "table", "slice8"] = "auto",
     comment_style: str = "plain",
     naming: str = "camel",
+    stem: str | None = None,
 ) -> str:
     """Generate Java source from an :class:`AlgorithmInfo`.
 
@@ -476,6 +477,8 @@ def generate_java_from_entry(
         algo: Algorithm parameters as a typed :class:`AlgorithmInfo`.
         symbol: Optional override for the emitted method-name stem
             (default: ``_func_name(name)``).
+        stem: Optional identifier-base override (cased per ``naming``,
+            unlike the verbatim ``symbol``); ``name`` still labels the code.
         variant: ``"auto"`` (default -- fastest valid), ``"bitwise"``, ``"table"`` (256-entry lookup),
             or ``"slice8"`` (8 tables; width 32 / 64 only, else
             ``ValueError``).
@@ -501,7 +504,7 @@ def generate_java_from_entry(
     from crcglot.targets import naming_convention_for
 
     naming = naming_convention_for("java", naming)
-    base = symbol if symbol else _func_name(name)
+    base = symbol if symbol else _func_name(stem if stem is not None else name)
     names = crc_function_names(base, naming, is_override=symbol is not None)
     jtype = _java_type(w)
 
