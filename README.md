@@ -131,7 +131,7 @@ Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_identif
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `crcglot list [GLOB]`          | Browse the catalogue (more than 100 algorithms)                                                                                                                   |
 | `crcglot info <name>`          | Full Rocksoft/Williams parameters for one algorithm                                                                                                               |
-| `crcglot detect`               | Name the catalogue CRC ending a packet (file, hex, or text)                                                                                                       |
+| `crcglot detect`               | Name the catalogue CRC ending a packet (file, hex, text, or a crclink JSON frame)                                                                                |
 | `crcglot identify`             | Name a **non-CRC** trailer: checksum (sum/LRC/XOR/Fletcher/Adler) or digest (MD5/SHA/BLAKE2, full or truncated); notes a likely MAC when nothing matches |
 | `crcglot reverse`              | Recover the parameters of an unknown / custom CRC; prints ready-to-paste `--custom` tokens                                                                       |
 | `crcglot verify`               | Check a frame's trailing CRC against a named algorithm                                                                                                            |

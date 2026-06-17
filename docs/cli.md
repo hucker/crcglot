@@ -68,9 +68,19 @@ crcglot detect --hex "313233343536373839cbf43926"    # hex-encoded bytes
 crcglot detect --algorithms 'crc16-*' packet.bin     # narrow the scan to a family
 crcglot detect --match all packet.bin                # forensic: every candidate
 crcglot detect --match set a.bin b.bin               # strict: succeed only on a single algorithm
+crcglot detect --text '{"t":1234,"v":42,"crc":"1352"}'  # a crclink JSON frame
 ```
 
 `--match` selects the strategy: `first` (default; early-stop on the first hit, priority order is `crc32`, `crc32-jamcrc`, `crc32-iscsi`, then the rest of the catalogue), `all` (exhaustive forensic view), `set` (strict singleton: succeed only if exactly one algorithm survives across all packets).  Exit 0 on match, 1 otherwise.  For text packets the inferred separator + hex leader + case are reported so you can reproduce the same format via `crcglot encode`.
+
+A CRC is not always a bare tail.  A crclink JSON frame carries it inside the object as `{"t":1234,"v":42,"crc":"1352"}`, where the `"crc"` value is the CRC-16/XMODEM of the text up to that key.  `detect` recognises such named **payload forms** automatically and reports the algorithm plus the form:
+
+```text
+> crcglot detect --text '{"t":1234,"v":42,"crc":"1352"}'
+crc16-xmodem  width=16  endianness=big  form=crclink  category=json  crc='1352'
+```
+
+`--form GLOB` (an fnmatch over form names) narrows or disables the form pass; the known forms live in `crcglot.FORMATS`.
 
 When no CRC matches, `detect` (and `reverse`) also report a `trailer_hint` if the trailing field looks like a common **non-CRC** trailer; see `crcglot identify` below.
 

@@ -20,6 +20,8 @@ One toolkit, three surfaces.  Every capability has the same name and shape on th
 | Custom polynomial | `--custom` tokens | `custom_params` | `custom_algorithm()` |
 | Credits | `credits` | `crc_credits` | `ATTRIBUTION` |
 
+`detect()` also recognises a CRC wrapped in a named **payload form**: a text/JSON envelope such as a crclink frame `{"t":1234,"v":42,"crc":"1352"}` (CRC-16/XMODEM over the JSON prefix), where the CRC is not a bare tail.  Pass `form=` (an fnmatch glob) to narrow or disable the form pass; a matched form is reported as a `FormatMatch` on the candidate's `padding`, carrying the `FormatInfo`.  The forms ship as a registry mirroring the catalogue: `FORMATS` (the dict), `FormatInfo` (the record), and `format_info(name)` (the lookup).
+
 Two registries, both keyed by short code:
 
 ## `LANGUAGES`: supported target languages

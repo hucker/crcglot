@@ -83,6 +83,8 @@ Full Rocksoft/Williams parameters for one algorithm.  Numeric fields appear in b
 
 Identify the catalogue CRC of a captured packet.  Accepts exactly one packet form; optional `target_crc` / `target_crc_hex` for the out-of-band-CRC use case; optional `algorithms` glob to narrow the scan; `endian` selector and `match` mode pass through to [`crcglot.detect`][det].
 
+A CRC wrapped in a named text/JSON **form** is recognised too: pass a crclink frame `{"t":1234,"v":42,"crc":"1352"}` as `packet_text` and the matching candidate carries `padding_kind="form"` with the form's `name` / `category` / `crc`.  The `form` argument is an fnmatch glob over the known forms (default: try all).
+
 **Wire-format note**: the result's `crc_byte_order` describes the byte order of the CRC field *within the packet*, not the byte order of the surrounding protocol.  A big-endian protocol can serialize its CRC little-endian (and vice versa); the two are independent.
 
 [det]: ../src/crcglot/_detect.py

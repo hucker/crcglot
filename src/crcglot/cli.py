@@ -281,6 +281,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         algorithms=args.algorithms,
         width=args.width,
         match=args.match,
+        form=args.form,
     )
     if not result.matched:
         print("No match.", file=sys.stderr)
@@ -290,7 +291,7 @@ def _cmd_detect(args: argparse.Namespace) -> int:
                 print(f"  {line}", file=sys.stderr)
         return 1
 
-    from crcglot import HexFormat, TextFormat  # imported here to avoid cycles
+    from crcglot import FormatMatch, HexFormat, TextFormat  # here to avoid cycles
     for m in result.candidates:
         line = f"{m.algorithm}  width={m.info.width}  endianness={m.endianness}"
         if isinstance(m.padding, TextFormat):
@@ -305,6 +306,12 @@ def _cmd_detect(args: argparse.Namespace) -> int:
                 f"  prefix={m.padding.prefix!r}"
                 f"  per_byte={m.padding.prefix_per_byte}"
                 f"  uppercase={m.padding.uppercase}"
+            )
+        elif isinstance(m.padding, FormatMatch):
+            line += (
+                f"  form={m.padding.info.name}"
+                f"  category={m.padding.info.category}"
+                f"  crc={m.padding.crc_text!r}"
             )
         print(line)
     return 0
@@ -818,6 +825,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_detect.add_argument(
         "--algorithms", metavar="GLOB",
         help="fnmatch glob to narrow the scan (e.g. 'crc16-*')",
+    )
+    p_detect.add_argument(
+        "--form", metavar="GLOB",
+        help="fnmatch glob over named payload forms -- recognise a CRC wrapped "
+             "in a text/JSON frame, e.g. a crclink frame 'crclink' (default: "
+             "try all forms)",
     )
     p_detect.add_argument(
         "--width", type=int, metavar="BITS",
