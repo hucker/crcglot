@@ -38,8 +38,10 @@ from __future__ import annotations
 from typing import Literal
 
 from crcglot._helpers import _func_name, _variant_to_flags, resolve_variant, crc_function_names
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
+    HDL_SELFTEST_INPUTS_NOTE,
     AlgoMeta,
     DocParam,
     UsageExample,
@@ -70,21 +72,48 @@ def _vhdl_lit(value: int, width: int) -> str:
     return f"to_unsigned({value}, {width})"
 
 
-def _self_test_vhdl(names, check: int, width: int) -> str:
+def _self_test_vhdl(names, check: int, width: int, goldens) -> str:
     """Emit a VHDL self-test function returning ``true`` / ``false``.
+
+    For a catalogue algorithm (``goldens`` present) it checks the empty
+    input and the reveng check string; a custom polynomial
+    (``goldens is None``) falls back to the check string alone.  The empty
+    case is ``finalize(init)`` -- the CRC of no message bytes -- which
+    exercises the init-then-finalize path the check string does not.  The
+    all-bytes / 1 KiB vectors the software targets use are a
+    table-coverage tool and this bitwise package carries no table, so they
+    are not generated here.
 
     Designed to be called from a testbench process via ``assert ...
     severity failure`` -- crcglot's pytest harness synthesizes that
-    testbench at test time (see ``test_crc_codegen_exec.py``).
+    testbench at test time.
     """
-    lines = [
-        f"    -- Run the canonical reveng check value; returns true on success.",
-        f"    function {names['self_test']} return boolean is",
-        f'        constant kCheckInput: std_logic_vector(71 downto 0) :=',
+    n = names
+    check_const = [
+        f"        constant kCheckInput: std_logic_vector(71 downto 0) :=",
         f'            x"313233343536373839";  -- ASCII "123456789"',
+    ]
+    if goldens is None:
+        lines = [
+            f"    -- Run the canonical reveng check value; returns true on success.",
+            f"    function {n['self_test']} return boolean is",
+            *check_const,
+            f"    begin",
+            f"        return unsigned({n['oneshot']}(kCheckInput)) = "
+            f"{_vhdl_lit(check, width)};",
+            f"    end function;",
+        ]
+        return "\n".join(lines)
+    g = goldens
+    lines = [
+        f"    -- Check the empty input and the reveng check string; true on success.",
+        f"    function {n['self_test']} return boolean is",
+        *check_const,
         f"    begin",
-        f"        return unsigned({names['oneshot']}(kCheckInput)) = "
-        f"{_vhdl_lit(check, width)};",
+        f"        return unsigned({n['finalize']}({n['init']})) = "
+        f"{_vhdl_lit(g['empty'], width)}",
+        f"            and unsigned({n['oneshot']}(kCheckInput)) = "
+        f"{_vhdl_lit(g['check'], width)};",
         f"    end function;",
     ]
     return "\n".join(lines)
@@ -202,6 +231,7 @@ def generate_vhdl_from_entry(
         data_params=data_params,
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
+        selftest_inputs_note=HDL_SELFTEST_INPUTS_NOTE,
     )
 
     # ---- package declaration (forward declarations + API docs) ----
@@ -371,7 +401,7 @@ def generate_vhdl_from_entry(
 
     # ---- self-test ----
     lines.append("")
-    lines.append(_self_test_vhdl(names, check, w))
+    lines.append(_self_test_vhdl(names, check, w, goldens_for(algo)))
 
     lines.append(f"end package body;")
 

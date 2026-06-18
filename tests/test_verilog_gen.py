@@ -64,6 +64,39 @@ class TestGenerateVerilog:
         ), "self_test bit function declared"
         assert "16'h4B37" in code, "self_test checks against reveng value"
 
+    @pytest.mark.parametrize(
+        "name", ["crc16-modbus", "crc32", "crc8", "crc24-openpgp"]
+    )
+    def test_self_test_checks_empty_and_check(self, name):
+        """The self_test checks the empty input as well as the check string.
+
+        The all-bytes / 1 KiB vectors the software targets use verify the
+        byte lookup table; this bitwise package has none, so they are
+        dropped.  The empty input is kept because it exercises a distinct
+        path -- init then finalize, no update iterations -- that the check
+        string does not.
+        """
+        # Arrange
+        from crcglot._vectors import VECTORS
+        from crcglot.lang.verilog import _sv_lit
+        code = generate_verilog(name)
+        assert code is not None, f"generate_verilog({name!r}) returned code"
+        algo = ALGORITHMS[name]
+        g = VECTORS[name]
+        body = code[code.index("function automatic bit"):]
+        body = body[: body.index("endfunction")]
+
+        # Assert
+        assert g["empty"] != g["check"], (
+            f"{name}: fixture sanity -- empty and check goldens must differ"
+        )
+        assert _sv_lit(g["empty"], algo.width) in body, (
+            f"{name}: self_test no longer checks the empty golden"
+        )
+        assert _sv_lit(g["check"], algo.width) in body, (
+            f"{name}: self_test no longer checks the check golden"
+        )
+
     def test_unknown_algorithm(self):
         # Assert
         assert generate_verilog("nonexistent") is None, (

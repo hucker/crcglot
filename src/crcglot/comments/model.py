@@ -197,6 +197,34 @@ def _finalize_summary(refin: bool, refout: bool, xorout: int) -> str:
     return "Return the finished CRC; this algorithm applies no final transform."
 
 
+#: Default self-test ``inputs`` note: the four-vector regime the
+#: table-driven / software targets use.  The two large inputs exercise
+#: the byte lookup table, so they only make sense where a table exists.
+#: Table-less targets (Verilog / VHDL, bitwise) override this via
+#: ``selftest_inputs_note`` -- there is no table to corrupt, so the big
+#: vectors add no coverage and only the empty edge case is worth adding.
+DEFAULT_SELFTEST_INPUTS_NOTE = (
+    "Catalogue algorithms check four fixed inputs (the empty string, "
+    '"123456789", all 256 byte values, and a 1 KiB pattern); the two '
+    "large inputs are regenerated with a byte-at-a-time loop, so no "
+    "big array is embedded.  The references come from two independent "
+    "engines that had to agree."
+)
+
+#: Self-test ``inputs`` note for the bitwise, table-less targets (Verilog /
+#: VHDL).  They check two fixed inputs -- the empty string and the reveng
+#: check value.  The all-bytes and 1 KiB vectors are a table-coverage tool,
+#: so they are dropped here; the empty input is kept because it exercises a
+#: distinct path (init then finalize, no update iterations).
+HDL_SELFTEST_INPUTS_NOTE = (
+    "Checks two fixed inputs -- the empty string and \"123456789\" -- against "
+    "references from two independent engines that had to agree.  These targets "
+    "are bitwise with no lookup table, so the larger table-coverage vectors the "
+    "software targets use are omitted; the empty input still exercises the "
+    "init-then-finalize path with no message bytes."
+)
+
+
 def standard_doc_blocks(
     names: dict[str, str],
     *,
@@ -208,6 +236,7 @@ def standard_doc_blocks(
     xorout: int,
     extra_notes: dict[str, tuple[str, ...]] | None = None,
     oneshot_params: tuple[DocParam, ...] | None = None,
+    selftest_inputs_note: str = DEFAULT_SELFTEST_INPUTS_NOTE,
 ) -> dict[str, DocBlock]:
     """Build the five standard :class:`DocBlock`s for a generated algorithm.
 
@@ -275,11 +304,7 @@ def standard_doc_blocks(
             returns=f"{selftest_returns} iff the generated CRC reproduces every "
             "embedded reference value.",
             notes=(
-                "Catalogue algorithms check four fixed inputs (the empty string, "
-                '"123456789", all 256 byte values, and a 1 KiB pattern); the two '
-                "large inputs are regenerated with a byte-at-a-time loop, so no "
-                "big array is embedded.  The references come from two independent "
-                "engines that had to agree.",
+                selftest_inputs_note,
                 "Run once on your target toolchain -- it is the cheapest way "
                 "to catch a compiler / endianness / width mismatch before "
                 "trusting the output.",

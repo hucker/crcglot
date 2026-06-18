@@ -34,6 +34,8 @@ generators do not change.  ``comment_style_for(language, style)`` validates the
 from __future__ import annotations
 
 from .model import (
+    DEFAULT_SELFTEST_INPUTS_NOTE,
+    HDL_SELFTEST_INPUTS_NOTE,
     AlgoMeta,
     DocBlock,
     DocParam,
@@ -54,6 +56,8 @@ from .registry import (
 
 __all__ = [
     "COMMENT_STYLES",
+    "DEFAULT_SELFTEST_INPUTS_NOTE",
+    "HDL_SELFTEST_INPUTS_NOTE",
     "AlgoMeta",
     "DocBlock",
     "DocParam",

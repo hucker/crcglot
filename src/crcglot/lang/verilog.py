@@ -34,8 +34,10 @@ from __future__ import annotations
 from typing import Literal
 
 from crcglot._helpers import _func_name, _variant_to_flags, resolve_variant, crc_function_names
+from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
+    HDL_SELFTEST_INPUTS_NOTE,
     AlgoMeta,
     DocParam,
     UsageExample,
@@ -51,25 +53,46 @@ def _sv_lit(value: int, width: int) -> str:
     return f"{width}'h{value:0{hex_w}X}"
 
 
-def _self_test_sv(names, check, width, style, docs) -> list[str]:
+def _self_test_sv(names, check, width, style, docs, goldens) -> list[str]:
     """Emit a SystemVerilog self_test function returning 1'b1 on success.
 
-    The reveng check input ``"123456789"`` is hardcoded as a byte
-    array literal; the function returns the comparison result so a
-    testbench can do ``assert (<fname>_self_test());`` or use it in
-    any boolean context.
+    For a catalogue algorithm (``goldens`` present) it checks the empty
+    input and the reveng check string; a custom polynomial
+    (``goldens is None``) falls back to the check string alone.  The empty
+    input exercises the init-then-finalize path with no message bytes.
+    The all-bytes / 1 KiB vectors the software targets use are a
+    table-coverage tool, and this bitwise package carries no table, so
+    they are not generated here.
+
+    The function returns the comparison result so a testbench can do
+    ``assert (<fname>_self_test());`` or use it in any boolean context.
     """
-    return [
-        f"",
-        *style.doc_block(docs["self_test"], indent=4),
-        f"    function automatic bit {names['self_test']}();",
-        f"        byte unsigned data[] = '{{",
+    n = names
+    check_decl = [
+        f"        byte unsigned check_data[] = '{{",
         f"            8'h31, 8'h32, 8'h33, 8'h34, 8'h35,",
         f"            8'h36, 8'h37, 8'h38, 8'h39",
         f"        }};",
-        f"        return ({names['oneshot']}(data) == {_sv_lit(check, width)});",
-        f"    endfunction",
     ]
+    if goldens is None:
+        body = [
+            f"    function automatic bit {n['self_test']}();",
+            *check_decl,
+            f"        return ({n['oneshot']}(check_data) == {_sv_lit(check, width)});",
+            f"    endfunction",
+        ]
+    else:
+        g = goldens
+        body = [
+            f"    function automatic bit {n['self_test']}();",
+            f"        byte unsigned empty_data[];",
+            *check_decl,
+            f"        empty_data = new[0];",
+            f"        return ({n['oneshot']}(empty_data) == {_sv_lit(g['empty'], width)})",
+            f"            && ({n['oneshot']}(check_data) == {_sv_lit(g['check'], width)});",
+            f"    endfunction",
+        ]
+    return ["", *style.doc_block(docs["self_test"], indent=4), *body]
 
 
 def generate_verilog(
@@ -179,6 +202,7 @@ def generate_verilog_from_entry(
         ),
         selftest_returns="1'b1",
         refin=refin, refout=refout, xorout=xorout,
+        selftest_inputs_note=HDL_SELFTEST_INPUTS_NOTE,
         extra_notes={
             "update": (
                 "Consumes one byte per call -- loop over your message bytes.",
@@ -327,7 +351,7 @@ def generate_verilog_from_entry(
     ]
 
     # ---- self-test ----
-    lines.extend(_self_test_sv(names, check, w, style, docs))
+    lines.extend(_self_test_sv(names, check, w, style, docs, goldens_for(algo)))
 
     lines += [
         f"",

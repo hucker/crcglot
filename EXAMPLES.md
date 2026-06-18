@@ -4812,15 +4812,18 @@ package crc32_pkg;
     //
     // Returns 1'b1 iff the generated CRC reproduces every embedded reference value.
     //
-    // Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
+    // Checks two fixed inputs -- the empty string and "123456789" -- against references from two independent engines that had to agree.  These targets are bitwise with no lookup table, so the larger table-coverage vectors the software targets use are omitted; the empty input still exercises the init-then-finalize path with no message bytes.
     //
     // Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     function automatic bit crc32_self_test();
-        byte unsigned data[] = '{
+        byte unsigned empty_data[];
+        byte unsigned check_data[] = '{
             8'h31, 8'h32, 8'h33, 8'h34, 8'h35,
             8'h36, 8'h37, 8'h38, 8'h39
         };
-        return (crc32(data) == 32'hCBF43926);
+        empty_data = new[0];
+        return (crc32(empty_data) == 32'h00000000)
+            && (crc32(check_data) == 32'hCBF43926);
     endfunction
 
 endpackage
@@ -4914,7 +4917,7 @@ package crc32_pkg is
     --
     -- Returns true iff the generated CRC reproduces every embedded reference value.
     --
-    -- Catalogue algorithms check four fixed inputs (the empty string, "123456789", all 256 byte values, and a 1 KiB pattern); the two large inputs are regenerated with a byte-at-a-time loop, so no big array is embedded.  The references come from two independent engines that had to agree.
+    -- Checks two fixed inputs -- the empty string and "123456789" -- against references from two independent engines that had to agree.  These targets are bitwise with no lookup table, so the larger table-coverage vectors the software targets use are omitted; the empty input still exercises the init-then-finalize path with no message bytes.
     --
     -- Run once on your target toolchain -- it is the cheapest way to catch a compiler / endianness / width mismatch before trusting the output.
     function crc32_self_test return boolean;
@@ -4960,12 +4963,13 @@ package body crc32_pkg is
         return crc32_finalize(crc32_update(crc32_init, data));
     end function;
 
-    -- Run the canonical reveng check value; returns true on success.
+    -- Check the empty input and the reveng check string; true on success.
     function crc32_self_test return boolean is
         constant kCheckInput: std_logic_vector(71 downto 0) :=
             x"313233343536373839";  -- ASCII "123456789"
     begin
-        return unsigned(crc32(kCheckInput)) = x"CBF43926";
+        return unsigned(crc32_finalize(crc32_init)) = x"00000000"
+            and unsigned(crc32(kCheckInput)) = x"CBF43926";
     end function;
 end package body;
 ```

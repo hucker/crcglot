@@ -60,6 +60,40 @@ class TestGenerateVhdl:
         assert "ieee.numeric_std" in code, "uses numeric_std for unsigned arithmetic"
         assert "0x4B37" in code or "19255" in code, "self_test checks against reveng value"
 
+    @pytest.mark.parametrize(
+        "name", ["crc16-modbus", "crc32", "crc8", "crc24-openpgp"]
+    )
+    def test_self_test_checks_empty_and_check(self, name):
+        """The self_test checks the empty input as well as the check string.
+
+        The all-bytes / 1 KiB vectors the software targets use verify the
+        byte lookup table; this bitwise package has none, so they are
+        dropped.  The empty input is kept because it exercises a distinct
+        path -- init then finalize, no update iterations -- that the check
+        string does not.
+        """
+        # Arrange
+        from crcglot._vectors import VECTORS
+        from crcglot.lang.vhdl import _vhdl_lit
+        code = generate_vhdl(name)
+        assert code is not None, f"generate_vhdl({name!r}) returned code"
+        algo = ALGORITHMS[name]
+        g = VECTORS[name]
+        fn = name.replace("-", "_") + "_self_test"
+        body = code[code.index(f"function {fn} return boolean is"):]
+        body = body[: body.index("end function;")]
+
+        # Assert
+        assert g["empty"] != g["check"], (
+            f"{name}: fixture sanity -- empty and check goldens must differ"
+        )
+        assert _vhdl_lit(g["empty"], algo.width) in body, (
+            f"{name}: self_test no longer checks the empty golden"
+        )
+        assert _vhdl_lit(g["check"], algo.width) in body, (
+            f"{name}: self_test no longer checks the check golden"
+        )
+
     def test_unknown_algorithm(self):
         # Assert
         assert generate_vhdl("nonexistent") is None, "unknown algorithm returns None"
