@@ -19,6 +19,7 @@ Two layers:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import textwrap
@@ -31,8 +32,9 @@ from crcglot import (
     AlgorithmInfo,
     generate_csharp,
     generate_csharp_from_entry,
+    generate_files,
 )
-from crcglot._helpers import crc_function_names
+from crcglot.lang.csharp import _cs_method_names
 
 
 def _has_dotnet_sdk() -> bool:
@@ -83,6 +85,71 @@ def _cs_state_type(width: int) -> str:
     return "ulong"
 
 
+def _cs_class_and_methods(code: str) -> tuple[str, list[str]]:
+    """Pull the class name and every static-method name from C# source.
+
+    Matches ``public static <type> <method>(`` (the trailing ``(``
+    excludes the ``public static class <Name>`` declaration, which has no
+    parameter list), so the returned methods are exactly the callable
+    members the compiler will check against the class name.
+    """
+    cls = re.search(r"public static class (\w+)", code)
+    methods = re.findall(r"public static \w+ (\w+)\s*\(", code)
+    return (cls.group(1) if cls else ""), methods
+
+
+class TestCSharpMethodNamesNeverEqualClass:
+    """No emitted C# method may share its enclosing class name.
+
+    C# rejects a member whose name equals the enclosing type (error
+    CS0542), so a static class ``Crc8`` cannot contain a method ``Crc8``.
+    The default one-shot name is the bare algorithm stem, which
+    PascalCases to exactly the class name -- the collision that shipped
+    non-compiling C# for every algorithm while the batch-execution test
+    (which renames every symbol) stayed green.  This is a pure string
+    check on the generated source: no toolchain, runs in the fast tier,
+    and cannot be skipped for a missing ``dotnet``.
+    """
+
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    def test_default_naming_has_no_collision(self, name):
+        # Arrange -- the artifact a user gets from ``crcglot csharp <name>``.
+        code = generate_csharp(name)
+        assert code is not None, f"generate_csharp({name!r}) returned code"
+
+        # Act
+        cls, methods = _cs_class_and_methods(code)
+        collisions = [m for m in methods if m == cls]
+
+        # Assert
+        assert collisions == [], (
+            f"{name}: C# method(s) {collisions} equal the class name "
+            f"{cls!r} -- CS0542, will not compile"
+        )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"name": "MyCrc"}, {"symbol": "my_crc"}, {"symbol": "Crc32"}],
+        ids=["name=MyCrc", "symbol=my_crc", "symbol=Crc32"],
+    )
+    def test_overrides_have_no_collision(self, kwargs):
+        # Arrange -- the name= / symbol= user paths, through the public
+        # generate_files surface the CLI uses.  symbol="Crc32" is the
+        # tricky one: a PascalCase symbol whose verbatim one-shot would
+        # equal the PascalCase class.
+        code = generate_files("csharp", "crc32", **kwargs)[0].content
+
+        # Act
+        cls, methods = _cs_class_and_methods(code)
+        collisions = [m for m in methods if m == cls]
+
+        # Assert
+        assert collisions == [], (
+            f"override {kwargs}: C# method(s) {collisions} equal the class "
+            f"name {cls!r} -- CS0542, will not compile"
+        )
+
+
 class TestGenerateCSharp:
     """generate_csharp returns a single .cs source string."""
 
@@ -94,11 +161,11 @@ class TestGenerateCSharp:
         assert code is not None, "generator returned code"
         assert "using System;" in code, "using directive present"
         assert "public static class Crc16Modbus" in code, "PascalCase class"
-        assert "public static ushort Crc16Modbus(" in code, (
-            "one-shot method present"
+        assert "public static ushort Compute(" in code, (
+            "role-only one-shot method present (class namespaces it)"
         )
         assert "0x4B37" in code, "check value embedded"
-        assert "public static bool Crc16ModbusSelfTest()" in code, (
+        assert "public static bool SelfTest()" in code, (
             "self-test method present"
         )
 
@@ -114,7 +181,7 @@ class TestGenerateCSharp:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "public static byte Crc8(" in code, "CRC-8 uses byte"
+        assert "public static byte Compute(" in code, "CRC-8 uses byte"
 
     def test_crc32_uses_uint_with_suffix(self):
         # Act
@@ -122,7 +189,7 @@ class TestGenerateCSharp:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "public static uint Crc32(" in code, "CRC-32 uses uint"
+        assert "public static uint Compute(" in code, "CRC-32 uses uint"
         assert "0xFFFFFFFFu" in code, (
             "width-32 hex literals carry the u suffix"
         )
@@ -133,7 +200,7 @@ class TestGenerateCSharp:
 
         # Assert
         assert code is not None, "generator returned code"
-        assert "public static ulong Crc64Xz(" in code, "CRC-64 uses ulong"
+        assert "public static ulong Compute(" in code, "CRC-64 uses ulong"
         # CRC-64/XZ has init=0xFFFFFFFFFFFFFFFF and xorout=0xFFFFFFFFFFFFFFFF
         assert "0xFFFFFFFFFFFFFFFFUL" in code, (
             "width-64 hex literals carry the UL suffix"
@@ -146,9 +213,11 @@ class TestGenerateCSharp:
         # Assert
         assert code is not None, "generator returned code"
         assert "public static class MyCrc" in code, (
-            "class name derives from overridden symbol"
+            "symbol= names the class (which namespaces the role-only methods)"
         )
-        assert "public static uint my_crc(" in code, "method name overridden"
+        assert "public static uint Compute(" in code, (
+            "methods stay role-only; symbol= renames the class, not the methods"
+        )
 
     def test_table_emits_table_constant(self):
         # Act
@@ -187,7 +256,7 @@ class TestGenerateCSharp:
         assert code is not None, f"generate_csharp({name!r}) returned code"
         fname = _func_name(name)
         cls = _pascal(fname)
-        names = crc_function_names(fname, "pascal")
+        names = _cs_method_names("pascal")
         assert f"public static class {cls}" in code, (
             f"{name}: class declaration"
         )
@@ -262,7 +331,7 @@ class TestGeneratedCSharpExecutes:
         assert code is not None, f"generate_csharp({name!r}) returned code"
         fname = _func_name(name)
         cls = _pascal(fname)
-        names = crc_function_names(fname, "pascal")
+        names = _cs_method_names("pascal")
         proj = tmp_path / "Probe.csproj"
         proj.write_text(textwrap.dedent("""
             <Project Sdk="Microsoft.NET.Sdk">
@@ -359,6 +428,7 @@ class TestGeneratedCSharpSliceBy8Executes:
         )
         bb_cls = _pascal(bb_sym)
         s8_cls = _pascal(s8_sym)
+        oneshot = _cs_method_names("pascal")["oneshot"]
         cstype = _cs_state_type(ALGORITHMS[name].width)
 
         proj = tmp_path / "Probe.csproj"
@@ -390,8 +460,8 @@ class TestGeneratedCSharpSliceBy8Executes:
                         int n = lengths[li];
                         var slice = new byte[n];
                         Array.Copy(buf, slice, n);
-                        {cstype} bb = {bb_cls}.{bb_sym}(slice);
-                        {cstype} s8 = {s8_cls}.{s8_sym}(slice);
+                        {cstype} bb = {bb_cls}.{oneshot}(slice);
+                        {cstype} s8 = {s8_cls}.{oneshot}(slice);
                         if (bb != s8) return li + 1;
                     }}
                     return 0;
@@ -448,10 +518,17 @@ def _cs_check_literal(width: int, check: int) -> str:
 
 
 def _csharp_batch_driver_case(name: str, variant: _CsVariant) -> str:
-    """One C# block: <Cls>.<sym>_self_test() + split-streaming check,
-    printing ``<name>/<variant> PASS|FAIL:<phase>``."""
+    """One C# block: <Cls>.SelfTest() + split-streaming check, printing
+    ``<name>/<variant> PASS|FAIL:<phase>``.
+
+    Each case is generated under a unique ``symbol=`` so the *class*
+    names stay distinct in the one concatenated project; the methods are
+    role-only (``SelfTest`` / ``Init`` / ``Update`` / ``Finalize``), so
+    the class qualifier is what disambiguates them across algorithms.
+    """
     sym = f"{_func_name(name)}_{_CS_VARIANT_TAG[variant]}"
     cls = _pascal(sym)
+    n = _cs_method_names("pascal")
     algo = ALGORITHMS[name]
     cstype = _cs_state_type(algo.width)
     lit = _cs_check_literal(algo.width, algo.check)
@@ -460,12 +537,12 @@ def _csharp_batch_driver_case(name: str, variant: _CsVariant) -> str:
         "            try {\n"
         f"                {cstype} expected = {lit};\n"
         "                string r;\n"
-        f"                if (!{cls}.{sym}_self_test()) {{ r = \"FAIL:oneshot\"; }}\n"
+        f"                if (!{cls}.{n['self_test']}()) {{ r = \"FAIL:oneshot\"; }}\n"
         "                else {\n"
-        f"                    {cstype} s = {cls}.{sym}_init();\n"
-        f"                    s = {cls}.{sym}_update(s, FULL04);\n"
-        f"                    s = {cls}.{sym}_update(s, FULL49);\n"
-        f"                    r = ({cls}.{sym}_finalize(s) == expected) ? \"PASS\" : \"FAIL:streaming\";\n"
+        f"                    {cstype} s = {cls}.{n['init']}();\n"
+        f"                    s = {cls}.{n['update']}(s, FULL04);\n"
+        f"                    s = {cls}.{n['update']}(s, FULL49);\n"
+        f"                    r = ({cls}.{n['finalize']}(s) == expected) ? \"PASS\" : \"FAIL:streaming\";\n"
         "                }\n"
         f"                Console.WriteLine(\"{tag} \" + r);\n"
         f"            }} catch {{ Console.WriteLine(\"{tag} FAIL:exception\"); }}"

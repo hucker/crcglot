@@ -36,9 +36,16 @@ def _names(lang: str, name: str = "crc32") -> dict[str, str]:
     """The five emitted function names under ``lang``'s default convention.
 
     Lets the header/identifier assertions stay correct as each language's
-    idiomatic naming default differs (snake / camel / pascal).
+    idiomatic naming default differs (snake / camel / pascal).  C# is the
+    exception: it wraps each algorithm in its own class, so its methods are
+    role-only (``Compute`` / ``Init`` / ...) -- the class, not the method,
+    carries the algorithm name.
     """
-    return crc_function_names(_func_name(name), LANGUAGES[lang].default_naming)
+    naming = LANGUAGES[lang].default_naming
+    if lang == "csharp":
+        from crcglot.lang.csharp import _cs_method_names
+        return _cs_method_names(naming)
+    return crc_function_names(_func_name(name), naming)
 
 
 def _source(lang: str, name: str = "crc32", variant: str = "bitwise") -> str:

@@ -48,9 +48,9 @@ from crcglot._helpers import (
     _build_slice8_tables,
     _build_table,
     _func_name,
+    _join_naming,
     _variant_to_flags,
     resolve_variant,
-    crc_function_names,
 )
 from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
@@ -100,6 +100,40 @@ def _cs_pascal_class(fname: str) -> str:
     """
     parts = fname.split("_")
     return "".join(p[:1].upper() + p[1:] for p in parts if p)
+
+
+# C# wraps each algorithm in its own PascalCase class (`_cs_pascal_class`),
+# so the class already namespaces the methods; prefixing every method with
+# the algorithm name only stutters (`Crc32.Crc32Init`).  Worse, the bare
+# one-shot would be the PascalCase base, which equals the class name -- C#
+# rejects a member named like its enclosing type (CS0542), so that output
+# would not compile.  So C# methods carry the *role* only and the class
+# carries the identity: the one-shot is `Compute` (never the class name),
+# and a bundle of several algorithms stays unambiguous because each lives
+# in its own class (`Crc32.Compute`, `Crc16Xmodem.Compute`).
+_CS_ROLE_TOKENS: dict[str, tuple[str, ...]] = {
+    "oneshot": ("compute",),
+    "init": ("init",),
+    "update": ("update",),
+    "finalize": ("finalize",),
+    "self_test": ("self", "test"),
+}
+
+
+def _cs_method_names(naming: str) -> dict[str, str]:
+    """C# method identifiers: role words only, cased per ``naming``.
+
+    The class (`_cs_pascal_class`) namespaces them, so methods do not
+    repeat the algorithm name.  ``Compute`` / ``Init`` / ``Update`` /
+    ``Finalize`` / ``SelfTest`` under the pascal default; a ``naming``
+    override re-cases the same role words.  Independent of the algorithm
+    or any ``symbol=`` override (those name the class), so the one-shot
+    can never collide with the class name.
+    """
+    return {
+        role: _join_naming(list(tokens), naming)
+        for role, tokens in _CS_ROLE_TOKENS.items()
+    }
 
 
 def _cs_cast(width: int, expr: str) -> str:
@@ -535,7 +569,7 @@ def generate_csharp_from_entry(
 
     naming = naming_convention_for("csharp", naming)
     base = symbol if symbol else _func_name(stem if stem is not None else name)
-    names = crc_function_names(base, naming, is_override=symbol is not None)
+    names = _cs_method_names(naming)
     cstype = _cs_type(w)
     cls = _cs_pascal_class(base)
     mask = _cs_hex((1 << w) - 1, w)

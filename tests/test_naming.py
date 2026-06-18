@@ -187,14 +187,26 @@ def test_naming_convention_for_rejects_unknown() -> None:
 # ── generator integration ────────────────────────────────────────────────
 
 
+def _expected_update(code: str, naming: str) -> str:
+    """The ``update`` method name ``code`` emits under ``naming``.
+
+    C# wraps each algorithm in its own class, so its methods are role-only
+    (``Update`` / ``update``) -- the class, not the method, carries the
+    algorithm name.  Every other language prefixes the role with the
+    algorithm (``Crc16ModbusUpdate``, ...).
+    """
+    if code == "csharp":
+        from crcglot.lang.csharp import _cs_method_names
+        return _cs_method_names(naming)["update"]
+    return crc_function_names(_func_name("crc16-modbus"), naming)["update"]
+
+
 @pytest.mark.parametrize("code", sorted(LANGUAGES))
 def test_default_generation_uses_idiomatic_name(code: str) -> None:
     """With no ``naming=``, the update function uses the language default."""
     # Act
     src = _flat(LANGUAGES[code].generator("crc16-modbus"))
-    expected = crc_function_names(
-        _func_name("crc16-modbus"), LANGUAGES[code].default_naming
-    )["update"]
+    expected = _expected_update(code, LANGUAGES[code].default_naming)
 
     # Assert
     assert expected in src, f"{code}: default emits {expected!r}"
@@ -206,7 +218,7 @@ def test_every_offered_convention_emits_its_casing(code: str) -> None:
     # Act / Assert
     for conv in LANGUAGES[code].naming:
         src = _flat(LANGUAGES[code].generator("crc16-modbus", naming=conv))
-        expected = crc_function_names(_func_name("crc16-modbus"), conv)["update"]
+        expected = _expected_update(code, conv)
         assert expected in src, f"{code}/{conv}: emits {expected!r}"
 
 
