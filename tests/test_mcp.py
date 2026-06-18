@@ -683,6 +683,43 @@ class TestCustomParams:
         with pytest.raises(Exception, match="width.*poly|requires"):
             _call("crc_compute", {"custom_params": {"width": 16}, "data_text": "x"})
 
+    def test_hex_string_numerics_accepted(self):
+        """An LLM quoting poly / init in hex from a datasheet ("0x1009")
+        is accepted, not just bare ints -- bare int() used to reject it."""
+        # Arrange -- the same CRC as self.CP but every numeric field as hex.
+        hex_cp = {"width": 16, "poly": "0x1009", "init": "0xFFFF",
+                  "refin": True, "refout": True, "xorout": "0x0"}
+
+        # Act
+        out = _call("crc_compute", {"custom_params": hex_cp, "data_text": "hello"})
+
+        # Assert
+        actual, expected = out["crc"], self._truth(b"hello")
+        assert actual == expected, (
+            f"hex-string custom params gave 0x{actual:X}, expected 0x{expected:X}"
+        )
+
+    def test_missing_width_gives_clean_error(self):
+        # Regression: a missing width used to surface as the engine's opaque
+        # "negative shift count"; it must now name the missing field.
+        with pytest.raises(Exception, match=r"missing required field.*width"):
+            _call("crc_compute",
+                  {"custom_params": {"poly": 0x1009}, "data_text": "x"})
+
+    def test_unparseable_numeric_gives_clean_error(self):
+        with pytest.raises(Exception, match="integer or hex string"):
+            _call("crc_compute",
+                  {"custom_params": {"width": 16, "poly": "nope"}, "data_text": "x"})
+
+    @pytest.mark.parametrize("bad_width", [0, -4, 65, 200])
+    def test_out_of_range_width_rejected(self, bad_width):
+        # Regression: width=200 used to SUCCEED and emit a nonsense source file
+        # (no upper-bound check); the engine guard now rejects it cleanly.
+        with pytest.raises(Exception, match="width must be in"):
+            _call("crc_generate",
+                  {"language": "c",
+                   "custom_params": {"width": bad_width, "poly": 0x1009}})
+
 
 # ---------------------------------------------------------------------------
 # crc_generate

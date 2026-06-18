@@ -400,6 +400,10 @@ def custom_algorithm(
         A frozen :class:`AlgorithmInfo` with ``check`` computed and
         ``source="custom"``.
 
+    Raises:
+        ValueError: ``width`` is outside 1..64 (above 64 overflows the
+            engine's 64-bit state and the generators' integer types).
+
     Examples:
         >>> from crcglot import custom_algorithm, generic_crc
         >>> algo = custom_algorithm(width=16, poly=0x1234, init=0xFFFF,
@@ -407,6 +411,11 @@ def custom_algorithm(
         >>> generic_crc(b"123456789", algo) == algo.check
         True
     """
+    if not 1 <= width <= 64:
+        # The upper bound is load-bearing: widths above 64 overflow the
+        # engine's uint64 state and the generators' integer types, so a
+        # value like 200 would otherwise emit nonsense rather than error.
+        raise ValueError(f"width must be in 1..64, got {width}")
     check = generic_crc(
         b"123456789", Crc(width, poly, init, refin, refout, xorout)
     )

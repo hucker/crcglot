@@ -10,7 +10,7 @@ in natural-language workflows::
 
 Every tool wraps an existing public Python function from ``crcglot``;
 the MCP layer is purely transport adaptation and adds no CRC logic.
-Correctness of the underlying engines is asserted by the 2,930-test
+Correctness of the underlying engines is asserted by the project test
 suite in ``tests/``.
 
 Entry point: ``crcglot-mcp`` (registered in ``pyproject.toml`` under
@@ -28,7 +28,6 @@ from mcp.server import FastMCP
 from mcp.types import ToolAnnotations
 
 from crcglot import (
-    Crc,
     custom_algorithm,
     ALGORITHMS,
     ATTRIBUTION,
@@ -39,7 +38,6 @@ from crcglot import (
     encode,
     encode_int,
     encode_text,
-    generic_crc,
     generic_crc_many,
     reverse_packets,
     variant_info,
@@ -55,8 +53,8 @@ from crcglot.mcp._wire import (
 )
 
 
-# Catalogue width set -- used both by ``crc_generate`` validation and
-# the ``variants.json`` resource cross-product.
+# Byte-aligned catalogue widths -- the rows of the ``variants.json``
+# resource cross-product (one variants-by-language map per width).
 _CATALOGUE_WIDTHS = (8, 16, 32, 64)
 
 # Language enum -- single source of truth for ``crc_generate``.
@@ -78,9 +76,10 @@ VARIANT_ENUM = Literal["auto", "bitwise", "table", "slice8"]
 # ``LanguageInfo.naming`` / ``.default_naming``; the schema accepts all three
 # and the tool rejects a pair the language doesn't offer.
 NAMING_ENUM = Literal["snake", "camel", "pascal"]
-# Comment / documentation style.  ``plain`` is the only one implemented
-# today; the doc-tool styles are accepted by the schema but raise an
-# informative ValueError until shipped (see crcglot.comments).
+# Comment / documentation style.  ``plain`` plus the per-language doc-tool
+# styles (doxygen, google, numpy, rest, rustdoc, godoc, docfx, javadoc,
+# jsdoc) are all implemented; the generator rejects a style a given
+# language doesn't offer (see crcglot.comments).
 COMMENT_STYLE_ENUM = Literal[
     "plain",
     "doxygen",
@@ -111,6 +110,69 @@ _READONLY = ToolAnnotations(
 )
 
 
+def _as_int(value: Any, field: str) -> int:
+    """Coerce a ``custom_params`` numeric field to int.
+
+    Accepts a plain int or a hex / decimal string (``"0x1021"`` / ``"4129"``):
+    LLMs routinely quote a polynomial in hex straight from a datasheet, and a
+    bare ``int(value)`` rejects ``"0x1021"``.  ``int(s, 0)`` reads the base
+    from a ``0x`` / ``0o`` / ``0b`` prefix and defaults to decimal.
+
+    Raises:
+        ValueError: ``value`` is a bool, or a string that is not a valid
+            integer literal, or some other non-int type.
+    """
+    if isinstance(value, bool):
+        # bool is an int subclass; refin / refout are the boolean fields, so a
+        # True / False in a numeric slot is almost certainly a mistake.
+        raise ValueError(f"custom_params[{field!r}] must be an integer, not a bool")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip(), 0)
+        except ValueError as e:
+            raise ValueError(
+                f"custom_params[{field!r}] must be an integer or hex string "
+                f"(e.g. 4129 or '0x1021'); got {value!r}"
+            ) from e
+    raise ValueError(
+        f"custom_params[{field!r}] must be an integer or hex string; "
+        f"got {type(value).__name__}"
+    )
+
+
+def _parse_custom_params(cp: dict[str, Any]) -> AlgorithmInfo:
+    """Validate a ``custom_params`` dict into an :class:`AlgorithmInfo`.
+
+    Requires ``width`` and ``poly``; accepts hex / decimal strings or ints for
+    every numeric field (see :func:`_as_int`).  The width range and the rest of
+    the Rocksoft validity check live in :func:`crcglot.custom_algorithm` (the
+    engine), so the CLI, the Python API, and every MCP tool reject the same
+    invalid parameter sets with the same message.
+
+    Raises:
+        ValueError: ``width`` or ``poly`` missing, a numeric field
+            unparseable, or the engine rejects the parameter set.
+    """
+    missing = [k for k in ("width", "poly") if k not in cp]
+    if missing:
+        raise ValueError(
+            f"custom_params is missing required field(s) {missing}; supply at "
+            "least 'width' and 'poly' (optional: init / refin / refout / "
+            "xorout / name / desc)"
+        )
+    return custom_algorithm(
+        width=_as_int(cp["width"], "width"),
+        poly=_as_int(cp["poly"], "poly"),
+        init=_as_int(cp.get("init", 0), "init"),
+        refin=bool(cp.get("refin", False)),
+        refout=bool(cp.get("refout", False)),
+        xorout=_as_int(cp.get("xorout", 0), "xorout"),
+        desc=str(cp.get("desc", "")),
+    )
+
+
 def _resolve_algorithm(
     algorithm: str | None,
     custom_params: dict[str, Any] | None,
@@ -129,23 +191,8 @@ def _resolve_algorithm(
         if algorithm not in ALGORITHMS:
             raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
         return ALGORITHMS[algorithm], algorithm
-    cp = custom_params
-    assert cp is not None
-    if "width" not in cp or "poly" not in cp:
-        raise ValueError(
-            "custom_params requires at least 'width' and 'poly' "
-            "(plus optional init / refin / refout / xorout)"
-        )
-    info = custom_algorithm(
-        width=int(cp["width"]),
-        poly=int(cp["poly"]),
-        init=int(cp.get("init", 0)),
-        refin=bool(cp.get("refin", False)),
-        refout=bool(cp.get("refout", False)),
-        xorout=int(cp.get("xorout", 0)),
-        desc=str(cp.get("desc", "")),
-    )
-    return info, str(cp.get("name", "custom"))
+    assert custom_params is not None
+    return _parse_custom_params(custom_params), str(custom_params.get("name", "custom"))
 
 
 def build_server() -> FastMCP:
@@ -907,8 +954,12 @@ def build_server() -> FastMCP:
             advised_algos: list[str | AlgorithmInfo] = list(names)
         else:
             assert custom_params is not None
-            cp = custom_params
-            width = int(cp.get("width", 0))
+            # Validate + parse once (requires width / poly, accepts hex
+            # strings, range-checks width in the engine) before any
+            # variant logic, so width is known-good here.
+            algo_info = _parse_custom_params(custom_params)
+            cust_name = str(custom_params.get("name", "crc_custom"))
+            width = algo_info.width
             if variant == "auto":
                 variant = cast(VARIANT_ENUM, info.fastest_variant_for_width(width))
             valid_variants = info.variants_for_width(width)
@@ -918,27 +969,6 @@ def build_server() -> FastMCP:
                     f"at width={width}; valid variants for this cell: "
                     f"{list(valid_variants)}"
                 )
-            poly = int(cp["poly"])
-            init = int(cp.get("init", 0))
-            refin = bool(cp.get("refin", False))
-            refout = bool(cp.get("refout", False))
-            xorout = int(cp.get("xorout", 0))
-            desc = str(cp.get("desc", ""))
-            cust_name = str(cp.get("name", "crc_custom"))
-            check = generic_crc(
-                b"123456789", Crc(width, poly, init, refin, refout, xorout)
-            )
-            algo_info = AlgorithmInfo(
-                width=width,
-                poly=poly,
-                init=init,
-                refin=refin,
-                refout=refout,
-                xorout=xorout,
-                check=check,
-                desc=desc,
-                source="custom",
-            )
             generated = [name or cust_name]
             advised_algos = [algo_info]
 

@@ -1093,6 +1093,16 @@ class TestCustomAlgorithm:
         # Assert
         assert algo.desc == "vendor frame CRC", "explicit desc must be kept"
 
+    @pytest.mark.parametrize("bad_width", [0, -1, 65, 200])
+    def test_rejects_out_of_range_width(self, bad_width):
+        """A width above 64 overflows the uint64 engine state and the
+        generators' integer types (a value like 200 would otherwise emit a
+        nonsense source file); below 1 is degenerate.  Both raise here, so
+        the CLI / API / MCP custom paths all reject the same sets."""
+        # Act / Assert
+        with pytest.raises(ValueError, match="width must be in"):
+            custom_algorithm(width=bad_width, poly=0x1021)
+
     def test_feeds_a_generator(self):
         # Arrange
         algo = custom_algorithm(width=16, poly=0xA097, init=0x1D0F,
