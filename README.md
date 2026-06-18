@@ -51,7 +51,7 @@ Python 3.11+, zero runtime dependencies: `crcglot` imports nothing beyond the st
 
 Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go / C# / Java / TypeScript / Python / Verilog / VHDL return `bool` / `boolean` / `bit`.  No `#[cfg(test)]` gating, so you can call it from your release build, a boot self-check, or a startup assertion.  The generated files are also documented (per-language doc-tool styles) and named in each target's idiomatic casing; see [docs/generated-code.md](docs/generated-code.md).
 
-The generated **Python is pure Python**: portable and dependency-free, but interpreted, so it is the slow path.  When you want speed in Python, don't run the generated file -- reach for crcglot's own runtime: `crcglot.compute(data, "crc32")` dispatches to a bundled C extension (near-C speed, on the order of 2,000× the interpreted code), and IEEE CRC-32 rides the stdlib's hardware `zlib.crc32` (CPU CRC instructions, roughly another 30× on top).  Generate the `.py` to port a CRC into a zero-dependency codebase; call the package to compute one fast.  Details in [docs/api.md](docs/api.md).
+The generated **Python is pure Python**: portable and dependency-free, but interpreted, so it is the slow path.  When you want speed in Python, don't run the generated file; reach for crcglot's own runtime.  `crcglot.compute(data, "crc16-modbus")` runs on the bundled C extension at compiled-C-class throughput (~1-2 GB/s on bulk data).  The two IEEE CRC-32 variants are the exception: `crc32` and `crc32-jamcrc` ride the stdlib's hardware `zlib.crc32` instead (CPU CRC instructions, tens of GB/s), the one path that reaches that speed.  Generate the `.py` to port a CRC into a zero-dependency codebase; call the package to compute one fast.  Details in [docs/api.md](docs/api.md).
 
 ## How it's verified
 
@@ -166,7 +166,7 @@ print(modbus.width, hex(modbus.check), modbus.desc)
 
 Beyond *generating* code, crcglot *computes* CRCs at runtime:
 
-> **Performance:** with the bundled C extension, crcglot computes any of the more than 100 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s).  The pure-Python fallback always works but is ~1000× slower.  The compiled-class numbers hold for bulk/streaming data; many tiny one-shot calls pay Python↔C overhead per call; use the batch API for those.  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
+> **Performance:** with the bundled C extension, crcglot computes any of the more than 100 CRCs from Python at compiled-C-class throughput on bulk data (~1.7 GB/s on a 1 MiB buffer), and for IEEE CRC-32 / JAMCRC it delegates to the stdlib's hardware path (~tens of GB/s).  The pure-Python fallback always works but is far slower, by a few hundred to a few thousand times depending on the width.  The compiled-class numbers hold for bulk/streaming data; many tiny one-shot calls pay Python↔C overhead per call; use the batch API for those.  All figures are platform-specific; see [BENCHMARKS.md](BENCHMARKS.md).
 
 There's no variant knob at runtime: `generic_crc(data, crc)` picks the fastest path available (stdlib `zlib.crc32` for IEEE crc32/jamcrc, the C extension otherwise, pure Python as the universal fallback).  For chunked data or many messages of one algorithm, use the streaming (`crc_stream`) and batch (`generic_crc_many`) APIs; details and the hot-loop warning are in [docs/api.md](docs/api.md).
 

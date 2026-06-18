@@ -99,7 +99,7 @@ compute(b"123456789", "crc16-modbus")   # 0x4B37; any catalogue name or Crc/Algo
 Under the hood it dispatches three ways (you never select among them):
 
 1. **IEEE CRC-32 / JAMCRC → stdlib `zlib.crc32`** (hardware CRC folding: PCLMULQDQ on x86, PMULL / `crc32` instructions on ARM): tens of GB/s.  No software CRC out-runs silicon, so crcglot borrows the stdlib's path for the algorithms it covers.
-2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s, ~2,000× over pure Python.
+2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s on bulk data, compiled-C-class.  The gain over pure Python ranges from a few hundred times to a few thousand, widening with the width (a 64-bit CRC's pure-Python loop is far slower than a 16-bit one), so it is not a single headline number.
 3. **No extension built → pure Python**: always works, just slow.
 
 The extension ships in the prebuilt wheels; `uv add crcglot` gets it on common platforms, with no extra to enable.  To force a build from source instead of using a prebuilt wheel:
