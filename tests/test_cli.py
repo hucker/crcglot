@@ -494,9 +494,18 @@ class TestCodegenMultiAlgorithm:
         rc = main(["csharp", "crc32", "crc16-modbus", "crc8", "file=multi"])
         _out, _err = capsys.readouterr()
 
-        # Assert -- one hoisted `using System;` (a second, following a type,
-        # would not compile) and a distinct class per algorithm.
-        body = (tmp_path / "multi.cs").read_text()
+        # Assert -- the bundle file is named after its PascalCase class
+        # (file=multi -> Multi.cs, the C# convention), with one hoisted
+        # `using System;` (a second, following a type, would not compile) and a
+        # distinct class per algorithm.  The filename assertion is load-bearing:
+        # reading "multi.cs" passed on case-insensitive Windows but is a real
+        # file on case-sensitive Linux, so the wrong case must fail here.
+        actual_files = sorted(p.name for p in tmp_path.iterdir())
+        assert actual_files == ["Multi.cs"], (
+            f"C# names the file after its PascalCase class, not the literal "
+            f"stem; got {actual_files}"
+        )
+        body = (tmp_path / "Multi.cs").read_text()
         actual_using = body.count("using System;")
         actual_classes = body.count("public static class")
         assert rc == 0, "bundle exits 0"
