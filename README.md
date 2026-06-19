@@ -162,6 +162,8 @@ print(modbus.width, hex(modbus.check), modbus.desc)
 
 `LanguageInfo` carries everything a UI or build script needs per target (extensions, variants, generators, naming/casing helpers); `AlgorithmInfo` is the full parameter set.  Custom polynomials plug into the same generators via `generator_from_entry`.  The full API (registries, custom polys, the runtime engine, streaming and batch) is in [docs/api.md](docs/api.md).
 
+Pointing an LLM or coding agent at crcglot?  Start with [llms.txt](llms.txt): a concise, linked map of what the package does and where to look, to load first instead of crawling the source.
+
 ## Fast runtime CRC (optional C extension)
 
 Beyond *generating* code, crcglot *computes* CRCs at runtime:

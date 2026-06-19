@@ -1,0 +1,35 @@
+# crcglot
+
+> Multi-language CRC toolkit. Compute, detect, reverse-engineer, and generate verified CRC code for C/C++, C#, Go, Java, Python, Rust, TypeScript, Verilog, and VHDL. Catalogue-driven (100+ reveng algorithms), zero runtime dependencies (stdlib only, plus an optional bundled C accelerator), MCP server included.
+
+crcglot does four things with CRCs, all callable from Python, the `crcglot` CLI, or the `crcglot-mcp` MCP server:
+
+- **Compute** a CRC value at runtime (`crcglot.compute` / `generic_crc`). Dispatches to stdlib `zlib.crc32` for IEEE crc32/jamcrc (hardware, tens of GB/s), the bundled C extension otherwise (~1-2 GB/s), pure Python as the universal fallback.
+- **Detect / reverse**: name the catalogue CRC ending a packet (`detect`), or recover the Rocksoft/Williams parameters of an *unknown/custom* CRC algebraically over GF(2) (`reverse`). `detect` also recognises a CRC wrapped in a payload form (e.g. a JSON frame) and reports the input `form` (binary/hex/text/json). `identify_trailer` spots non-CRC trailers (checksums, digests).
+- **Generate** verified source for one (language, algorithm, variant) cell (`generate_files` / `generate_<lang>`). Every generated file embeds a `_self_test()` and is execution-verified against the reveng catalogue.
+- **Encode / verify** a packet's trailing CRC (`encode` / `verify`).
+
+The model for generation is three choices: which algorithm (`crcglot list` shows 100+), which language, and `--fast` (default) vs `--small`. Custom polynomials plug into the same surfaces via `custom_algorithm` / `--custom` / `custom_params`.
+
+Two typed registries are the entry points for tooling: `ALGORITHMS` (`dict[str, AlgorithmInfo]`) and `LANGUAGES` (`dict[str, LanguageInfo]`). `import crcglot` loads only the compute core; everything else resolves on first use.
+
+## Docs
+
+- [Programmatic API](docs/api.md): the `LANGUAGES` / `ALGORITHMS` registries, `detect` / `reverse` / `compute` / `encode` / `verify` / `identify_trailer`, custom polynomials, the runtime engine, streaming (`CrcStream`), batch (`generic_crc_many`), and `DetectMatch.form`.
+- [CLI reference](docs/cli.md): every subcommand (`list`, `info`, `detect`, `identify`, `reverse`, `verify`, `encode`, `compute`, the nine generators, `version`, `credits`) with options and examples.
+- [MCP server](docs/MCP.md): tools (`crc_list`, `crc_info`, `crc_detect`, `crc_reverse`, `crc_identify_trailer`, `crc_verify`, `crc_encode`, `crc_compute`, `crc_compute_many`, `crc_generate`, `crc_credits`) and resources (`crcglot://catalogue.json`, `languages.json`, `variants.json`).
+- [Generated code style](docs/generated-code.md): per-language doc-comment styles, naming conventions, the embedded self-test.
+- [Examples gallery](EXAMPLES.md): the actual generated source for `crc32` across every language x variant.
+
+## Install
+
+- `uv tool install crcglot` (CLI on PATH) or `uv add crcglot` (library). Python 3.11+.
+- `uv tool install 'crcglot[mcp]'` for the MCP server, then run `crcglot-mcp` (stdio); the MCP server self-describes via its `instructions` and per-tool descriptions, so an MCP client needs no extra context.
+
+## Optional
+
+- [Architecture](docs/ARCHITECTURE.md): how the package is put together.
+- [Certification story](docs/certification.md): using the output in safety-certified software.
+- [Benchmarks](BENCHMARKS.md): measured throughput per language x variant and per runtime path.
+- [Changelog](CHANGELOG.md): release history.
+- When to reach elsewhere: [anycrc](https://pypi.org/project/anycrc/) for bulk runtime hashing of non-crc32 algorithms (~10x faster on large in-memory buffers); [reveng](https://reveng.sourceforge.io/) for deep reverse-engineering of pathological captures.
