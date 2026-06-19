@@ -8,7 +8,7 @@ LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't
 
 If you work with CRCs, this is most of the toolbox in one install: the package that generates the code also computes, detects, reverse-engineers, and identifies non-CRC trailers, so one tool covers the workflow end to end.  The deliberate exception is bulk runtime hashing throughput; [when to reach for something else](#when-to-reach-for-something-else) names the better tool for that.
 
-crcglot is developed with AI assistance, on these terms: every release gates on the verification matrix below, the reference values come from engines that are not ours, and the suite is yours to run.  If a vector fails, file an issue.
+crcglot is developed with Claude Code (Anthropic's AI coding tool), on these terms: every release gates on the verification matrix below, the reference values come from engines that are not ours, and the suite is yours to run.  You never have to trust how the code was written, only what it does when you run it.  If a vector fails, file an issue.
 
 ## Quick start
 
@@ -84,7 +84,7 @@ Every generated file also ships its own `_self_test()`.  For a catalogue algorit
 - **A boot-time integrity check.**  A table-driven CRC carries ~1 KiB of constants in flash, and a corrupted table entry produces silently wrong CRCs forever.  The all-bytes and 1 KiB vectors drive over a thousand lookups through the table, so calling `_self_test()` at startup doubles as a flash-corruption tripwire, not just a build-time sanity check.
 - **A self-evidencing artifact.**  An auditor holding the generated file needs no access to crcglot, its CI, or the internet: the file states its claim ("this is CRC-16/CCITT-FALSE") and carries executable acceptance criteria for it, derived from references crcglot didn't compute.  Years later, when nobody remembers how the file was generated, it still proves itself.
 - **Tamper-evidence for well-meaning edits.**  Any later hand-edit to the algorithm either keeps the self-test passing or visibly deletes the assertions; both are auditable events in a diff.  Silent drift becomes loud drift.
-- **A cleaner story for regulated builds.**  Certification frameworks ask whether your code generator is qualified; the standard alternative is independently verified *output*.  Vectors computed by two independent engines, anchored to a published catalogue, embedded as re-runnable assertions next to the implementation, are that evidence, attached to the artifact rather than the tool.  [docs/certification.md](docs/certification.md) lays the whole story out, including what crcglot deliberately does not claim.
+- **A cleaner story for regulated builds.**  First, the disclaimer that matters: crcglot is not certified software, and its output is not a drop-in certified component.  What it is: a generator that held itself to some of the same verification methods you would run when certifying real software, then hands you that evidence.  Certification frameworks ask whether your code generator is qualified; the standard alternative is independently verified *output*.  Vectors computed by two independent engines, anchored to a published catalogue, embedded as re-runnable assertions next to the implementation, are that evidence, attached to the artifact rather than the tool.  [docs/certification.md](docs/certification.md) lays the whole story out, including what crcglot deliberately does not claim.
 
 ## Use with an MCP client (optional)
 

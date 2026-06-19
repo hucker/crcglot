@@ -29,7 +29,7 @@ Two typed registries are the entry points for tooling: `ALGORITHMS` (`dict[str, 
 ## Optional
 
 - [Architecture](docs/ARCHITECTURE.md): how the package is put together.
-- [Certification story](docs/certification.md): using the output in safety-certified software.
+- [Certification story](docs/certification.md): using the output in safety-certified software. crcglot is not certified code and not a drop-in certified component; it verified itself with some of the same methods used on certified software and hands you that evidence.
 - [Benchmarks](BENCHMARKS.md): measured throughput per language x variant and per runtime path.
 - [Changelog](CHANGELOG.md): release history.
 - When to reach elsewhere: [anycrc](https://pypi.org/project/anycrc/) for bulk runtime hashing of non-crc32 algorithms (~10x faster on large in-memory buffers); [reveng](https://reveng.sourceforge.io/) for deep reverse-engineering of pathological captures.
