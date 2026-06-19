@@ -2,6 +2,8 @@
 
 Date: 2026-06-18. Target: crcglot 0.23.0.
 
+The two findings below were addressed for crcglot 0.24.0; the Resolution section at the end records how each was closed.
+
 This report records an external check of crcglot that deliberately does not rely on the bundled test suite. The goal was to answer six questions from scratch: do the features compute what they claim, does the generated code work in every language, does the C accelerator deliver compiled-class speed, can it reverse-engineer a CRC, can it stand in for the common CRC tools, and are there bugs or unsafe code. Every correctness claim below is graded against references that do not come from crcglot.
 
 ## Method
@@ -50,3 +52,20 @@ The README's "about 2,000x faster than interpreted" figure is a best case: crc64
 ## Bottom line
 
 The compute engine, the C accelerator, the reverse-engineering search, and eight of the nine code generators are correct and robust under independent adversarial testing. The one real defect is that the C# generator emits source that does not compile, and the default test run does not reveal it. Fixing the generator and adding a single un-gated compile check for the default C# output would close the gap.
+
+## Resolution (0.24.0)
+
+The two findings above drove fixes that landed for crcglot 0.24.0; this section records how each was closed. Everything above it is left as written at review time, so the as-reviewed record stands next to its resolution.
+
+**Finding 1 (C# does not compile): fixed.** The C# generator no longer derives the one-shot method name from the class name, so the CS0542 collision cannot occur (`src/crcglot/lang/csharp.py`). A default-output C# compile was un-gated from the `exhaustive` tier so the regression cannot return silently behind a green run, which is exactly the gap the finding identified.
+
+**Finding 2 (HDL self-test): scoped, with a vector added.** The Verilog and VHDL self-tests now check the empty message in addition to the check string. The two large table-coverage vectors stay software-only by design: the HDL targets are bitwise with no lookup table, so there is no table to corrupt and nothing for those vectors to exercise. The README and certification docs were scoped to say exactly this, so the claim and the code now agree.
+
+**Further hardening since the review.** The review did not raise these, but the same independent, multi-direction method was turned on more of the package for 0.24.0:
+
+- `reverse()` carried a uniqueness guarantee it did not always keep. It now cross-validates each recovered parameter set (leave-one-out, plus a width-minimality check) and downgrades to "underdetermined" rather than return an over-fit. The fix was checked three ways: an exhaustive small-case enumeration, an exact structural cross-check, and a property fuzz against the independent oracle.
+- `detect()` now reports a uniform `form` (binary / hex / text / json) on every result.
+- The MCP surface validates widths and accepts hex inputs instead of failing opaquely.
+- The two independent engines behind the embedded self-test vectors (anycrc and crccheck) are now re-checked by the suite on every full run (`tests/test_vectors_provenance.py`), so their agreement is a live fact, not just a generation-time one.
+
+Net: all nine generators compile, run, pass their embedded self-test, and reproduce the oracle. The one significant defect the review found is closed, along with the test gap that hid it.
