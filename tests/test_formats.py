@@ -46,6 +46,7 @@ class TestCrclinkPublishedExample:
         assert result.matched, "the published crclink frame should be detected"
         m = result.candidates[0]
         assert m.algorithm == "crc16-xmodem", "frame is a CRC-16/XMODEM"
+        assert m.form == "json", "the representation is json"
         assert isinstance(m.padding, FormatMatch), "padding is a form match"
         assert m.padding.info.name == "crclink", "the matched form is crclink"
         assert m.padding.info.category == "json", "crclink is a JSON form"
@@ -200,9 +201,11 @@ class TestMcpWireSerialization:
         # Act
         wire = detect_match_to_dict(m)
 
-        # Assert -- discriminated as a form, and json.dumps must not choke on a
-        # nested FormatInfo dataclass.
+        # Assert -- the representation is the top-level ``form`` string (json,
+        # never "crclink"); ``form_detail`` carries the embedded CRC + covered
+        # message; ``padding_kind`` stays as the low-level discriminator.
+        assert wire["form"] == "json", "the representation is reported as json"
         assert wire["padding_kind"] == "form", "form matches are tagged 'form'"
-        assert wire["form"]["name"] == "crclink", "the form name is surfaced"
-        assert wire["form"]["category"] == "json", "the category is surfaced"
+        assert wire["form_detail"]["crc"] == "1352", "embedded CRC is surfaced"
+        assert "crclink" not in json.dumps(wire), "the form name is not surfaced"
         json.dumps(wire)  # raises if any value isn't JSON-serializable

@@ -1004,6 +1004,31 @@ class TestChecksumCommand:
         assert "lrc8" in err, f"detect should print the checksum hint, got {err!r}"
 
 
+class TestDetectForm:
+    """``crcglot detect`` prints the input representation (``form=``) on every
+    line: binary / hex / text / json, never the form protocol name."""
+
+    def test_hex_input_reports_form_hex(self, capsys):
+        # Arrange / Act -- "123456789" + crc32 0xCBF43926 as a hex packet.
+        rc = main(["detect", "--hex", "313233343536373839cbf43926"])
+        out, _err = capsys.readouterr()
+
+        # Assert
+        assert rc == 0, "the hex packet should detect"
+        assert "crc32" in out, f"expected crc32, got {out!r}"
+        assert "form=hex" in out, f"every detect line reports its form, got {out!r}"
+
+    def test_crclink_frame_reports_form_json_not_name(self, capsys):
+        # Act
+        rc = main(["detect", "--text", '{"t":1234,"v":42,"crc":"1352"}'])
+        out, _err = capsys.readouterr()
+
+        # Assert -- the representation is json; the protocol name is not shown.
+        assert rc == 0, "the crclink frame should detect"
+        assert "form=json" in out, f"json form expected, got {out!r}"
+        assert "crclink" not in out, f"the form name is not surfaced, got {out!r}"
+
+
 class TestVerifyCommand:
     """``crcglot verify``: VALID/INVALID per frame, with expected vs actual."""
 

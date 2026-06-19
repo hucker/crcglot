@@ -215,6 +215,39 @@ class DetectMatch:
     endianness: Endianness
     padding: TextFormat | HexFormat | FormatMatch | None = None
 
+    @property
+    def form(self) -> str:
+        """The input representation this CRC was found in.
+
+        One of ``"binary"`` (a raw bytes packet), ``"hex"`` (a hex-encoded
+        ``str``), ``"text"`` (a ``"data <sep> hex"`` line), or a named payload
+        form's category (``"json"`` for a crclink JSON frame).  Derived from
+        :attr:`padding`; a form's own name (e.g. ``"crclink"``) stays on
+        ``padding.info`` for round-trip, not here -- ``form`` is purely the
+        representation axis.
+
+        Returns:
+            The representation string.
+
+        Examples:
+            >>> from crcglot import detect
+            >>> detect("313233343536373839cbf43926").candidates[0].form
+            'hex'
+            >>> detect('{"t":1234,"v":42,"crc":"1352"}').candidates[0].form
+            'json'
+        """
+        if self.padding is None:
+            return "binary"
+        if isinstance(self.padding, HexFormat):
+            return "hex"
+        if isinstance(self.padding, TextFormat):
+            return "text"
+        # The only remaining padding type is FormatMatch (a named payload
+        # form); reuse its category so the value set stays closed.  Accessed by
+        # duck-typing to avoid importing FormatMatch (it would cycle: _formats
+        # imports _detect).
+        return self.padding.info.category
+
 
 @dataclass(frozen=True)
 class Attempt:

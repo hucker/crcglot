@@ -71,13 +71,13 @@ crcglot detect --match set a.bin b.bin               # strict: succeed only on a
 crcglot detect --text '{"t":1234,"v":42,"crc":"1352"}'  # a crclink JSON frame
 ```
 
-`--match` selects the strategy: `first` (default; early-stop on the first hit, priority order is `crc32`, `crc32-jamcrc`, `crc32-iscsi`, then the rest of the catalogue), `all` (exhaustive forensic view), `set` (strict singleton: succeed only if exactly one algorithm survives across all packets).  Exit 0 on match, 1 otherwise.  For text packets the inferred separator + hex leader + case are reported so you can reproduce the same format via `crcglot encode`.
+`--match` selects the strategy: `first` (default; early-stop on the first hit, priority order is `crc32`, `crc32-jamcrc`, `crc32-iscsi`, then the rest of the catalogue), `all` (exhaustive forensic view), `set` (strict singleton: succeed only if exactly one algorithm survives across all packets).  Exit 0 on match, 1 otherwise.  Every line carries `form=` -- the representation the CRC was found in: `binary`, `hex`, `text`, or `json`.  For hex and text packets the inferred separator + leader + case follow, so you can reproduce the same format via `crcglot encode`.
 
-A CRC is not always a bare tail.  A crclink JSON frame carries it inside the object as `{"t":1234,"v":42,"crc":"1352"}`, where the `"crc"` value is the CRC-16/XMODEM of the text up to that key.  `detect` recognises such named **payload forms** automatically and reports the algorithm plus the form:
+A CRC is not always a bare tail.  A JSON frame can carry it inside the object as `{"t":1234,"v":42,"crc":"1352"}`, where the `"crc"` value is the CRC-16/XMODEM of the text up to that key.  `detect` recognises such **payload forms** automatically, reports `form=json`, and surfaces the embedded CRC:
 
 ```text
 > crcglot detect --text '{"t":1234,"v":42,"crc":"1352"}'
-crc16-xmodem  width=16  endianness=big  form=crclink  category=json  crc='1352'
+crc16-xmodem  width=16  endianness=big  form=json  crc='1352'
 ```
 
 `--form GLOB` (an fnmatch over form names) narrows or disables the form pass; the known forms live in `crcglot.FORMATS`.

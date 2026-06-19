@@ -1276,3 +1276,28 @@ class TestHexModeOddDigits:
         # auto: an odd hex-ish string is legitimately text, not an error.
         result = detect("abc", mode="auto")
         assert not result.matched, "auto treats odd 'abc' as text -> no match"
+
+
+class TestDetectMatchForm:
+    """``DetectMatch.form`` reports the input representation uniformly:
+    binary / hex / text / json (a named form's category).  It derives from
+    ``padding`` and never names the form protocol (e.g. crclink)."""
+
+    @pytest.mark.parametrize(
+        "packet, expected",
+        [
+            (CHECK_INPUT_BYTES + (0xCBF43926).to_bytes(4, "big"), "binary"),
+            ("313233343536373839cbf43926", "hex"),
+            ("123456789 cbf43926", "text"),
+            ('{"t":1234,"v":42,"crc":"1352"}', "json"),
+        ],
+        ids=["binary", "hex", "text", "json"],
+    )
+    def test_form_reports_representation(self, packet, expected):
+        # Act
+        result = detect(packet)
+
+        # Assert
+        assert result.matched, f"{expected}: packet should detect"
+        actual = result.candidates[0].form
+        assert actual == expected, f"form {actual!r} != expected {expected!r}"

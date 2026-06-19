@@ -12,7 +12,8 @@ CRC-16/XMODEM field::
 
 The ``"crc"`` value is the CRC-16/XMODEM of the frame text up to the opening
 quote of that trailing ``"crc"`` key (here, of ``{"t":1234,"v":42,``).
-``detect`` reports such a frame as ``crc16-xmodem`` with ``form=crclink``.
+``detect`` reports such a frame as ``crc16-xmodem`` with ``form="json"`` (the
+representation; the matching form's own name lives on ``padding.info``).
 
 This mirrors the trailer registry (:mod:`crcglot._trailers`): a frozen
 :class:`FormatInfo` record, a :data:`FORMATS` registry, and a

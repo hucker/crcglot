@@ -260,12 +260,11 @@ def _cmd_detect(args: argparse.Namespace) -> int:
         packets: list[str] | list[bytes] = _read_text_packets(args.text)
         mode = "text"
     elif args.hex is not None:
-        try:
-            packets = [bytes.fromhex(args.hex)]
-        except ValueError as e:
-            print(f"Error: invalid hex string: {e}", file=sys.stderr)
-            return 2
-        mode = "binary"
+        # Pass the hex string through as a hex packet (mode="hex") rather than
+        # pre-decoding to bytes, so the result reports form="hex" (and accepts
+        # 0x / separators).  detect() raises ValueError on malformed hex.
+        packets = [args.hex]
+        mode = "hex"
     else:
         try:
             packets = _read_binary_packets(args.inputs)
@@ -274,15 +273,19 @@ def _cmd_detect(args: argparse.Namespace) -> int:
             return 2
         mode = "binary"
 
-    result = detect(
-        packets,
-        mode=mode,
-        encoding=args.encoding,
-        algorithms=args.algorithms,
-        width=args.width,
-        match=args.match,
-        form=args.form,
-    )
+    try:
+        result = detect(
+            packets,
+            mode=mode,
+            encoding=args.encoding,
+            algorithms=args.algorithms,
+            width=args.width,
+            match=args.match,
+            form=args.form,
+        )
+    except ValueError as e:
+        print(f"Error: invalid input: {e}", file=sys.stderr)
+        return 2
     if not result.matched:
         print("No match.", file=sys.stderr)
         if result.trailer_hint is not None:
@@ -293,7 +296,12 @@ def _cmd_detect(args: argparse.Namespace) -> int:
 
     from crcglot import FormatMatch, HexFormat, TextFormat  # here to avoid cycles
     for m in result.candidates:
-        line = f"{m.algorithm}  width={m.info.width}  endianness={m.endianness}"
+        # ``form`` (the representation: binary / hex / text / json) leads every
+        # line; the per-shape detail follows.
+        line = (
+            f"{m.algorithm}  width={m.info.width}  "
+            f"endianness={m.endianness}  form={m.form}"
+        )
         if isinstance(m.padding, TextFormat):
             line += (
                 f"  separator={m.padding.separator!r}"
@@ -308,11 +316,9 @@ def _cmd_detect(args: argparse.Namespace) -> int:
                 f"  uppercase={m.padding.uppercase}"
             )
         elif isinstance(m.padding, FormatMatch):
-            line += (
-                f"  form={m.padding.info.name}"
-                f"  category={m.padding.info.category}"
-                f"  crc={m.padding.crc_text!r}"
-            )
+            # The form name (crclink) stays off the line -- ``form=json`` is the
+            # representation; just surface the embedded CRC.
+            line += f"  crc={m.padding.crc_text!r}"
         print(line)
     return 0
 

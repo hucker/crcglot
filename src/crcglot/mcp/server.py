@@ -321,10 +321,15 @@ def build_server() -> FastMCP:
             "Narrow the scan with 'width' (e.g. 16 for a 2-byte CRC field) "
             "and/or 'algorithms' (an fnmatch glob like 'crc16-*').\n"
             "\n"
+            "Every candidate reports 'form' -- the input representation the CRC "
+            "was found in: 'binary', 'hex', 'text', or 'json'.\n"
+            "\n"
             "For a CRC wrapped in a text/JSON frame rather than a bare tail -- "
             "such as a crclink JSON frame {\"t\":1234,\"v\":42,\"crc\":\"1352\"} "
-            "-- pass packet_text; matching frames report padding_kind='form' "
-            "with the form name.  'form' is an fnmatch glob over the named forms."
+            "-- pass packet_text; it reports form='json' and a 'form_detail' "
+            "with the embedded crc and the covered message.  The 'form' "
+            "argument (distinct from the result field) is an fnmatch glob "
+            "selecting which named payload forms to try."
         ),
     )
     def crc_detect(
@@ -340,10 +345,19 @@ def build_server() -> FastMCP:
         encoding: str = "utf-8",
         form: str | None = None,
     ) -> dict[str, Any]:
-        packet = parse_packet(packet_hex, packet_text, packet_b64)
         target = parse_target_crc(target_crc, target_crc_hex)
+        # A hex packet keeps its representation (mode="hex" -> form="hex");
+        # parse_packet would decode it to bytes, reading as "binary".  base64
+        # is a transport encoding (not a form), so it decodes to binary.
+        if packet_hex is not None and packet_text is None and packet_b64 is None:
+            packet: bytes | str = packet_hex
+            detect_mode: Literal["auto", "hex"] = "hex"
+        else:
+            packet = parse_packet(packet_hex, packet_text, packet_b64)
+            detect_mode = "auto"
         result = detect(
             packet,
+            mode=detect_mode,
             endian=endian,
             algorithms=algorithms,
             width=width,
