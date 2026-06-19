@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.24.0 — 2026-06-19
+
+This release closes the defects an independent end-to-end review turned up (recorded in `docs/independent-verification-report.md`), hardens `reverse()`, and gives `detect` a uniform `form` field.  Two output-shape changes are breaking and are called out below.
+
+### Fixed: C# generated code now compiles
+
+The default C# output did not compile.  Every default invocation emitted a static class and a one-shot method with the same PascalCase name (`class Crc8 { ... byte Crc8(...) }`), which the compiler rejects (CS0542: a member name cannot match its enclosing type).  The one-shot method is now named for its role rather than the algorithm, so it can never collide with the class, and a default-output C# compile was moved out of the opt-in `exhaustive` test tier so the regression cannot return behind a green run.  Generated C# method names change as a result.
+
+### Fixed: `reverse()` keeps its "never confidently wrong" guarantee
+
+`reverse()` could return one confident parameter set for inputs that did not actually determine it.  It now cross-validates each recovered candidate (leave-one-out across the frames, plus a check that the recovered width is minimal) and downgrades to "underdetermined" rather than return an over-fit.  Some inputs that previously yielded a candidate now report underdetermined, which is the correct answer when the frames cannot single one out.  The fix was checked three independent ways: exhaustive enumeration over small cases, an exact structural cross-check, and a property fuzz against an outside oracle.
+
+### Added: `detect` reports a uniform `form` on every result
+
+Every `detect` result now carries a `form` naming how the CRC was presented: `binary`, `hex`, `text`, or `json`.  A CRC wrapped in a JSON frame reports `form=json` (the representation), not the protocol name.  `DetectMatch.form` exposes it in Python, the CLI prints `form=<rep>` on every candidate line, and the MCP `crc_detect` tool returns it as a top-level `form` string.
+
+Two output shapes change (breaking):
+
+- CLI: a JSON-form match now ends `form=json  crc='1352'` instead of `form=crclink  category=json  crc='1352'`.  The form name (`crclink`) stays reachable in the Python data model (`padding.info.name`) for round-trip; it is just no longer in the headline.
+- MCP wire: every result gains a top-level `form` string, and the previous nested `form` object (JSON-form matches only) is renamed `form_detail` and slimmed to `{crc, message}`.  `padding_kind` is unchanged.
+
+### Fixed: HDL self-test checks the empty input
+
+The Verilog and VHDL `self_test` now checks the empty message in addition to the check string, so the init-then-finalize path is exercised.  The two large table-coverage vectors stay software-only by design: the HDL targets are bitwise with no lookup table, so there is nothing for those vectors to drive.  The README and certification docs were scoped to say exactly this.
+
+### Fixed: MCP validates custom polynomials and widths
+
+The MCP custom-CRC path now validates `custom_params` and accepts hex strings, and the engine range-checks the width (`1 <= width <= 64`), raising `ValueError` rather than failing opaquely on an out-of-range custom polynomial.
+
+### Added: `llms.txt` entry point for agents
+
+A root `llms.txt` (the llmstxt.org convention) gives an LLM or coding agent a concise, linked map of the package to load first instead of crawling the source.
+
+### Changed: the embedded self-test vectors are re-checked on every full run
+
+The reference vectors each generated file embeds are computed by two independent engines (anycrc and crccheck) that have to agree.  That agreement used to be a generation-time fact; the suite now re-runs it on every full run (`tests/test_vectors_provenance.py`) and fails if the committed values drift, so it is a live check rather than a one-time one.
+
+### Docs
+
+The certification page is reframed: crcglot is not certified software and not a drop-in certified component, it is a generator that held itself to some of the same verification methods used on certified software and hands you that evidence; it now also states that crcglot is developed with Claude Code.  The runtime-speed story was corrected to separate the stdlib `zlib.crc32` hardware path from the bundled C extension.  An independent verification report was added (`docs/independent-verification-report.md`), with a resolution note recording how its findings were closed for this release.
+
 ## v0.23.0 — 2026-06-17
 
 ### Added: `detect` recognises CRC-bearing payload forms (crclink JSON frames)
