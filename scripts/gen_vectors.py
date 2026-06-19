@@ -86,8 +86,29 @@ def _crccheck_calc(a, data: bytes) -> int:
     ).calc(data)
 
 
-def main() -> None:
-    rows: list[str] = []
+def compute_vectors() -> dict[str, dict[str, int]]:
+    """Compute every catalogue golden via two independent oracles.
+
+    For each algorithm and each of the four fixed inputs, anycrc and crccheck
+    must agree; the ``check`` input must additionally reproduce reveng's
+    published value.  This is the cert-grade agreement the embedded self-tests
+    rest on, factored out so a test can re-run the exact generation logic and
+    prove the committed ``_vectors.py`` is a current, reproducible regeneration.
+
+    Returns:
+        ``{algorithm_name: {input_name: crc}}`` for every catalogue entry, in
+        sorted-name order.
+
+    Raises:
+        ValueError: if the two oracles disagree on any value, or a ``check``
+            value does not match the catalogue (reveng) anchor.
+
+    Examples:
+        >>> vectors = compute_vectors()
+        >>> vectors["crc32"]["check"] == ALGORITHMS["crc32"].check
+        True
+    """
+    vectors: dict[str, dict[str, int]] = {}
     for name in sorted(ALGORITHMS):
         a = ALGORITHMS[name]
         oracle = anycrc.CRC(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
@@ -96,30 +117,43 @@ def main() -> None:
             v_anycrc = oracle.calc(data)
             v_crccheck = _crccheck_calc(a, data)
             if v_anycrc != v_crccheck:
-                raise SystemExit(
+                raise ValueError(
                     f"ORACLE DISAGREEMENT {name}/{inp}: "
                     f"anycrc=0x{v_anycrc:X} != crccheck=0x{v_crccheck:X}"
                 )
             vals[inp] = v_anycrc
         if vals["check"] != a.check:
-            raise SystemExit(
+            raise ValueError(
                 f"REVENG ANCHOR FAILED {name}: oracle=0x{vals['check']:X} != "
                 f"catalogue.check=0x{a.check:X}"
             )
+        vectors[name] = vals
+    return vectors
+
+
+def _render(vectors: dict[str, dict[str, int]]) -> str:
+    """Render the goldens dict to the ``_vectors.py`` module source."""
+    rows: list[str] = []
+    for name in sorted(vectors):
+        a = ALGORITHMS[name]
+        vals = vectors[name]
         hexw = (a.width + 3) // 4
         body = ", ".join(f'"{inp}": 0x{vals[inp]:0{hexw}X}' for inp in INPUTS)
         rows.append(f'    "{name}": {{{body}}},')
-
-    text = (
+    return (
         _HEADER
         + "VECTORS: dict[str, dict[str, int]] = {\n"
         + "\n".join(rows)
         + "\n}\n"
         + _FOOTER
     )
-    _OUT.write_text(text, encoding="utf-8")
+
+
+def main() -> None:
+    vectors = compute_vectors()
+    _OUT.write_text(_render(vectors), encoding="utf-8")
     print(
-        f"wrote {len(rows)} algorithms (anycrc==crccheck, reveng-anchored) "
+        f"wrote {len(vectors)} algorithms (anycrc==crccheck, reveng-anchored) "
         f"-> {_OUT}"
     )
 
