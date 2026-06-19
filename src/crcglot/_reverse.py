@@ -21,8 +21,10 @@ Two tiers:
 
    * **poly** = GCD over GF(2) of *equal-length difference codewords* (in a
      same-length difference, ``init``/``xorout`` cancel, leaving a multiple of
-     the generator; the GCD of several recovers it exactly).  The polynomial is
-     always uniquely determined.
+     the generator; the GCD of *enough* of them recovers it exactly).  Too few
+     pairs leave the GCD a multiple of the true generator -- a wider model then
+     also fits, which leave-one-out cross-validation catches and reports as
+     ``underdetermined`` rather than guessing.
    * **init/xorout** = a GF(2) linear solve, using the engine as a black box to
      build the length-dependent contribution map (so it's reflection-agnostic).
    * **width / refin / refout** are searched, or fixed when you pass them.
@@ -66,6 +68,11 @@ Status = Literal["catalogue", "unique", "equivalent", "underdetermined", "none"]
 # ask us to build an astronomically large coset.
 _MAX_CLASS = 64
 
+# Cap on leave-one-out cross-validation folds (rarest lengths first).  Thin data
+# that doesn't pin the model fails on an early fold, so a small cap catches the
+# overfits while bounding the per-call cost.
+_MAX_VALIDATION_FOLDS = 8
+
 
 # ---------------------------------------------------------------------------
 # GF(2) polynomial arithmetic (bit i = coefficient of x**i)
@@ -83,6 +90,17 @@ def _polymod(a: int, m: int) -> int:
     while a and _deg(a) >= dm:
         a ^= m << (_deg(a) - dm)
     return a
+
+
+def _polydiv(a: int, b: int) -> int:
+    """Quotient of GF(2) polynomial division ``a / b`` (bit-packed polys)."""
+    db = _deg(b)
+    q = 0
+    while a and _deg(a) >= db:
+        shift = _deg(a) - db
+        q |= 1 << shift
+        a ^= b << shift
+    return q
 
 
 def _polygcd(a: int, b: int) -> int:
@@ -224,28 +242,52 @@ def _recover_iox_class(
             ]
         return col_cache[n]
 
-    rows: list[int] = []
-    for msg, crc in codewords:
-        cols = columns(len(msg))
-        y = crc ^ generic_crc(msg, Crc(width, poly, 0, refin, refout, 0))
-        for k in range(width):
-            coeff = 0
-            for j in range(width):
-                if (cols[j] >> k) & 1:
-                    coeff |= 1 << j  # init bit j
-            coeff |= 1 << (width + k)  # xorout bit k
-            if (y >> k) & 1:
-                coeff |= 1 << (2 * width)  # rhs
-            rows.append(coeff)
+    def build_rows(cws: Sequence[Codeword]) -> list[int]:
+        rows: list[int] = []
+        for msg, crc in cws:
+            cols = columns(len(msg))
+            y = crc ^ generic_crc(msg, Crc(width, poly, 0, refin, refout, 0))
+            for k in range(width):
+                coeff = 0
+                for j in range(width):
+                    if (cols[j] >> k) & 1:
+                        coeff |= 1 << j  # init bit j
+                coeff |= 1 << (width + k)  # xorout bit k
+                if (y >> k) & 1:
+                    coeff |= 1 << (2 * width)  # rhs
+                rows.append(coeff)
+        return rows
 
-    solved = _gf2_solve(rows, 2 * width)
+    def split(v: int) -> tuple[int, int]:
+        return v & mask, (v >> width) & mask
+
+    solved = _gf2_solve(build_rows(codewords), 2 * width)
     if solved is None:
         return None
     particular, rank, null_basis = solved
     dim = 2 * width - rank
 
-    def split(v: int) -> tuple[int, int]:
-        return v & mask, (v >> width) & mask
+    # The observed frames pin (init, xorout) only up to agreement on the
+    # lengths actually seen.  The true observational-equivalence class is the
+    # set that agrees on EVERY input -- and two (init, xorout) pairs agree
+    # everywhere iff they agree at two CONSECUTIVE lengths: advancing the
+    # register by one byte is an invertible linear map, so a single fixed
+    # point (L_n == L_{n+1}) forces equality at every length.  Re-solve with
+    # synthetic frames at lengths 0 and 1 (targets are the representative's
+    # own predictions, so the particular solution still fits) to get that
+    # genuine class.  If the observed data left strictly MORE freedom than the
+    # genuine class allows, the supplied lengths do not pin init/xorout:
+    # report it (None) rather than a confident class whose members diverge off
+    # the seen lengths -- the silent-wrong failure this guards against.
+    rep_init, rep_xorout = split(particular)
+    rep = Crc(width, poly, rep_init, refin, refout, rep_xorout)
+    synth: list[Codeword] = [(z, generic_crc(z, rep)) for z in (b"", b"\x00")]
+    genuine = _gf2_solve(build_rows([*codewords, *synth]), 2 * width)
+    if genuine is None:
+        return None  # unreachable in practice: rep satisfies every synthetic row
+    genuine_dim = 2 * width - genuine[1]
+    if dim > genuine_dim:
+        return None  # init/xorout underdetermined by the supplied lengths
 
     if dim == 0:
         return [split(particular)], 0
@@ -355,6 +397,42 @@ def _catalogue_match(codewords: Sequence[Codeword]) -> list[str]:
         for name, a in ALGORITHMS.items()
         if all(generic_crc(m, a) == c for m, c in codewords)
     ]
+
+
+def _width_is_minimal(
+    codewords: Sequence[Codeword], width: int, poly: int, refin: bool, refout: bool
+) -> bool:
+    """Whether the recovered width is the smallest that fits the codewords.
+
+    Thin data can leave the polynomial GCD a *multiple* of the true generator,
+    so a too-wide model reproduces every frame while a proper divisor (a
+    smaller-width generator) does too -- the data cannot tell the two apart.
+    Returns ``False`` when such a smaller-width model exists (the width is
+    ambiguous).  The overshoot is tiny (the recovered width exceeds the widest
+    observed CRC by only the spurious factor's degree), so the divisor search
+    stays small.
+    """
+    g = (1 << width) | poly
+    max_bits = max((c.bit_length() for _, c in codewords), default=1) or 1
+    # Spurious cofactor degree = width - true_width <= width - max_bits.
+    for dc in range(1, width - max_bits + 1):
+        for s in range(1 << dc, 1 << (dc + 1)):  # every degree-dc polynomial
+            if _polymod(g, s):
+                continue  # s does not divide the generator
+            d = _polydiv(g, s)
+            wp = _deg(d)
+            if wp < max_bits or not d & 1:
+                continue  # too small, or not a valid (odd) generator
+            got = _recover_iox_class(codewords, wp, d ^ (1 << wp), refin, refout)
+            if got is None:
+                continue
+            mi, mx = got[0][0]
+            if all(
+                generic_crc(m, Crc(wp, d ^ (1 << wp), mi, refin, refout, mx)) == c
+                for m, c in codewords
+            ):
+                return False  # a smaller-width model fits too: ambiguous
+    return True
 
 
 def _solve_dials(
@@ -536,9 +614,12 @@ def reverse(
             )
         else:
             note = (
-                "could not pin the polynomial -- supply more frames: at least two "
-                "of the same length (varied in content) feed the polynomial GCD, "
-                "plus other lengths to separate init from xorout."
+                "could not pin a unique model from these frames.  With same-length "
+                "frames present the polynomial is usually recoverable, so the "
+                "likely gap is length DIVERSITY: frames that share a length leave "
+                "init and xorout indistinguishable (they agree on the lengths seen "
+                "but diverge on others).  Supply frames of more DIFFERENT lengths "
+                "to separate init from xorout."
             )
         return ReverseResult(
             status="underdetermined",
@@ -546,6 +627,21 @@ def reverse(
             trailer_hint=_identify_trailer_pairs(codewords) or None,
         )
     w, p, ri, ro, members, dim = solved
+
+    # Reject a width overfit: when the caller left the width free, a too-wide
+    # generator can fit thin data while a smaller-width divisor fits too.  If
+    # one does, the width is ambiguous -- report it rather than guess.
+    if width is None and not _width_is_minimal(codewords, w, p, ri, ro):
+        return ReverseResult(
+            status="underdetermined",
+            note=(
+                "the supplied frames are reproduced by more than one width: the "
+                "recovered generator is a multiple of a smaller-width one that "
+                "also fits, so the width is not pinned.  Supply more same-length "
+                "pairs (their differences' GCD converges on the true generator)."
+            ),
+            trailer_hint=_identify_trailer_pairs(codewords) or None,
+        )
 
     # Canonical representative: prefer a member that names a catalogue entry.
     cat_name: str | None = None
@@ -557,17 +653,53 @@ def reverse(
             ordered.insert(0, ordered.pop(idx))
             break
 
-    # ----- held-out validation -----
+    # ----- cross-validation: is the recovered model actually pinned? -----
+    # Thin data can fit more than one model: too few same-length pairs leave the
+    # polynomial GCD a *multiple* of the true generator, so a slightly wider
+    # model also reproduces every frame.  Detect that with leave-one-out --
+    # rarest lengths first, since dropping the sole frame of a length is what
+    # collapses an under-determined fit.  Each fold re-recovers with the
+    # caller's ORIGINAL dials (a free width search can expose a width/poly
+    # overfit) and must return the SAME (width, poly, refin, refout) and predict
+    # the held-out frame.  If a fold disagrees, another model fits equally well:
+    # report underdetermined rather than a confident answer that would diverge
+    # on unseen data.
     validated = -1
     if validate and len(codewords) >= 4:
-        sub = _solve_dials(codewords[:-1], w, ri, ro, None, None, None)
-        if sub is not None:
-            sw, sp, _, _, sub_members, _ = sub
-            hi, hx = sub_members[0]
-            hm, hc = codewords[-1]
-            validated = int(generic_crc(hm, Crc(sw, sp, hi, ri, ro, hx)) == hc)
-        else:
-            validated = 0
+        counts: dict[int, int] = {}
+        for m, _ in codewords:
+            counts[len(m)] = counts.get(len(m), 0) + 1
+        order = sorted(
+            range(len(codewords)), key=lambda i: counts[len(codewords[i][0])]
+        )[:_MAX_VALIDATION_FOLDS]
+        passed = 0
+        for i in order:
+            subset = [cw for j, cw in enumerate(codewords) if j != i]
+            sub = _solve_dials(subset, width, refin, refout, poly, init, xorout)
+            agrees = sub is not None
+            if agrees:
+                sw, sp, sri, sro, sub_members, _ = sub
+                hm, hc = codewords[i]
+                hi, hx = sub_members[0]
+                agrees = (sw, sp, sri, sro) == (w, p, ri, ro) and (
+                    generic_crc(hm, Crc(sw, sp, hi, sri, sro, hx)) == hc
+                )
+            if not agrees:
+                return ReverseResult(
+                    status="underdetermined",
+                    note=(
+                        "a model reproduces the supplied frames, but they do not "
+                        "pin it: leaving one frame out yields a different "
+                        "width/polynomial or fails to predict the held-out "
+                        "frame, so another model fits equally well and would "
+                        "diverge on unseen data.  Supply more frames -- more of "
+                        "one length to pin the polynomial, and more distinct "
+                        "lengths to pin init/xorout."
+                    ),
+                    trailer_hint=_identify_trailer_pairs(codewords) or None,
+                )
+            passed += 1
+        validated = passed
 
     candidates = tuple(
         _as_info(
@@ -592,11 +724,6 @@ def reverse(
             f"class ({dim} bit(s)). All predict the same CRC for every "
             f"input; supply a known init/xorout (or a catalogue match) to "
             f"pick the canonical one."
-        )
-    if validated == 0:
-        note += (
-            "  WARNING: model did not predict a held-out frame -- treat as "
-            "low-confidence and supply more varied frames."
         )
     return ReverseResult(
         status=status,

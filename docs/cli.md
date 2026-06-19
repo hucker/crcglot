@@ -91,8 +91,8 @@ Recover the parameters of an **unknown / custom** CRC from whole captured frames
 Recovered candidates print as ready-to-paste `--custom` tokens, so the loop closes straight into generation:
 
 ```text
-$ crcglot reverse --hex 5057523a31322e3430569771 --hex 544d503a34382e31433d4d                   --hex 52504d3a303031343530da2e --hex 5354413a4f4bea3b                   --hex 5057523a31322e333856b10d --hex 544d503a34382e3343bde8
-status=equivalent  candidates=4  validated_frames=0
+$ crcglot reverse --hex 5057523a31322e3430569771 --hex 544d503a34382e31433d4d                   --hex 52504d3a303031343530da2e --hex 5354413a4f4bea3b                   --hex 5057523a31322e333856b10d --hex 544d503a34382e3343bde8                   --hex 52504d3a303031343438eebc --hex 5354413a52554e0492                   --hex 5057523a31322e3431565723 --hex 4552523a4e4f4e458030
+status=equivalent  candidates=4  validated_frames=8
 --custom width=16 poly=0xA097 init=0x1D0F refin=true refout=true xorout=0x0
 ...
 note: 4 (init, xorout) labellings reproduce all codewords identically ...  [CRC field: 2 byte(s), little-endian]

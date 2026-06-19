@@ -193,9 +193,13 @@ class TestBehaviour:
     def test_held_out_validation_runs(self):
         # Act
         r = reverse(_codewords(16, 0x8001, 0, False, False, 0), std_algo_only=False)
-        # Assert -- the recovered model predicted the held-out frame.
-        assert r.validated_frames == 1, (
-            f"expected 1 validated held-out frame, got {r.validated_frames}"
+        # Assert -- cross-validation ran and every held-out fold was predicted
+        # (validated_frames counts the leave-one-out folds that passed).
+        assert r.validated_frames >= 1, (
+            f"expected >=1 validated held-out fold, got {r.validated_frames}"
+        )
+        assert r.status == "unique", (
+            f"a well-determined recovery should stay confident, got {r.status}"
         )
 
     def test_tier1_matches_catalogue(self):
@@ -356,3 +360,77 @@ class TestReversePackets:
     def test_non_text_frame_rejected(self):
         with pytest.raises(ValueError, match="not a text frame"):
             reverse_packets(["no-trailing-hex-here!"], std_algo_only=False)
+
+
+# ---------------------------------------------------------------------------
+# Guarantee: never confidently wrong -- correct on unseen data, or
+# underdetermined.  Regression for the over-reported (init, xorout) class and
+# the width overfit, both of which used to return confident-but-wrong models.
+# ---------------------------------------------------------------------------
+
+
+class TestNeverConfidentlyWrong:
+    """The recovery returns a confident model only when the frames pin it.
+
+    These guard the two ways thin data used to slip through: an (init, xorout)
+    class enumerated from the seen lengths only (members diverged off them),
+    and a width overfit where the polynomial GCD was a multiple of the true
+    generator.  Verified at scale by the oracle/brute-force harness; these pin
+    the specific behaviours.
+    """
+
+    def test_all_same_length_is_underdetermined(self):
+        # One length: init and xorout are provably inseparable, so a confident
+        # answer would have to be (partly) guessed.
+        crc = Crc(16, 0x1021, 0x1234, False, False, 0x5678)
+        cw = [
+            (m, generic_crc(m, crc))
+            for m in (bytes((i, i * 7 & 0xFF, i * 13 & 0xFF, 0x5A, 0xA5, i ^ 0x33,
+                             0xC3, i)) for i in range(10))
+        ]
+        r = reverse(cw, std_algo_only=False)
+        assert r.status == "underdetermined", (
+            f"all-same-length frames cannot pin init/xorout, got {r.status}"
+        )
+
+    def test_ambiguity_bits_match_structural_formula(self):
+        # The genuine (init, xorout) ambiguity is deg(gcd(generator, x**8 + 1)),
+        # computed independently here -- the solver must agree exactly.  Solve
+        # via _solve_dials to exercise the algebraic tier regardless of whether
+        # a (poly, init) pair happens to be a catalogue entry.
+        from crcglot._reverse import _deg, _polygcd
+        for poly in (0x1021, 0x8005, 0xA097, 0x8BB7, 0x3D65):
+            cws = _codewords(16, poly, 0xFFFF, False, False, 0)
+            solved = _solve_dials(cws, 16, None, None, None, None, None)
+            assert solved is not None, f"poly {poly:#06x}: recovered no model"
+            dim = solved[5]
+            expected = _deg(_polygcd((1 << 16) | poly, (1 << 8) | 1))
+            assert dim == expected, (
+                f"poly {poly:#06x}: ambiguity {dim} != structural {expected}"
+            )
+
+    def test_six_frames_underdetermined_ten_frames_recovers(self):
+        # The docs capture: six frames admit more than one width (a smaller-width
+        # model also fits), so they must NOT yield a confident answer; the full
+        # ten pin CRC-16 poly 0xA097.
+        six = [bytes.fromhex(h) for h in (
+            "5057523a31322e3430569771", "544d503a34382e31433d4d",
+            "52504d3a303031343530da2e", "5354413a4f4bea3b",
+            "5057523a31322e333856b10d", "544d503a34382e3343bde8",
+        )]
+        extra = [bytes.fromhex(h) for h in (
+            "52504d3a303031343438eebc", "5354413a52554e0492",
+            "5057523a31322e3431565723", "4552523a4e4f4e458030",
+        )]
+        r6 = reverse_packets(six, crc_bytes=2, crc_byte_order="both",
+                             std_algo_only=False)
+        assert r6.status == "underdetermined", (
+            f"six frames do not pin the width, got {r6.status}"
+        )
+        r10 = reverse_packets(six + extra, crc_bytes=2, crc_byte_order="both",
+                              std_algo_only=False)
+        assert r10.status in ("unique", "equivalent"), (
+            f"ten frames should recover, got {r10.status}"
+        )
+        polys = {c.poly for c in r10.candidates}
+        assert 0xA097 in polys, f"expected poly 0xA097 among {polys}"
