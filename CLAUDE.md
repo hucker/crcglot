@@ -255,6 +255,45 @@ when we broke them — honor them when touching public API.
 - **`crcglot.__version__`** is the supported way for apps to assert a minimum
   version at import time; keep it exported and accurate.
 
+## Error messages
+
+A raised error is part of the public surface.  The bar: a user should recover
+**without reading the docs** -- the message echoes the bad value, names the
+valid options or range, and suggests a fix when one is close.  The patterns
+below are load-bearing; follow them when adding or touching an error path.
+
+- **Hierarchy.**  Every deliberate error derives from `CrcglotError`
+  (`crcglot/exceptions.py`) AND the conventional stdlib type, e.g.
+  `class UnknownAlgorithmError(CrcglotError, ValueError)`.  So `except CrcglotError`
+  catches the family while `except ValueError` keeps working; adopting the base is
+  additive, never breaking.  A bad lookup key at a public boundary is always a
+  `ValueError` (subclass), never a bare `KeyError`.
+- **Echo the value.**  Always interpolate what the caller passed: `got {x!r}` for
+  values, `got {type(x).__name__}` for wrong types.  `"X requires str"` becomes
+  `"X requires a str; got bytes"`.
+- **Suggest, don't dump.**  A closed vocabulary that misses gets a suggestion, not
+  "go read the whole list".  Small set (languages, variants, styles): list the
+  full set.  Large set (algorithms): a "did you mean", as exact prefix, then the
+  `crc<width>` family (recognized variants first via `_WELL_KNOWN`), then a fuzzy
+  match.  The suggester and message builder live in the module that **owns** the
+  vocabulary (`catalogue.suggest_algorithms` / `unknown_algorithm_error`); the CLI
+  and MCP *consume* it, they never reimplement a did-you-mean.  The "where to look
+  next" pointer is surface-specific via `surface=`: python to `crcglot.ALGORITHMS`,
+  cli to `crcglot list`, mcp to `crc_list`.
+- **Translate low-level leaks.**  Never let a raw `bytes.fromhex` / `int(s, 16)`
+  message reach the user ("non-hexadecimal number found in fromhex() arg ...").
+  Wrap it at the boundary with a message that echoes the input and names the rule,
+  using `raise ... from None` so the stdlib chain doesn't tag along.  Use `from e`
+  only when the cause adds debugging value.
+- **Validate at the boundary; never assert input.**  Public entry points validate
+  and raise friendly errors so internal code can assume valid inputs.  `assert` is
+  for internal invariants only: `python -O` strips it, so an assert used for input
+  validation silently vanishes in an optimized build.
+- **House style.**  Library messages start lowercase, quote values with `{x!r}`,
+  and read `"<problem>; <how to fix>"`.  The CLI prefixes `Error:` and exits `2`
+  on an input error.  Keep a public function's docstring `Raises:` section in sync
+  with what it actually raises.
+
 ## Readme and docs/
 
 - Markdown prose uses LONG lines: one line per paragraph / list item, no
