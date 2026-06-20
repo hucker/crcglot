@@ -316,14 +316,15 @@ class TestHexTextInput:
         )
 
     def test_explicit_hex_mode_on_bytes_raises(self) -> None:
-        # Act / Assert -- bytes input + mode="hex" is a caller error.
-        with pytest.raises(TypeError, match="hex mode requires all str"):
+        # Act / Assert -- bytes input + mode="hex" is a caller error; the message
+        # echoes the offending type and position.
+        with pytest.raises(TypeError, match=r"hex mode requires all str packets; got bytes at index 0"):
             detect(b"abc", mode="hex")
 
     def test_explicit_hex_mode_iter_on_bytes_raises(self) -> None:
-        # Act / Assert -- same for the iter API.
+        # Act / Assert -- same for the iter API, with the offending type echoed.
         from crcglot import detect_iter
-        with pytest.raises(TypeError, match="hex mode requires str packet"):
+        with pytest.raises(TypeError, match=r"hex mode requires a str packet; got bytes"):
             list(detect_iter(b"abc", mode="hex"))
 
 

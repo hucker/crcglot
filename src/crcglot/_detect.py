@@ -448,7 +448,8 @@ def _normalize_packets(packet: Packet | Iterable[Packet]) -> list[Packet]:
         items_raw = list(packet)
     except TypeError as e:
         raise TypeError(
-            "packet must be bytes/bytearray/str or an iterable of them"
+            "packet must be bytes/bytearray/str or an iterable of them; "
+            f"got {type(packet).__name__}"
         ) from e
     out: list[Packet] = []
     has_binary = False
@@ -794,7 +795,14 @@ def detect(
     str_count = sum(1 for p in packets if isinstance(p, str))
     if mode == "hex":
         if str_count != len(packets):
-            raise TypeError("hex mode requires all str packets")
+            i, kind = next(
+                (i, type(p).__name__)
+                for i, p in enumerate(packets)
+                if not isinstance(p, str)
+            )
+            raise TypeError(
+                f"hex mode requires all str packets; got {kind} at index {i}"
+            )
         for p in packets:
             if isinstance(p, str) and _is_odd_hex(p):
                 raise ValueError(
@@ -1072,7 +1080,10 @@ def detect_iter(
         ('crc32', 'big')
     """
     if not isinstance(packet, (bytes, bytearray, str)):
-        raise TypeError("detect_iter takes a single packet (bytes-like or str)")
+        raise TypeError(
+            "detect_iter takes a single packet (bytes-like or str); "
+            f"got {type(packet).__name__}"
+        )
     names = _ordered_algorithm_names(algorithms, width)
 
     # target_crc short-circuit: stream one Attempt per (algo, endian)
@@ -1119,7 +1130,9 @@ def detect_iter(
         # either matches the "data <sep> hex" shape or it doesn't).
     elif mode == "hex":
         # bytes-like packet + mode="hex" is a caller error.
-        raise TypeError("hex mode requires str packet")
+        raise TypeError(
+            f"hex mode requires a str packet; got {type(packet).__name__}"
+        )
     # ``mode`` is now ``Literal["auto", "binary", "text"]`` here (the
     # "hex" cases above either turned mode into "binary" or returned/
     # raised), so ty narrows it correctly without an explicit cast.
@@ -1127,7 +1140,10 @@ def detect_iter(
 
     if actual_mode == "binary":
         if not isinstance(packet, (bytes, bytearray)):
-            raise TypeError("binary mode requires bytes/bytearray packet")
+            raise TypeError(
+                "binary mode requires a bytes/bytearray packet; "
+                f"got {type(packet).__name__}"
+            )
         pb = bytes(packet)
         for name in names:
             algo = ALGORITHMS[name]
@@ -1138,7 +1154,9 @@ def detect_iter(
                 yield Attempt(name, byte_order, _check_binary(pb, algo, w, byte_order))
     else:
         if not isinstance(packet, str):
-            raise TypeError("text mode requires str packet")
+            raise TypeError(
+                f"text mode requires a str packet; got {type(packet).__name__}"
+            )
         parsed = _parse_text(packet, encoding)
         if parsed is None:
             return
@@ -1202,7 +1220,9 @@ def _detect_first(
     parsed_packets: list[_ParsedText] = []
     for p in packets:
         if not isinstance(p, str):
-            raise TypeError("text mode requires str packets")
+            raise TypeError(
+                f"text mode requires str packets; got {type(p).__name__}"
+            )
         pp = _parse_text(p, encoding)
         if pp is None:
             return DetectResult(matched=False)

@@ -24,6 +24,7 @@ import pytest
 
 from crcglot import LANGUAGES
 from crcglot.cli import (
+    _hex_to_bytes,
     _parse_bool,
     _parse_int,
     _parse_kv_tokens,
@@ -56,6 +57,47 @@ class TestParseInt:
     def test_invalid_raises(self, value):
         with pytest.raises(ValueError):
             _parse_int(value)
+
+    def test_invalid_message_echoes_the_input(self):
+        # Assert -- the message shows what the user typed, not a raw int() error.
+        with pytest.raises(ValueError, match=r"got 'nope'"):
+            _parse_int("nope")
+
+
+class TestHexToBytes:
+    """``_hex_to_bytes`` decodes hex, and on failure echoes the bad input rather
+    than leaking the raw ``bytes.fromhex`` message."""
+
+    def test_valid_decode(self):
+        # Act
+        actual = _hex_to_bytes("48656c6c6f")
+
+        # Assert
+        assert actual == b"Hello", f"decodes hex digits, got {actual!r}"
+
+    def test_invalid_echoes_input_and_hides_fromhex(self):
+        # Act / Assert -- the message names the bad input and the rule.
+        with pytest.raises(ValueError, match=r"invalid hex string '12g4'"):
+            _hex_to_bytes("12g4")
+
+        # Assert -- the raw stdlib phrasing does not leak through.
+        with pytest.raises(ValueError) as excinfo:
+            _hex_to_bytes("12g4")
+        assert "fromhex" not in str(excinfo.value), (
+            f"raw fromhex message must not leak; got {excinfo.value!r}"
+        )
+
+    def test_cli_identify_hex_error_is_clean(self, capsys):
+        # Act -- a non-hex --hex argument to a real command (identify/reverse/
+        # verify decode at the CLI boundary, unlike detect which parses hex
+        # internally and just reports no match).
+        rc = main(["identify", "--hex", "12g4"])
+        _out, err = capsys.readouterr()
+
+        # Assert -- exit 2, the input echoed, no raw fromhex leak.
+        assert rc == 2, f"bad hex exits 2, got {rc}"
+        assert "12g4" in err, f"echoes the bad input; got {err!r}"
+        assert "fromhex" not in err, f"no raw stdlib message; got {err!r}"
 
 
 class TestParseBool:

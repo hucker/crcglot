@@ -201,13 +201,15 @@ def encode_match(
     if match.padding is None:
         if not isinstance(data, (bytes, bytearray)):
             raise TypeError(
-                "binary match (padding=None) requires bytes/bytearray data"
+                "binary match (padding=None) requires bytes/bytearray data; "
+                f"got {type(data).__name__}"
             )
         return encode(data, match.algorithm, endianness=match.endianness)
     if isinstance(match.padding, HexFormat):
         if not isinstance(data, (bytes, bytearray)):
             raise TypeError(
-                "hex-text match (padding=HexFormat) requires bytes/bytearray data"
+                "hex-text match (padding=HexFormat) requires bytes/bytearray data; "
+                f"got {type(data).__name__}"
             )
         full = encode(data, match.algorithm, endianness=match.endianness)
         return _format_bytes_as_hex_text(full, match.padding)
@@ -224,7 +226,8 @@ def encode_match(
         )
     if not isinstance(data, str):
         raise TypeError(
-            "text match (padding=TextFormat) requires str data"
+            "text match (padding=TextFormat) requires str data; "
+            f"got {type(data).__name__}"
         )
     tf: TextFormat = match.padding
     return encode_text(

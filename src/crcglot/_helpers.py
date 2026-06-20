@@ -61,7 +61,9 @@ def _join_naming(tokens: list[str], convention: str) -> str:
         if not tokens:
             return ""
         return tokens[0].lower() + "".join(_title(t) for t in tokens[1:])
-    raise KeyError(convention)
+    raise KeyError(
+        f"unknown naming convention {convention!r}; valid: 'snake', 'camel', 'pascal'"
+    )
 
 
 def crc_function_names(
@@ -278,13 +280,15 @@ def _variant_to_flags(
     if variant == "table":
         if not allow_table:
             raise ValueError(
-                "variant='table' is not supported by this generator"
+                "variant='table' is not supported by this generator; it offers "
+                + ", ".join(["bitwise"] + (["slice8"] if allow_slice8 else []))
             )
         return True, False
     if variant == "slice8":
         if not allow_slice8:
             raise ValueError(
-                "variant='slice8' is not supported by this generator"
+                "variant='slice8' is not supported by this generator; it offers "
+                + ", ".join(["bitwise"] + (["table"] if allow_table else []))
             )
         return False, True
     raise ValueError(

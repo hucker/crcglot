@@ -46,11 +46,29 @@ _CUSTOM_KV_KEYS = {
 
 
 def _parse_int(value: str) -> int:
-    """Parse a hex (``0x...``) or decimal integer."""
+    """Parse a hex (``0x...``) or decimal integer, echoing the bad input on failure."""
     s = value.strip()
-    if s.lower().startswith("0x"):
-        return int(s, 16)
-    return int(s)
+    try:
+        return int(s, 16) if s.lower().startswith("0x") else int(s)
+    except ValueError:
+        raise ValueError(
+            f"expected a decimal or 0x-hex integer; got {value!r}"
+        ) from None
+
+
+def _hex_to_bytes(value: str) -> bytes:
+    """Decode a hex string to bytes, echoing the bad input on failure.
+
+    Replaces the raw ``bytes.fromhex`` message ("non-hexadecimal number found in
+    fromhex() arg ...") with one that shows what the user actually typed.
+    """
+    try:
+        return bytes.fromhex(value)
+    except ValueError:
+        raise ValueError(
+            f"invalid hex string {value!r}: expected an even count of hex "
+            f"digits (0-9, a-f)"
+        ) from None
 
 
 def _parse_bool(value: str) -> bool:
@@ -217,9 +235,9 @@ def _cmd_identify(args: argparse.Namespace) -> int:
         mode = "text"
     elif args.hex is not None:
         try:
-            packets = [bytes.fromhex(args.hex)]
+            packets = [_hex_to_bytes(args.hex)]
         except ValueError as e:
-            print(f"Error: invalid hex string: {e}", file=sys.stderr)
+            print(f"Error: {e}", file=sys.stderr)
             return 2
         mode = "binary"
     else:
@@ -359,9 +377,9 @@ def _cmd_reverse(args: argparse.Namespace) -> int:
         frames: list[str] | list[bytes] = _read_text_packets(args.text)
     elif args.hex:
         try:
-            frames = [bytes.fromhex(h) for h in args.hex]
+            frames = [_hex_to_bytes(h) for h in args.hex]
         except ValueError as e:
-            print(f"Error: invalid hex string: {e}", file=sys.stderr)
+            print(f"Error: {e}", file=sys.stderr)
             return 2
     else:
         try:
@@ -422,9 +440,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         packets: list[str] | list[bytes] = _read_text_packets(args.text)
     elif args.hex is not None:
         try:
-            packets = [bytes.fromhex(args.hex)]
+            packets = [_hex_to_bytes(args.hex)]
         except ValueError as e:
-            print(f"Error: invalid hex string: {e}", file=sys.stderr)
+            print(f"Error: {e}", file=sys.stderr)
             return 2
     else:
         try:
