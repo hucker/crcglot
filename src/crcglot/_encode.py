@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from crcglot.catalogue import ALGORITHMS, Crc, generic_crc
+from crcglot.catalogue import ALGORITHMS, Crc, generic_crc, unknown_algorithm_error
 from crcglot._detect import (
     DetectMatch,
     Endianness,
@@ -56,10 +56,7 @@ def _lookup(algorithm: str | Crc) -> Crc:
     try:
         return ALGORITHMS[algorithm]
     except KeyError:
-        raise ValueError(
-            f"unknown algorithm {algorithm!r}; "
-            f"use 'crcglot list' or crcglot.ALGORITHMS to browse"
-        ) from None
+        raise unknown_algorithm_error(algorithm) from None
 
 
 def encode(

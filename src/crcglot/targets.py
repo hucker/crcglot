@@ -26,7 +26,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Literal, cast
 
 from crcglot._helpers import _func_name, _join_naming, combine_concat
-from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, has_faster_alternative
+from crcglot.catalogue import (
+    ALGORITHMS,
+    AlgorithmInfo,
+    has_faster_alternative,
+    unknown_algorithm_error,
+)
 
 if TYPE_CHECKING:
     from crcglot.comments import StyleInfo
@@ -668,9 +673,7 @@ class LanguageInfo:
             names = list(dict.fromkeys(names))
             unknown = [n for n in names if n not in ALGORITHMS]
             if unknown:
-                raise ValueError(
-                    f"unknown algorithm {unknown[0]!r}; use crc_list to browse"
-                )
+                raise unknown_algorithm_error(unknown[0])
             items = [(n, ALGORITHMS[n]) for n in names]
         multi = len(items) > 1
         if multi and symbol is not None:

@@ -43,6 +43,7 @@ from crcglot import (
     variant_info,
     verify,
 )
+from crcglot.catalogue import unknown_algorithm_error
 from crcglot.mcp._wire import (
     algorithm_to_dict,
     trailer_result_to_dict,
@@ -189,7 +190,7 @@ def _resolve_algorithm(
         raise ValueError("supply exactly one of algorithm or custom_params")
     if algorithm is not None:
         if algorithm not in ALGORITHMS:
-            raise ValueError(f"unknown algorithm {algorithm!r}; use crc_list to browse")
+            raise unknown_algorithm_error(algorithm, surface="mcp")
         return ALGORITHMS[algorithm], algorithm
     assert custom_params is not None
     return _parse_custom_params(custom_params), str(custom_params.get("name", "custom"))
@@ -292,7 +293,7 @@ def build_server() -> FastMCP:
     def crc_info(name: str) -> dict[str, Any]:
         algo = ALGORITHMS.get(name)
         if algo is None:
-            raise ValueError(f"unknown algorithm {name!r}; use crc_list to browse")
+            raise unknown_algorithm_error(name, surface="mcp")
         return algorithm_to_dict(name, algo)
 
     # ----- crc_detect -----
@@ -939,9 +940,7 @@ def build_server() -> FastMCP:
                 )
             unknown = [n for n in names if n not in ALGORITHMS]
             if unknown:
-                raise ValueError(
-                    f"unknown algorithm {unknown[0]!r}; use crc_list to browse"
-                )
+                raise unknown_algorithm_error(unknown[0], surface="mcp")
             if symbol is not None and len(names) > 1:
                 raise ValueError(
                     "symbol names a single function; omit it when generating "

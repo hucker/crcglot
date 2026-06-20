@@ -212,11 +212,17 @@ class TestInfoCommand:
         assert rc == 0
         assert "desc:" in out
 
-    def test_info_unknown_algorithm_returns_1(self, capsys):
+    def test_info_unknown_algorithm_returns_2(self, capsys):
+        # Act
         rc = main(["info", "totally-fake-crc"])
         _out, err = capsys.readouterr()
-        assert rc == 1
-        assert "Unknown algorithm" in err
+
+        # Assert -- exit 2 (unknown input), now matching the other commands that
+        # reject a bad algorithm, with the name echoed in the message.
+        assert rc == 2, f"unknown algorithm exits 2, got {rc}"
+        assert "unknown algorithm 'totally-fake-crc'" in err, (
+            f"the message echoes the bad name; got {err!r}"
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────

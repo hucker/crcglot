@@ -12,7 +12,14 @@ from __future__ import annotations
 
 import pytest
 
-from crcglot import ALGORITHMS, Crc, CrcStream, crc_stream, generic_crc
+from crcglot import (
+    ALGORITHMS,
+    Crc,
+    CrcStream,
+    UnknownAlgorithmError,
+    crc_stream,
+    generic_crc,
+)
 from crcglot.stream import _CCrcStream, _PyBackend, _ZlibBackend
 
 # The reveng check string and the four chunkings that must all agree: whole,
@@ -211,9 +218,13 @@ def test_from_info_and_raw_constructor_agree() -> None:
 
 
 def test_unknown_algorithm_raises() -> None:
-    """An unknown catalogue name is a clear ``KeyError``."""
+    """An unknown catalogue name raises ``UnknownAlgorithmError`` (a ``ValueError``).
+
+    Regression: this used to raise a bare ``KeyError``, which ``except ValueError``
+    (the type every other unknown-name path uses) silently missed.
+    """
     # Act / Assert
-    with pytest.raises(KeyError, match="unknown algorithm"):
+    with pytest.raises(UnknownAlgorithmError, match="unknown algorithm"):
         crc_stream("definitely-not-a-crc")
 
 

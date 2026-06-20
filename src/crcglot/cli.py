@@ -36,6 +36,7 @@ from crcglot import (
     encode_int,
     encode_text,
 )
+from crcglot.catalogue import unknown_algorithm_error
 from crcglot.comments import styles_for_language
 
 
@@ -119,8 +120,11 @@ def _cmd_info(args: argparse.Namespace) -> int:
     """Print parameters for a single algorithm."""
     algo = ALGORITHMS.get(args.name)
     if algo is None:
-        print(f"Unknown algorithm: {args.name!r}", file=sys.stderr)
-        return 1
+        print(
+            f"Error: {unknown_algorithm_error(args.name, surface='cli')}",
+            file=sys.stderr,
+        )
+        return 2
     w = algo.width
     hex_w = (w + 3) // 4
     print(f"{args.name}")
@@ -465,8 +469,7 @@ def _cmd_encode(args: argparse.Namespace) -> int:
     """
     if args.algorithm not in ALGORITHMS:
         print(
-            f"Error: unknown algorithm {args.algorithm!r}. "
-            f"Use 'crcglot list' to browse.",
+            f"Error: {unknown_algorithm_error(args.algorithm, surface='cli')}",
             file=sys.stderr,
         )
         return 2
@@ -516,8 +519,7 @@ def _cmd_compute(args: argparse.Namespace) -> int:
     """
     if args.algorithm not in ALGORITHMS:
         print(
-            f"Error: unknown algorithm {args.algorithm!r}. "
-            f"Use 'crcglot list' to browse.",
+            f"Error: {unknown_algorithm_error(args.algorithm, surface='cli')}",
             file=sys.stderr,
         )
         return 2
@@ -719,8 +721,7 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         unknown = [n for n in names if n not in ALGORITHMS]
         if unknown:
             print(
-                f"Error: unknown algorithm {unknown[0]!r}. "
-                "Use 'crcglot list' to browse.",
+                f"Error: {unknown_algorithm_error(unknown[0], surface='cli')}",
                 file=sys.stderr,
             )
             return 2

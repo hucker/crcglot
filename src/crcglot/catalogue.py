@@ -15,9 +15,13 @@ reveng ``check`` value (CRC of ``b"123456789"``) and a human-readable
 
 from __future__ import annotations
 
+import difflib
+import re
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
+
+from crcglot.exceptions import UnknownAlgorithmError
 
 
 # Optional C accelerator.  Installed by the wheel; absent when crcglot
@@ -1712,3 +1716,134 @@ ALGORITHMS: dict[str, AlgorithmInfo] = {
         source="reveng",
     ),
 }
+
+
+# ── algorithm-name suggestions ────────────────────────────────────────────────
+#
+# When a name misses, crcglot answers with a catalogue-aware suggestion instead
+# of "go read the whole list".  The single highest-value case: a bare width like
+# ``crc16`` (no default -- CRC-16 alone has 31 variants), which we read as "you
+# meant a variant of this width" and name the family, most-recognized first.  All
+# surfaces (engine, CLI, MCP) build their "unknown algorithm" error from here, so
+# the suggestion is identical; only the trailing "where to look next" hint differs.
+
+
+#: Widely-recognized members of the common widths, in display order, so the names
+#: people actually reach for (``crc16-modbus``) lead a family listing instead of
+#: the obscure alphabetical head (``crc16-cdma2000``).  Tested against ALGORITHMS
+#: so it cannot drift; obscure widths have no entry and fall back to alphabetical.
+_WELL_KNOWN: tuple[str, ...] = (
+    "crc32", "crc32-iscsi", "crc32-bzip2", "crc32-mpeg-2",
+    "crc16-modbus", "crc16-xmodem", "crc16-kermit", "crc16-ibm-3740",
+    "crc16-arc", "crc16-usb", "crc16-ibm-sdlc",
+    "crc8", "crc8-maxim", "crc8-bluetooth", "crc8-autosar", "crc8-sae-j1850",
+    "crc64-xz", "crc64-ecma-182", "crc64-go-iso", "crc64-nvme",
+)
+
+#: Per-surface "where to look next" pointer.  The library cannot tell a user to
+#: "run crcglot list", so each caller passes its surface and gets a fitting hint.
+_BROWSE_HINTS: dict[str, str] = {
+    "python": "crcglot.ALGORITHMS lists every entry, with parameters",
+    "cli": "run 'crcglot list' to see them all, or 'crcglot info <name>' for one",
+    "mcp": "call crc_list to see them all, or crc_info for one",
+}
+
+
+def _well_known_first(names: list[str]) -> list[str]:
+    """Order ``names`` with the recognized ones first, the rest alphabetical."""
+    known = [n for n in _WELL_KNOWN if n in names]
+    rest = sorted(n for n in names if n not in _WELL_KNOWN)
+    return known + rest
+
+
+def _width_families() -> dict[int, list[str]]:
+    """``{width: [names]}`` over the catalogue, recognized names first per width."""
+    families: dict[int, list[str]] = {}
+    for name, algo in ALGORITHMS.items():
+        families.setdefault(algo.width, []).append(name)
+    return {w: _well_known_first(names) for w, names in families.items()}
+
+
+def suggest_algorithms(name: str, *, limit: int = 6) -> list[str]:
+    """Best-effort catalogue suggestions for an unrecognized algorithm name.
+
+    Three tiers, first hit wins: an exact prefix match (``"crc16-mod"`` ->
+    ``crc16-modbus``); the variant family of a bare ``crc<width>`` (``"crc-16"``
+    -> every width-16 entry, since CRC-16 names a family with no default); then a
+    fuzzy match for typos (``"crc16-modbsu"`` -> ``crc16-modbus``).
+
+    Args:
+        name: The unrecognized name the caller tried to resolve.
+        limit: Maximum number of suggestions to return.
+
+    Returns:
+        Catalogue names, most-relevant tier first, capped at ``limit``; empty
+        when nothing is close.
+
+    Examples:
+        >>> "crc16-modbus" in suggest_algorithms("crc16")
+        True
+        >>> suggest_algorithms("crc16-modbsu")
+        ['crc16-modbus']
+    """
+    key = str(name).strip().lower()
+    if not key:
+        return []
+    prefix = [k for k in ALGORITHMS if k.startswith(key)]
+    if prefix:
+        return _well_known_first(prefix)[:limit]
+    m = re.fullmatch(r"crc[-_ ]?(\d+)", key)
+    if m:
+        family = _width_families().get(int(m.group(1)))
+        if family:
+            return family[:limit]
+    # The fuzzy tier is for typos: past the top few, matches are noise, so cap
+    # tighter than the prefix/family tiers (which list genuinely-relevant kin).
+    return difflib.get_close_matches(key, list(ALGORITHMS), n=min(limit, 3), cutoff=0.5)
+
+
+def _bare_width_family(name: str) -> int | None:
+    """The width if ``name`` is *only* a ``crc<width>`` family name, else ``None``.
+
+    ``"crc16"`` / ``"crc-16"`` -> ``16`` (an ambiguous family, not a typo);
+    ``"crc16-modbus"`` or ``"crc16x"`` -> ``None`` (the caller named a variant).
+    """
+    m = re.fullmatch(r"crc[-_ ]?(\d+)", str(name).strip().lower())
+    if m is None:
+        return None
+    width = int(m.group(1))
+    return width if width in _width_families() else None
+
+
+def unknown_algorithm_error(
+    name: object, *, surface: str = "python"
+) -> UnknownAlgorithmError:
+    """Build a helpful :class:`~crcglot.exceptions.UnknownAlgorithmError`.
+
+    A bare ``crc<width>`` gets the family-and-count framing (it is ambiguous, not
+    a typo); anything else gets a "did you mean" when a close match exists.  The
+    trailing pointer is surface-specific: ``surface`` is ``"python"`` (default),
+    ``"cli"``, or ``"mcp"``, so the message points at the right place to look next.
+
+    Examples:
+        >>> str(unknown_algorithm_error("crc16")).startswith("unknown algorithm")
+        True
+    """
+    hint = _BROWSE_HINTS.get(surface, _BROWSE_HINTS["python"])
+    width = _bare_width_family(str(name))
+    if width is not None:
+        family = _width_families()[width]
+        shown = ", ".join(family[:6])
+        more = f", and {len(family) - 6} more" if len(family) > 6 else ""
+        return UnknownAlgorithmError(
+            f"unknown algorithm {name!r}: CRC-{width} names a family of "
+            f"{len(family)} variants with no single default. Pick one, for "
+            f"example {shown}{more} ({hint})."
+        )
+    suggestions = suggest_algorithms(str(name))
+    if suggestions:
+        return UnknownAlgorithmError(
+            f"unknown algorithm {name!r}; did you mean {', '.join(suggestions)}? "
+            f"({hint})"
+        )
+    return UnknownAlgorithmError(f"unknown algorithm {name!r}; {hint}.")

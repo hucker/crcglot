@@ -80,7 +80,9 @@ from crcglot.catalogue import (
     generic_crc,
     generic_crc_many,
     has_faster_alternative,
+    suggest_algorithms,
 )
+from crcglot.exceptions import CrcglotError, UnknownAlgorithmError
 from crcglot.stream import CrcStream, crc_stream
 
 if TYPE_CHECKING:
@@ -280,6 +282,8 @@ __all__ = [
     "TrailerResult",
     "Crc",
     "CrcStream",
+    "CrcglotError",
+    "UnknownAlgorithmError",
     "DetectMatch",
     "DetectResult",
     "FormatInfo",
@@ -307,6 +311,7 @@ __all__ = [
     "trailer_info",
     "compute",
     "custom_algorithm",
+    "suggest_algorithms",
     "encode",
     "encode_int",
     "encode_match",

@@ -36,6 +36,7 @@ from crcglot.catalogue import (
     Crc,
     _ZLIB_FAST_PATHS,
     _reflect,
+    unknown_algorithm_error,
 )
 
 # Optional C-extension streaming backend.  Guarded exactly like
@@ -269,7 +270,8 @@ class CrcStream:
             name: Algorithm name from :data:`crcglot.ALGORITHMS`.
 
         Raises:
-            KeyError: Unknown algorithm name.
+            UnknownAlgorithmError: ``name`` is not in the catalogue (also a
+                ``ValueError``, with a "did you mean" suggestion).
 
         Examples:
             >>> CrcStream.from_name("crc32").hexdigest()
@@ -278,10 +280,7 @@ class CrcStream:
         try:
             algo = ALGORITHMS[name]
         except KeyError:
-            raise KeyError(
-                f"unknown algorithm {name!r}; see crcglot.ALGORITHMS for the "
-                "catalogue"
-            ) from None
+            raise unknown_algorithm_error(name) from None
         return cls.from_info(algo)
 
     def update(self, data: _BytesLike, /) -> None:
@@ -320,7 +319,8 @@ def crc_stream(name: str) -> CrcStream:
         A fresh :class:`CrcStream` bound to ``name``.
 
     Raises:
-        KeyError: Unknown algorithm name.
+        UnknownAlgorithmError: ``name`` is not in the catalogue (also a
+            ``ValueError``, with a "did you mean" suggestion).
 
     Examples:
         >>> from crcglot import crc_stream
