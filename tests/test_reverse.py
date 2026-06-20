@@ -361,6 +361,66 @@ class TestReversePackets:
         with pytest.raises(ValueError, match="not a text frame"):
             reverse_packets(["no-trailing-hex-here!"], std_algo_only=False)
 
+    @staticmethod
+    def _pairs(width, poly, init, refin, refout, xorout):
+        """`(message, crc-value)` pairs for a CRC -- the out-of-band shape."""
+        algo = Crc(width, poly, init, refin, refout, xorout)
+        msgs = [
+            bytes((i * 37 + j * 53 + 17) & 0xFF for j in range(8))
+            for i in range(8)
+        ] + [b"a longer frame", b"and one more!!!"]
+        return [(m, generic_crc(m, algo)) for m in msgs]
+
+    def test_pairs_recover_custom_poly(self):
+        # Arrange -- message bytes + the CRC as an integer value (no field to peel).
+        pairs = self._pairs(16, 0x1009, 0xFFFF, True, True, 0)
+        # Act
+        r = reverse_packets(pairs, std_algo_only=False)
+        # Assert
+        assert r.info is not None and r.info.poly == 0x1009, "poly recovered from pairs"
+
+    def test_pairs_match_the_binary_frame_form(self):
+        # Arrange -- the identical data as value-pairs and as binary frames.
+        pairs = self._pairs(16, 0x1009, 0xFFFF, True, True, 0)
+        frames = [m + c.to_bytes(2, "big") for m, c in pairs]
+        # Act
+        by_pair = reverse_packets(pairs, std_algo_only=False)
+        by_frame = reverse_packets(frames, crc_bytes=2, std_algo_only=False)
+        # Assert -- the value form is the frame form minus the peel step.
+        assert by_pair.info is not None and by_frame.info is not None, "both recover"
+        actual, expected = by_pair.info.poly, by_frame.info.poly
+        assert actual == expected, f"pairs {actual:#x} != frames {expected:#x}"
+
+    def test_pairs_catalogue_passthrough(self):
+        # Arrange
+        a = ALGORITHMS["crc16-xmodem"]
+        pairs = self._pairs(a.width, a.poly, a.init, a.refin, a.refout, a.xorout)
+        # Act -- std_algo_only=True default
+        r = reverse_packets(pairs)
+        # Assert
+        assert r.status == "catalogue", f"status {r.status}"
+        assert r.catalogue_name == "crc16-xmodem", r.catalogue_name
+
+    def test_mixed_pairs_and_frames_rejected(self):
+        # Act / Assert
+        with pytest.raises(ValueError, match="pairs or all frames"):
+            reverse_packets([(b"\x00\x01", 0x1234), b"\x00\x01\x02\x03"])
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            (b"msg", "not-an-int"),
+            ("msg", 0x1234),
+            (b"msg", True),
+            (b"msg", 1, 2),
+        ],
+        ids=["crc-not-int", "message-not-bytes", "crc-is-bool", "wrong-arity"],
+    )
+    def test_bad_pair_shape_rejected(self, bad):
+        # Act / Assert -- each malformed pair names the required shape.
+        with pytest.raises(ValueError, match="message: bytes, crc: int"):
+            reverse_packets([bad])
+
 
 # ---------------------------------------------------------------------------
 # Guarantee: never confidently wrong -- correct on unseen data, or

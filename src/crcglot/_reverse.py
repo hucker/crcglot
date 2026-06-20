@@ -745,7 +745,7 @@ _CONFIDENT_RANK = {"catalogue": 0, "unique": 1, "equivalent": 2}
 
 
 def reverse_packets(
-    packets: Sequence[bytes | str],
+    packets: Sequence[bytes | str | Codeword],
     *,
     crc_bytes: int | None = None,
     crc_byte_order: Literal["big", "little", "both"] = "big",
@@ -759,15 +759,22 @@ def reverse_packets(
     xorout: int | None = None,
     validate: bool = True,
 ) -> ReverseResult:
-    """Recover a CRC from whole packets (message followed by its CRC).
+    """Recover a CRC from whole packets, or from ``(message, crc)`` pairs.
 
-    The packet-oriented entry to :func:`reverse`, taking the same frame shapes
-    :func:`detect` accepts so you can hand it raw captures.  Each packet is a
-    message with its CRC as the trailing field; supply them as **binary** frames
-    (``bytes``: the CRC is the trailing ``crc_bytes`` bytes) or **text** frames
-    (``str`` ``"data <sep> hexcrc"``: the trailing hex field is peeled
-    structurally).  Don't mix the two.  Each frame is split into a
-    ``(message, crc)`` pair and handed to :func:`reverse`.
+    The packet-oriented entry to :func:`reverse`.  Supply one of three shapes,
+    not a mix:
+
+    - **binary** frames (``bytes``: the CRC is the trailing ``crc_bytes`` bytes),
+    - **text** frames (``str`` ``"data <sep> hexcrc"``: the trailing hex field is
+      peeled structurally), or
+    - **``(message: bytes, crc: int)`` pairs**, for the out-of-band case where you
+      hold the message and the CRC value separately.  The CRC is a plain integer,
+      so there is nothing to encode: no field width or endianness to get wrong,
+      which matters because those are among the things reverse is solving for.
+      ``crc_bytes`` / ``crc_byte_order`` do not apply to pairs.
+
+    Frame forms are split into ``(message, crc)`` pairs; all three shapes are then
+    handed to :func:`reverse`.
 
     For binary frames, when ``crc_bytes`` is ``None`` the field size is unknown,
     so each plausible size (1-8 bytes) is tried -- largest first, since CRC
@@ -778,9 +785,9 @@ def reverse_packets(
     search: the hex field is already delimited; ``crc_bytes`` is ignored.
 
     Args:
-        packets: The captured frames -- all binary (``bytes``) or all text
-            (``str``).  Supply several varied frames for the algebraic tier (see
-            :func:`reverse`).
+        packets: The frames -- all binary (``bytes``), all text (``str``), or all
+            ``(message: bytes, crc: int)`` pairs.  Supply several varied frames
+            for the algebraic tier (see :func:`reverse`).
         crc_bytes: Binary frames only -- size of the trailing CRC field in
             bytes, or ``None`` to search ``1..8``.
         crc_byte_order: Byte order of the CRC field -- ``"big"`` (default),
@@ -803,9 +810,9 @@ def reverse_packets(
         ``note`` so you can confirm the boundary it chose.
 
     Raises:
-        ValueError: ``packets`` is empty, mixes binary and text frames, a binary
-            packet is too short for the given ``crc_bytes``, or a text frame
-            isn't ``"data <sep> hexcrc"``.
+        ValueError: ``packets`` is empty, mixes shapes, a pair is not
+            ``(bytes, int)``, a binary packet is too short for the given
+            ``crc_bytes``, or a text frame isn't ``"data <sep> hexcrc"``.
 
     Examples:
         >>> from crcglot import Crc, generic_crc, reverse_packets
@@ -815,6 +822,11 @@ def reverse_packets(
         ...                .to_bytes(2, "big") for m in msgs]
         >>> r = reverse_packets(pkts, crc_bytes=2, std_algo_only=False)
         >>> r.info.poly
+        4129
+        >>> # Out-of-band: message bytes + the CRC as an integer (no field to peel)
+        >>> pairs = [(m, generic_crc(m, Crc(16, 0x1021, 0xFFFF, False, False, 0)))
+        ...          for m in msgs]
+        >>> reverse_packets(pairs, std_algo_only=False).info.poly
         4129
     """
     items = list(packets)
@@ -838,6 +850,31 @@ def reverse_packets(
             xorout=xorout,
             validate=validate,
         )
+
+    # ----- (message, crc) pairs: the CRC is given as a value, so there is no
+    # trailing field to peel and no byte order to search.  The most direct form,
+    # for an out-of-band CRC where the message and the integer arrive separately;
+    # identical to calling reverse() on the pairs.  crc_bytes / crc_byte_order
+    # do not apply here.
+    if any(isinstance(p, tuple) for p in items):
+        if not all(isinstance(p, tuple) for p in items):
+            raise ValueError(
+                "packets must be all (message, crc) pairs or all frames, not a mix"
+            )
+        pairs: list[Codeword] = []
+        for i, p in enumerate(cast("list[tuple[object, ...]]", items)):
+            if (
+                len(p) != 2
+                or not isinstance(p[0], (bytes, bytearray))
+                or not isinstance(p[1], int)
+                or isinstance(p[1], bool)
+            ):
+                raise ValueError(
+                    f"packets[{i}] must be a (message: bytes, crc: int) pair; "
+                    f"got {p!r}"
+                )
+            pairs.append((bytes(p[0]), int(p[1])))
+        return solve(pairs)
 
     # ----- text frames: the hex field is already delimited (no size search) -----
     if any(isinstance(p, str) for p in items):
