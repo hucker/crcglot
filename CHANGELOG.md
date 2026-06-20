@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.25.0 — 2026-06-19
+
+A pass over error messages: when crcglot rejects something, the message now tells you how to recover instead of leaving you to read the docs.  `reverse_packets` gains a more natural input shape, and the PyPI publish is now gated on the test suite.
+
+### Added: a catchable error hierarchy, and "did you mean" for algorithm names
+
+Every error crcglot raises on purpose now derives from `crcglot.CrcglotError`, so you can `except CrcglotError` to catch "crcglot rejected this" apart from any other error in your code.  Each concrete error also subclasses the conventional standard-library type, so existing `except ValueError` / `except TypeError` handlers keep working unchanged.  The first typed error is `UnknownAlgorithmError(CrcglotError, ValueError)`.
+
+An unrecognized algorithm name no longer says "go read the whole list".  A bare width is read as a family: `compute(data, "crc16")` answers "CRC-16 names a family of 31 variants with no single default.  Pick one, for example crc16-modbus, crc16-xmodem, crc16-kermit, ...".  A typo gets a closest-match suggestion (`crc16-modbsu` to crc16-modbus).  The pointer to look further fits where you are: the library points at `crcglot.ALGORITHMS`, the CLI at `crcglot list`, the MCP server at `crc_list`.  The new `crcglot.suggest_algorithms(name)` exposes the same suggestion logic.
+
+### Added: `reverse_packets` accepts `(message, crc)` pairs
+
+For the out-of-band case where you hold a message and its CRC value separately, `reverse_packets` now takes `(message: bytes, crc: int)` pairs alongside the binary and text frame forms.  The CRC is a plain integer, so there is nothing to encode: no field width or endianness to get wrong, which is the point, since those are among the things reverse is solving for.
+
+### Changed: clearer, sometimes different, errors
+
+- Type and parse errors now echo what you passed: `"text mode requires a str packet; got bytes"`, and a malformed `--hex` argument reports `invalid hex string '12g4': expected an even count of hex digits` instead of leaking the raw `bytes.fromhex` message.
+- `CrcStream.from_name` / `crc_stream` on an unknown name now raise `UnknownAlgorithmError` (a `ValueError`) rather than a bare `KeyError`, so one `except` shape covers every unknown-name path.
+- The CLI `info` command exits `2` (not `1`) on an unknown algorithm, matching the other commands.
+
+### Internal
+
+The PyPI publish is now gated on the Linux fast suite, so a failing test blocks the upload rather than racing a live release past it.  The C# bundle test had been reading the wrong-cased filename (`multi.cs` versus the PascalCase `Multi.cs` the generator emits), which passed on case-insensitive Windows but left the `Tests` CI red on Linux since v0.21.0; it is fixed.  The error-message conventions are written down in `CLAUDE.md`.
+
 ## v0.24.0 — 2026-06-19
 
 This release closes the defects an independent end-to-end review turned up (recorded in `docs/independent-verification-report.md`), hardens `reverse()`, and gives `detect` a uniform `form` field.  Two output-shape changes are breaking and are called out below.
