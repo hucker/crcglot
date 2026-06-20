@@ -120,13 +120,21 @@ notes pulled from the CHANGELOG section.
 tag triggers `.github/workflows/wheels.yml`, which builds the full wheel
 matrix + sdist and publishes them via trusted publishing.
 
-## Step 4 — watch CI finish
+## Step 4 — watch CI finish (both workflows must be green)
+
+A release fires **two** workflows: the tag push triggers `wheels.yml`, and the
+merge-to-main push triggers `tests.yml`.  Both must go green before the release
+is done.  `wheels.yml` now runs a fast-suite **gate** whose result the `publish`
+job needs, so a failing test blocks the PyPI upload rather than racing a live
+release past it (the trap that shipped 0.24.0 with a red `Tests` run).  Watch
+both, and do not call the release done until both are green:
 
 ```bash
-gh run watch          # or: Actions tab -> Wheels
+gh run watch                                  # the Wheels run: gate + matrix + publish
+gh run list --workflow tests.yml --limit 1    # confirm the main-push Tests run is green too
 ```
 
-The run builds wheels on Linux (x86_64 + aarch64, manylinux + musllinux),
+The Wheels run builds wheels on Linux (x86_64 + aarch64, manylinux + musllinux),
 Windows (x64 + arm64), and macOS (arm64), runs the in-wheel parity tests
 on each, builds the sdist, then the `publish` job uploads everything to
 PyPI.  Confirm:

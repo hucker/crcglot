@@ -31,6 +31,26 @@ on:
       - ".github/workflows/wheels.yml"
 
 jobs:
+  test:
+    # The release gate.  Runs the structural fast suite on Linux across every
+    # supported Python -- the axis the maintainer's Windows box does not cover.
+    # ``publish`` needs this job, so a red suite blocks the PyPI upload: a
+    # tagged release can no longer go live while these tests fail (the C#
+    # filename case bug shipped 0.24.0 precisely because nothing gated on it).
+    # Mirrors the test job in tests.yml; the slow tier (compile-and-run the
+    # generated code) stays off CI by design.
+    name: Fast suite gate ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Run fast suite
+        run: uv run --python ${{ matrix.python-version }} pytest -m "not slow"
+
   build_wheels:
     name: Wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -89,10 +109,11 @@ jobs:
   publish:
     name: Publish to PyPI
     # Only on a version-tag push -- never on a PR or a manual dispatch, so
-    # the matrix can be exercised freely without touching PyPI.  Waits for
-    # every wheel job AND the sdist to go green first.
+    # the matrix can be exercised freely without touching PyPI.  Waits for the
+    # fast-suite gate, every wheel job, AND the sdist to go green first, so a
+    # failing test blocks the upload rather than racing it.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build_wheels, build_sdist]
+    needs: [test, build_wheels, build_sdist]
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # OIDC: required for PyPI trusted publishing
