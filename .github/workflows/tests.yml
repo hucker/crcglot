@@ -7,10 +7,26 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Fast suite ${{ matrix.os }} py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
+      # Don't let one platform's failure cancel the others -- we want to
+      # see whether a break is Windows-only, macOS-only, or everywhere.
+      fail-fast: false
       matrix:
+        # Version axis on Linux (cheap, fast): every supported Python.
+        # OS axis on Windows + macOS: one representative interpreter each.
+        # OS-specific bugs (path separators, filename case, line endings)
+        # don't vary by Python version, so the full 3x4 cross-product would
+        # be redundant runner time.  Bump the pinned version when the newest
+        # stable Python rolls over.
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: windows-latest
+            python-version: "3.14"
+          - os: macos-14
+            python-version: "3.14"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
