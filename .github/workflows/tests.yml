@@ -30,6 +30,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
+        with:
+          # The fast suite is ~1 min and pulls a handful of pure-Python
+          # wheels; the uv cache saves little.  Left on (setup-uv@v7's
+          # default), the concurrent Linux jobs share one cache key --
+          # built from the runner's system Python, not the matrix
+          # version -- and race to save it ("failed to reserve cache").
+          # Disabling sidesteps the race with no measurable cost.
+          enable-cache: false
       - name: Run fast suite
         # crcglot's verification model: CI runs the structural (fast)
         # tests, which exercise the generator code itself.  The slow
@@ -48,6 +56,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
+        with:
+          # The fast suite is ~1 min and pulls a handful of pure-Python
+          # wheels; the uv cache saves little.  Left on (setup-uv@v7's
+          # default), the concurrent Linux jobs share one cache key --
+          # built from the runner's system Python, not the matrix
+          # version -- and race to save it ("failed to reserve cache").
+          # Disabling sidesteps the race with no measurable cost.
+          enable-cache: false
       - name: Install dependencies
         run: uv sync
       - name: Run pip-audit

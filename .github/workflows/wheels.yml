@@ -48,6 +48,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
+        with:
+          # Off for the same reason as tests.yml: the concurrent gate
+          # jobs would race on one shared cache key for negligible gain.
+          enable-cache: false
       - name: Run fast suite
         run: uv run --python ${{ matrix.python-version }} pytest -m "not slow"
 
