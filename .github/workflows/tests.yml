@@ -28,8 +28,8 @@ jobs:
           - os: macos-14
             python-version: "3.14"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Run fast suite
         # crcglot's verification model: CI runs the structural (fast)
         # tests, which exercise the generator code itself.  The slow
@@ -46,8 +46,8 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Install dependencies
         run: uv sync
       - name: Run pip-audit
