@@ -1,0 +1,4 @@
+# Keep shell scripts LF so they run under bash on Linux / WSL. With
+# core.autocrlf=true (the dev box default), a checkout would otherwise
+# rewrite them to CRLF and bash would fail with "bad interpreter: ...^M".
+*.sh text eol=lf
