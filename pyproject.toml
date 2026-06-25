@@ -89,6 +89,11 @@ py-limited-api = "cp311"
 # per-version builds.  cibuildwheel auto-detects the abi3 tag and
 # won't rebuild for cp312+.
 build = "cp311-*"
+# Stays "build" (pip-backed).  build-frontend = "build[uv]" was tried and
+# fails on Windows + macOS with cibuildwheel 2.21.3: `uv venv` can't create
+# an env from cibuildwheel's bundled (nuget / framework) Python.  uv still
+# builds the sdist (see wheels.yml) and runs every other CI step; revisit
+# build[uv] on a future cibuildwheel bump.
 build-frontend = "build"
 # Production coverage: build glibc (manylinux) AND musl (musllinux)
 # Linux wheels so Alpine / minimal-Docker users get a binary too.

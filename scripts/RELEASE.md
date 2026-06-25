@@ -148,8 +148,7 @@ open https://pypi.org/project/crcglot/0.8.0/
 A smoke install on a clean machine is the final proof:
 
 ```bash
-pip install crcglot==0.8.0
-python -c "from crcglot._c import c_generic_crc; print(c_generic_crc(b'123456789', 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF))"
+uv run --no-project --with crcglot==0.8.0 python -c "from crcglot._c import c_generic_crc; print(c_generic_crc(b'123456789', 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF))"
 ```
 
 ## If something goes wrong

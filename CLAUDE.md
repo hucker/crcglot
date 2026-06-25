@@ -34,6 +34,15 @@ the form `<kind>/<dashed-slug>`:
 Slugs use dashes, not underscores.  Examples:
 `feat/python-self-test`, `bug/vhdl-refout`, `doc/readme-cli-section`.
 
+## Tooling: uv-first
+
+Favor `uv` over `pip` / `pipx` in infrastructure tooling (CI workflows, build / release scripts, dev commands) wherever uv can do the job: `uv build --sdist` over `pipx run build`; `uvx <tool>` (e.g. `uvx ruff`, `uvx cibuildwheel`) over `pipx run <tool>`; `uv run --with <pkg> ...` over a `pip install` for a one-off check.
+
+Two deliberate exceptions; do **not** "uv-ify" these:
+
+- **End-user-facing install docs** (README, `docs/`, generated install advisories) keep `pip install crcglot`: it is the universal instruction for people installing the package, most of whom are not on uv.
+- **The wheel build and PyPI publish actions** (`pypa/cibuildwheel`, `pypa/gh-action-pypi-publish`) have no uv equivalent: uv is an installer / runner, not a manylinux wheel factory or the reference OIDC publisher.  Keep them.
+
 ## Quality gates (must all pass before declaring work done)
 
 Run these three checks at the end of every coding task.  Any non-zero

@@ -85,7 +85,7 @@ jobs:
         uses: pypa/cibuildwheel@v2.21.3
         # All build/test/skip config lives in [tool.cibuildwheel] in
         # pyproject.toml -- keeps this workflow thin and lets you
-        # reproduce locally with ``pipx run cibuildwheel``.
+        # reproduce locally with ``uvx cibuildwheel``.
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
@@ -99,9 +99,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Build sdist
-        run: pipx run build --sdist
+        run: uv build --sdist
 
       - name: Upload sdist
         uses: actions/upload-artifact@v7
