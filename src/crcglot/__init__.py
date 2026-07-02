@@ -148,6 +148,11 @@ if TYPE_CHECKING:
         naming_info,
         variant_info,
     )
+    from crcglot.verification import (
+        SELF_TEST_INPUTS,
+        SelfTestVectors,
+        self_test_vectors,
+    )
 
     # Computed in __getattr__ below (PEP 562); declared here so type checkers
     # resolve ``crcglot.__version__`` as ``str`` without executing the lookup.
@@ -216,6 +221,11 @@ def _lazy_map() -> dict[str, str]:
             "naming_info",
             "variant_info",
         ),
+        "crcglot.verification": (
+            "SELF_TEST_INPUTS",
+            "SelfTestVectors",
+            "self_test_vectors",
+        ),
     }
     return {name: mod for mod, names in by_module.items() for name in names}
 
@@ -273,6 +283,7 @@ __all__ = [
     "ALGORITHMS",
     "ATTRIBUTION",
     "FORMATS",
+    "SELF_TEST_INPUTS",
     "TRAILERS",
     "Advisory",
     "AlgorithmInfo",
@@ -295,6 +306,7 @@ __all__ = [
     "NAMING_ORDER",
     "NamingInfo",
     "ReverseResult",
+    "SelfTestVectors",
     "TextFormat",
     "VerifyResult",
     "VARIANT_ORDER",
@@ -309,6 +321,7 @@ __all__ = [
     "format_info",
     "identify_trailer",
     "trailer_info",
+    "self_test_vectors",
     "compute",
     "custom_algorithm",
     "suggest_algorithms",

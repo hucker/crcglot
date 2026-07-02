@@ -74,6 +74,22 @@ crc32_family = [a for a in ALGORITHMS.values() if a.width == 32]
 
 Each entry is a frozen `AlgorithmInfo` dataclass with the full Rocksoft / Williams parameter set: `name`, `width`, `poly`, `init`, `refin`, `refout`, `xorout`, `check`, `desc`.
 
+## `self_test_vectors`: the four self-test goldens
+
+`check` is one of four fixed vectors the generated `self_test` drives; the other three (`empty`, `all_bytes`, `binary_1k`) were computed the same way (two independent engines agreeing, `check` anchored to reveng) but only lived inside the generated code. `self_test_vectors(name)` exposes all four as a typed record, and `SELF_TEST_INPUTS` gives the inputs, so you can validate any implementation:
+
+```python
+from crcglot import self_test_vectors, SELF_TEST_INPUTS
+
+v = self_test_vectors("crc32")
+# → SelfTestVectors(empty=0x0, check=0xCBF43926, all_bytes=0x29058C73, binary_1k=0x6D4552DB)
+
+for name, data in SELF_TEST_INPUTS.items():
+    assert my_crc32(data) == getattr(v, name), name   # each field is the CRC of that input
+```
+
+It accepts a catalogue name or an `AlgorithmInfo`, and returns `None` for a custom polynomial that is not in the catalogue (no independently-generated goldens). `v.check` always equals `ALGORITHMS[name].check`.
+
 ## Custom polynomials
 
 One call builds a ready-to-use entry; the check value is computed for you, and the result plugs into every generator and compute function:
