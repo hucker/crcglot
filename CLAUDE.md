@@ -184,7 +184,7 @@ machine-written.  Humanize *after* the substantive edits land, so a later
 content change doesn't reintroduce the tells.  Code comments / docstrings are
 exempt; this is about prose docs.
 
-Two crutches this project has specifically overused — grep for them on every
+Three crutches this project has specifically overused; grep for them on every
 prose pass:
 
 - **"honest" / "honestly".**  Don't advertise candor; state the limitation
@@ -195,6 +195,11 @@ prose pass:
   them in his own writing).  They convert cleanly to a comma, a colon, a
   period, or parentheses.  List-item separators (`- **Thing** — description`)
   use a colon instead.
+- **"load-bearing".**  Banned outright.  It's a filler intensifier that says
+  "this matters" without saying why.  Name what the thing actually does or
+  what breaks without it: "a load-bearing convention" becomes "a convention
+  the public API depends on"; "the load-bearing check" becomes "the check that
+  catches X".  If nothing concrete replaces it, delete it.
 
 ## Cruft audit (every release, minimum)
 
@@ -237,9 +242,9 @@ is current.  Before each release, sweep for:
 
 ## Public API ergonomics & stability
 
-These are load-bearing conventions for the public surface (anything an
-integrator imports).  They exist because real consumers have hit friction
-when we broke them — honor them when touching public API.
+These conventions govern the public surface (anything an integrator imports).
+They exist because real consumers have hit friction when we broke them; honor
+them when touching public API.
 
 - **Every metadata axis ships a record + a lookup, never a bare name tuple.**
   Languages, variants, and comment styles each expose a frozen
@@ -268,8 +273,8 @@ when we broke them — honor them when touching public API.
 
 A raised error is part of the public surface.  The bar: a user should recover
 **without reading the docs** -- the message echoes the bad value, names the
-valid options or range, and suggests a fix when one is close.  The patterns
-below are load-bearing; follow them when adding or touching an error path.
+valid options or range, and suggests a fix when one is close.  Follow the
+patterns below when adding or touching an error path.
 
 - **Hierarchy.**  Every deliberate error derives from `CrcglotError`
   (`crcglot/exceptions.py`) AND the conventional stdlib type, e.g.
