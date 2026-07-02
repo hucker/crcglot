@@ -1496,3 +1496,34 @@ class TestLazyImport:
         import crcglot.mcp as mcp_pkg
         # Assert
         assert hasattr(mcp_pkg, "main"), "crcglot.mcp must export main"
+
+    def test_main_without_sdk_gives_actionable_error(self, monkeypatch):
+        """`crcglot-mcp` without the extra names the fix, not a bare
+        ModuleNotFoundError, so a user recovers without reading docs."""
+        # Arrange -- simulate the [mcp] extra not being installed.
+        for name in list(sys.modules):
+            if name.startswith("crcglot.mcp"):
+                monkeypatch.delitem(sys.modules, name, raising=False)
+        monkeypatch.setitem(sys.modules, "mcp", None)
+        monkeypatch.setitem(sys.modules, "mcp.server", None)
+        monkeypatch.setitem(sys.modules, "mcp.types", None)
+        import crcglot.mcp as mcp_pkg
+        # Act / Assert
+        with pytest.raises(SystemExit) as excinfo:
+            mcp_pkg.main()
+        msg = str(excinfo.value)
+        assert "crcglot[mcp]" in msg, f"error should name the extra; got {msg!r}"
+        assert "uvx" in msg, f"error should offer the no-install path; got {msg!r}"
+
+    def test_main_does_not_mask_unrelated_import_error(self, monkeypatch):
+        """A ModuleNotFoundError NOT rooted at ``mcp`` must propagate, so a
+        genuine import bug isn't hidden behind the install hint."""
+        # Arrange -- poison the server module itself (root 'crcglot', not 'mcp').
+        for name in list(sys.modules):
+            if name.startswith("crcglot.mcp"):
+                monkeypatch.delitem(sys.modules, name, raising=False)
+        monkeypatch.setitem(sys.modules, "crcglot.mcp.server", None)
+        import crcglot.mcp as mcp_pkg
+        # Act / Assert -- propagates as ModuleNotFoundError, not SystemExit.
+        with pytest.raises(ModuleNotFoundError):
+            mcp_pkg.main()
