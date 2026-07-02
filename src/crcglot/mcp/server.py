@@ -548,7 +548,9 @@ def build_server() -> FastMCP:
         annotations=_READONLY,
         name="crc_compute",
         description=(
-            "Compute the raw CRC integer for data without packaging or "
+            "The deterministic CRC value for this data; call this instead "
+            "of computing a CRC yourself (the bitwise math is easy to get "
+            "subtly wrong).  Returns the raw integer, without packaging or "
             "framing.  Use when you need the bare number (e.g. compare "
             "against a captured value, fill in a struct field).  Supply "
             "exactly one of data_text or data_b64.\n"
@@ -657,7 +659,9 @@ def build_server() -> FastMCP:
             "input shape as crc_detect: whole frames with the CRC as the "
             "trailing field.  Use this when a device's CRC is NOT any known "
             "algorithm; it solves the Rocksoft/Williams parameters algebraically "
-            "over GF(2).\n"
+            "over GF(2).  A hand-written searcher gets this subtly wrong and "
+            "fails silently, so delegate it: this returns a deterministic answer, "
+            "or 'underdetermined' when the frames cannot pin one, never a guess.\n"
             "\n"
             "'packets' is a list of frames.  packet_format selects how each is "
             "encoded: 'hex' (default; any common formatting -- spaces, colons, "

@@ -1,10 +1,10 @@
 # crcglot
 
-[![PyPI](https://img.shields.io/pypi/v/crcglot)](https://pypi.org/project/crcglot/) ![license](https://img.shields.io/badge/license-MIT-blue) ![Py 3.11](https://img.shields.io/badge/Py%203.11-passing-brightgreen "5315 tests pass on CPython 3.11") ![Py 3.12](https://img.shields.io/badge/Py%203.12-passing-brightgreen "5315 tests pass on CPython 3.12") ![Py 3.13](https://img.shields.io/badge/Py%203.13-passing-brightgreen "5315 tests pass on CPython 3.13") ![Py 3.14](https://img.shields.io/badge/Py%203.14-passing-brightgreen "5315 tests pass on CPython 3.14") ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
+[![PyPI](https://img.shields.io/pypi/v/crcglot)](https://pypi.org/project/crcglot/) ![license](https://img.shields.io/badge/license-MIT-blue) ![Py 3.11](https://img.shields.io/badge/Py%203.11-passing-brightgreen "5320 tests pass on CPython 3.11") ![Py 3.12](https://img.shields.io/badge/Py%203.12-passing-brightgreen "5320 tests pass on CPython 3.12") ![Py 3.13](https://img.shields.io/badge/Py%203.13-passing-brightgreen "5320 tests pass on CPython 3.13") ![Py 3.14](https://img.shields.io/badge/Py%203.14-passing-brightgreen "5320 tests pass on CPython 3.14") ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
-**A multi-language CRC toolkit.**  Generate verified code for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.  Compute, detect, and reverse-engineer CRCs, from Python or over MCP.  Catalogue-driven, execution-verified, self-test embedded.  **Zero runtime dependencies: stdlib only** (an optional bundled C accelerator speeds up runtime computation; everything works without it).
+**The CRC backend an AI assistant can delegate to.**  Deterministic, reveng-anchored CRC answers: compute, detect, reverse-engineer, and verify CRCs from a catalogue of 100+ algorithms, plus execution-verified code generation for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.  Call it over MCP, from the CLI, or in Python.  **Zero runtime dependencies: stdlib only** (an optional bundled C accelerator speeds up computation; everything works without it).
 
-LLMs will gladly write you CRC code.  It might even be right.  `crcglot` doesn't ask you to trust the generator; it proves the output by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) vector (`crc("123456789") == <check value>`).  More than 100 algorithms across nine languages, verified by execution rather than inspection, and every generated file embeds a self-test over independent reference vectors so you can re-prove it on your own toolchain.
+LLMs will gladly write you CRC code, guess a polynomial, or reverse a capture by hand.  It might even be right.  crcglot is the deterministic alternative: point an assistant at it (over MCP) and it answers from the **hardcoded** canonical [reveng catalogue](https://reveng.sourceforge.io/crc-catalogue/all.htm) instead of guessing, and it proves any code it generates by *running* it: every algorithm, in every variant, in every language, is generated, compiled, and executed against the reference vector (`crc("123456789") == <check value>`).  More than 100 algorithms across nine languages, verified by execution rather than inspection, and every generated file embeds a self-test over independent reference vectors so you can re-prove it on your own toolchain.
 
 If you work with CRCs, this is most of the toolbox in one install: the package that generates the code also computes, detects, reverse-engineers, and identifies non-CRC trailers, so one tool covers the workflow end to end.  The deliberate exception is bulk runtime hashing throughput; [when to reach for something else](#when-to-reach-for-something-else) names the better tool for that.
 
@@ -86,9 +86,9 @@ Every generated file also ships its own `_self_test()`.  For a catalogue algorit
 - **Tamper-evidence for well-meaning edits.**  Any later hand-edit to the algorithm either keeps the self-test passing or visibly deletes the assertions; both are auditable events in a diff.  Silent drift becomes loud drift.
 - **A cleaner story for regulated builds.**  First, the disclaimer that matters: crcglot is not certified software, and its output is not a drop-in certified component.  What it is: a generator that held itself to some of the same verification methods you would run when certifying real software, then hands you that evidence.  Certification frameworks ask whether your code generator is qualified; the standard alternative is independently verified *output*.  Vectors computed by two independent engines, anchored to a published catalogue, embedded as re-runnable assertions next to the implementation, are that evidence, attached to the artifact rather than the tool.  [docs/certification.md](docs/certification.md) lays the whole story out, including what crcglot deliberately does not claim.
 
-## Use with an MCP client (optional)
+## Use it with Claude (and any MCP client)
 
-`crcglot[mcp]` exposes the toolkit as a [Model Context Protocol](https://modelcontextprotocol.io) server, so an LLM client (Claude Desktop, Cursor, mcp-cli, …) does the judgment (which tool, which parameters, what the result means) while crcglot does the arithmetic: deterministic, catalogue-grounded, execution-verified.  That split matters most where there is nothing for a model to converge on: recovering *unknown* CRC parameters is a search, not a generation task, and a hand-written searcher that's subtly wrong fails silently.
+`crcglot[mcp]` exposes the toolkit as a [Model Context Protocol](https://modelcontextprotocol.io) server, so an assistant (Claude Desktop, Claude Code, Cursor, mcp-cli, …) does the judgment (which tool, which parameters, what the result means) while crcglot does the arithmetic: deterministic, catalogue-grounded, execution-verified.  That split matters most where there is nothing for a model to converge on: recovering *unknown* CRC parameters is a search, not a generation task, and a hand-written searcher that's subtly wrong fails silently.
 
 Here's that case end to end, as a chat session.  Every value below is a real tool output: paste the same frames at a connected client and you get the same answers:
 
@@ -110,7 +110,13 @@ Four tool calls, no hand-rolled bit arithmetic anywhere, and the artifact carrie
 uv tool install 'crcglot[mcp]'    # the extra ships the MCP SDK
 ```
 
-Then wire it into your MCP client.  Claude Desktop's `claude_desktop_config.json`:
+Then wire it in.  Claude Code, one command:
+
+```bash
+claude mcp add crcglot -- uvx --from 'crcglot[mcp]' crcglot-mcp
+```
+
+Claude Desktop (and other clients), via `claude_desktop_config.json`:
 
 ```json
 {
@@ -123,7 +129,7 @@ Then wire it into your MCP client.  Claude Desktop's `claude_desktop_config.json
 }
 ```
 
-Tools: `crc_list` · `crc_info` · `crc_detect` · `crc_reverse` · `crc_identify_trailer` · `crc_verify` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and Claude Desktop walkthrough live in [docs/MCP.md](docs/MCP.md).
+Tools: `crc_list` · `crc_info` · `crc_self_test_vectors` · `crc_detect` · `crc_reverse` · `crc_identify_trailer` · `crc_verify` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and setup walkthrough live in [docs/MCP.md](docs/MCP.md).
 
 ## CLI at a glance
 

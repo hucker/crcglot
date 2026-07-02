@@ -1,10 +1,10 @@
 # crcglot MCP server
 
-`crcglot[mcp]` ships an optional [Model Context Protocol][mcp] server so LLM clients can call into crcglot's catalogue, detector, encoder, and code generators by name.  The server runs as a stdio JSON-RPC process (the standard MCP transport) and is composable with any MCP-aware client (Claude Desktop, Cursor, Cline, mcp-cli, ...).
+`crcglot[mcp]` ships a [Model Context Protocol][mcp] server so an assistant can delegate CRC work to crcglot by name instead of computing or guessing it: a deterministic, catalogue-grounded backend it calls for compute, detect, reverse, verify, and code generation.  The server runs as a stdio JSON-RPC process (the standard MCP transport) and is composable with any MCP-aware client (Claude Desktop, Claude Code, Cursor, Cline, mcp-cli, ...).
 
 [mcp]: https://modelcontextprotocol.io
 
-The MCP layer is purely **transport adaptation**.  Every tool wraps an already-public Python function whose correctness is asserted by crcglot's existing ~3,000-test suite.  Generated source is identical byte-for-byte to what `crcglot <subcommand>` would emit; the detector returns the same `(algorithm, byte order)` pairs the CLI does.
+The tools are not a reimplementation: each wraps an already-public Python function whose correctness the test suite asserts, so generated source is identical byte-for-byte to what `crcglot <subcommand>` would emit, and the detector returns the same `(algorithm, byte order)` pairs the CLI does.  That equivalence is what makes delegating to it safe.
 
 ## Install
 
