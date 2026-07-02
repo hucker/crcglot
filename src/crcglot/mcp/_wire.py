@@ -25,7 +25,12 @@ import base64
 import re
 from typing import Any
 
-from crcglot import AlgorithmInfo, LanguageInfo
+from crcglot import (
+    SELF_TEST_INPUTS,
+    AlgorithmInfo,
+    LanguageInfo,
+    self_test_vectors,
+)
 
 
 _HEX_CLEAN = re.compile(r"0[xX]|[\s,:]+")
@@ -146,6 +151,37 @@ def algorithm_to_dict(name: str, algo: AlgorithmInfo) -> dict[str, Any]:
         "check_hex": hexfmt(algo.check),
         "desc": algo.desc,
         "source": algo.source,
+    }
+
+
+def vectors_to_dict(name: str, algo: AlgorithmInfo) -> dict[str, Any]:
+    """Serialize one algorithm's four self-test vectors for JSON output.
+
+    Each fixed input is paired with its bytes (as hex) and the expected CRC
+    (decimal + width-padded hex), so a client can run the check directly.  The
+    values are the independently-generated goldens carried in
+    :mod:`crcglot._vectors`.
+    """
+    vectors = self_test_vectors(name)
+    assert vectors is not None  # a catalogue name always resolves to goldens
+    hex_w = (algo.width + 3) // 4
+    return {
+        "algorithm": name,
+        "width": algo.width,
+        "provenance": (
+            "two independent engines (anycrc + crccheck) agreed; "
+            "check anchored to reveng"
+        ),
+        "vectors": [
+            {
+                "input": inp,
+                "input_hex": data.hex(),
+                "input_len": len(data),
+                "expected": getattr(vectors, inp),
+                "expected_hex": f"0x{getattr(vectors, inp):0{hex_w}X}",
+            }
+            for inp, data in SELF_TEST_INPUTS.items()
+        ],
     }
 
 

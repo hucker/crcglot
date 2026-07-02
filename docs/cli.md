@@ -8,6 +8,7 @@ One toolkit, three surfaces.  Every capability has the same name and shape on th
 | ---------- | --- | -------- | ------ |
 | Browse the catalogue | [`list`](#crcglot-list-glob---json) | `crc_list` | `ALGORITHMS` |
 | Algorithm parameters | [`info`](#crcglot-info-name) | `crc_info` | `ALGORITHMS[name]` |
+| Self-test vectors | [`vectors`](#crcglot-vectors-name) | `crc_self_test_vectors` | `self_test_vectors()` |
 | Detect a known CRC | [`detect`](#crcglot-detect-inputs) | `crc_detect` | `detect()` |
 | Identify a non-CRC trailer | [`identify`](#crcglot-identify-inputs) | `crc_identify_trailer` | `identify_trailer()` |
 | Reverse an unknown CRC | [`reverse`](#crcglot-reverse-inputs) | `crc_reverse` | `reverse_packets()` |
@@ -38,6 +39,15 @@ Print parameters (width, poly, init, refin, refout, xorout, check, desc) for one
 
 ```bash
 crcglot info crc64-xz
+```
+
+## `crcglot vectors <name>`
+
+Print the four self-test vectors for one algorithm: the CRC it must produce for the empty message, the check string `123456789`, all 256 byte values, and a 1 KiB pattern.  Use them to check an implementation against a known-good answer.  The values are independently generated (two engines that had to agree; the check input anchored to reveng), so they do not come from crcglot's own engine grading itself.  `--json` emits each input's bytes (as hex) alongside its expected CRC, so the check is runnable.  Exit 2 on unknown name.
+
+```bash
+crcglot vectors crc32
+crcglot vectors crc32 --json
 ```
 
 ## `crcglot detect [INPUTS...]`

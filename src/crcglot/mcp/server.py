@@ -51,6 +51,7 @@ from crcglot.mcp._wire import (
     language_to_dict,
     parse_packet,
     parse_target_crc,
+    vectors_to_dict,
 )
 
 
@@ -295,6 +296,30 @@ def build_server() -> FastMCP:
         if algo is None:
             raise unknown_algorithm_error(name, surface="mcp")
         return algorithm_to_dict(name, algo)
+
+    # ----- crc_self_test_vectors -----
+
+    @mcp.tool(
+        annotations=_READONLY,
+        name="crc_self_test_vectors",
+        description=(
+            "Get the canonical self-test vectors for one catalogue "
+            "algorithm: the CRC this algorithm must produce for four fixed "
+            "inputs (empty message, the check string '123456789', all 256 "
+            "byte values, and a 1 KiB pattern).  Use these to verify a CRC "
+            "implementation (hand-written or from elsewhere) against a "
+            "known-good answer instead of trusting it.  The values are "
+            "independently generated (two engines, anycrc + crccheck, that "
+            "had to agree; the check input anchored to reveng).  Each vector "
+            "carries the input bytes (hex) and the expected CRC (decimal + "
+            "hex), so the check is runnable."
+        ),
+    )
+    def crc_self_test_vectors(algorithm: str) -> dict[str, Any]:
+        algo = ALGORITHMS.get(algorithm)
+        if algo is None:
+            raise unknown_algorithm_error(algorithm, surface="mcp")
+        return vectors_to_dict(algorithm, algo)
 
     # ----- crc_detect -----
 

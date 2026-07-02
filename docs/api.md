@@ -8,6 +8,7 @@ One toolkit, three surfaces.  Every capability has the same name and shape on th
 | ---------- | --- | -------- | ------ |
 | Browse the catalogue | `list` | `crc_list` | `ALGORITHMS` |
 | Algorithm parameters | `info` | `crc_info` | `ALGORITHMS[name]` |
+| Self-test vectors | `vectors` | `crc_self_test_vectors` | `self_test_vectors()` |
 | Detect a known CRC | `detect` | `crc_detect` | `detect()` |
 | Identify a non-CRC trailer | `identify` | `crc_identify_trailer` | `identify_trailer()` |
 | Reverse an unknown CRC | `reverse` | `crc_reverse` | `reverse_packets()` |
@@ -88,7 +89,7 @@ for name, data in SELF_TEST_INPUTS.items():
     assert my_crc32(data) == getattr(v, name), name   # each field is the CRC of that input
 ```
 
-It accepts a catalogue name or an `AlgorithmInfo`, and returns `None` for a custom polynomial that is not in the catalogue (no independently-generated goldens). `v.check` always equals `ALGORITHMS[name].check`.
+It accepts a catalogue name or an `AlgorithmInfo`, and returns `None` for a custom polynomial that is not in the catalogue (no independently-generated goldens). `v.check` always equals `ALGORITHMS[name].check`.  The same vectors are reachable from the CLI (`crcglot vectors <name>`) and over MCP (`crc_self_test_vectors`), so an assistant can fetch them to audit an implementation.
 
 ## Custom polynomials
 

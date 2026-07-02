@@ -29,12 +29,14 @@ from crcglot import (
     ATTRIBUTION,
     LANGUAGES,
     NAMING_ORDER,
+    SELF_TEST_INPUTS,
     AlgorithmInfo,
     custom_algorithm,
     detect,
     encode,
     encode_int,
     encode_text,
+    self_test_vectors,
 )
 from crcglot.catalogue import unknown_algorithm_error
 from crcglot.comments import styles_for_language
@@ -156,6 +158,49 @@ def _cmd_info(args: argparse.Namespace) -> int:
     if algo.desc:
         print(f"  desc:     {algo.desc}")
     print(f"  source:   {algo.source}")
+    return 0
+
+
+_VECTORS_PROVENANCE = (
+    "two independent engines (anycrc + crccheck) agreed; check anchored to reveng"
+)
+
+
+def _cmd_vectors(args: argparse.Namespace) -> int:
+    """Print the four self-test vectors (independent goldens) for one algorithm."""
+    algo = ALGORITHMS.get(args.name)
+    if algo is None:
+        print(
+            f"Error: {unknown_algorithm_error(args.name, surface='cli')}",
+            file=sys.stderr,
+        )
+        return 2
+    vectors = self_test_vectors(args.name)
+    assert vectors is not None  # a catalogue name always resolves to goldens
+    hex_w = (algo.width + 3) // 4
+    if args.json:
+        payload = {
+            "algorithm": args.name,
+            "width": algo.width,
+            "provenance": _VECTORS_PROVENANCE,
+            "vectors": [
+                {
+                    "input": name,
+                    "input_hex": data.hex(),
+                    "input_len": len(data),
+                    "expected": getattr(vectors, name),
+                    "expected_hex": f"0x{getattr(vectors, name):0{hex_w}X}",
+                }
+                for name, data in SELF_TEST_INPUTS.items()
+            ],
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+    print(f"{args.name} self-test vectors ({_VECTORS_PROVENANCE})")
+    for name, data in SELF_TEST_INPUTS.items():
+        expected = getattr(vectors, name)
+        print(f"  {name:<11} ({len(data):>4} bytes)   0x{expected:0{hex_w}X}")
+    print("  (--json emits each input's bytes as hex, for a runnable check)")
     return 0
 
 
@@ -822,6 +867,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_info = subs.add_parser("info", help="Show algorithm parameters")
     p_info.add_argument("name", help="Algorithm name (e.g. crc32)")
 
+    # crcglot vectors <name> [--json]
+    p_vectors = subs.add_parser(
+        "vectors",
+        help="Show the self-test vectors (independent goldens) for one algorithm",
+    )
+    p_vectors.add_argument("name", help="Algorithm name (e.g. crc32)")
+    p_vectors.add_argument(
+        "--json", action="store_true",
+        help="Emit machine-readable JSON with each input's bytes and expected CRC",
+    )
+
     # crcglot detect [packet.bin ...] [--text TEXT|--hex HEX]
     p_detect = subs.add_parser(
         "detect",
@@ -1141,6 +1197,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_list(args)
     if args.command == "info":
         return _cmd_info(args)
+    if args.command == "vectors":
+        return _cmd_vectors(args)
     if args.command == "reverse":
         return _cmd_reverse(args)
     if args.command == "verify":

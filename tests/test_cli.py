@@ -268,6 +268,53 @@ class TestInfoCommand:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# `crcglot vectors`
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestVectorsCommand:
+    """`crcglot vectors <name>` surfaces the four self-test goldens."""
+
+    def test_human_output_lists_the_four_inputs(self, capsys):
+        # Act
+        rc = main(["vectors", "crc32"])
+        out, _err = capsys.readouterr()
+        # Assert
+        assert rc == 0, f"vectors crc32 should exit 0, got {rc}"
+        for name in ("empty", "check", "all_bytes", "binary_1k"):
+            assert name in out, f"human output should list input {name!r}; got {out!r}"
+        assert "0xCBF43926" in out, "the check golden should appear in the output"
+
+    def test_json_carries_runnable_input_and_expected(self, capsys):
+        # Act
+        rc = main(["vectors", "crc32", "--json"])
+        out, _err = capsys.readouterr()
+        # Assert
+        assert rc == 0, f"vectors --json should exit 0, got {rc}"
+        payload = json.loads(out)
+        assert payload["algorithm"] == "crc32", "algorithm name echoed"
+        by_input = {v["input"]: v for v in payload["vectors"]}
+        actual_check = by_input["check"]["expected_hex"]
+        assert actual_check == "0xCBF43926", (
+            f"check expected_hex {actual_check} != 0xCBF43926"
+        )
+        # The check input bytes are the ASCII of "123456789".
+        assert by_input["check"]["input_hex"] == b"123456789".hex(), (
+            "check input_hex should be the runnable input bytes"
+        )
+
+    def test_unknown_algorithm_returns_2(self, capsys):
+        # Act
+        rc = main(["vectors", "totally-fake-crc"])
+        _out, err = capsys.readouterr()
+        # Assert
+        assert rc == 2, f"unknown algorithm exits 2, got {rc}"
+        assert "unknown algorithm 'totally-fake-crc'" in err, (
+            f"the message echoes the bad name; got {err!r}"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────
 # `crcglot compute`
 # ─────────────────────────────────────────────────────────────────────
 

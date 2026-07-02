@@ -156,6 +156,37 @@ class TestCrcInfo:
 
 
 # ---------------------------------------------------------------------------
+# crc_self_test_vectors
+# ---------------------------------------------------------------------------
+
+
+class TestCrcSelfTestVectors:
+    """`crc_self_test_vectors` mirrors ``crcglot vectors <name>``."""
+
+    def test_returns_the_four_runnable_vectors(self):
+        # Act
+        out = _call("crc_self_test_vectors", {"algorithm": "crc32"})
+
+        # Assert
+        assert out["algorithm"] == "crc32", "algorithm echoed"
+        by_input = {v["input"]: v for v in out["vectors"]}
+        actual_inputs = set(by_input)
+        expected_inputs = {"empty", "check", "all_bytes", "binary_1k"}
+        assert actual_inputs == expected_inputs, (
+            f"the four fixed inputs, got {actual_inputs}"
+        )
+        assert by_input["check"]["expected_hex"] == "0xCBF43926", "check golden"
+        assert by_input["check"]["input_hex"] == b"123456789".hex(), (
+            "each vector carries its runnable input bytes"
+        )
+
+    def test_unknown_algorithm_raises(self):
+        # Assert
+        with pytest.raises(Exception, match="unknown algorithm"):
+            _call("crc_self_test_vectors", {"algorithm": "nope-not-a-crc"})
+
+
+# ---------------------------------------------------------------------------
 # crc_detect
 # ---------------------------------------------------------------------------
 
@@ -979,7 +1010,7 @@ class TestToolAnnotations:
         tools = _run(mcp.list_tools())
 
         # Assert -- the whole surface, so a new tool can't slip through.
-        assert len(tools) == 11, f"expected 11 tools, got {len(tools)}"
+        assert len(tools) == 12, f"expected 12 tools, got {len(tools)}"
         for t in tools:
             a = t.annotations
             assert a is not None, f"{t.name}: missing annotations"

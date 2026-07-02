@@ -53,6 +53,7 @@ One toolkit, three surfaces.  Every capability has the same name and shape on th
 | ---------- | --- | -------- | ------ |
 | Browse the catalogue | `list` | `crc_list` | `ALGORITHMS` |
 | Algorithm parameters | `info` | `crc_info` | `ALGORITHMS[name]` |
+| Self-test vectors | `vectors` | `crc_self_test_vectors` | `self_test_vectors()` |
 | Detect a known CRC | `detect` | `crc_detect` | `detect()` |
 | Identify a non-CRC trailer | `identify` | `crc_identify_trailer` | `identify_trailer()` |
 | Reverse an unknown CRC | `reverse` | `crc_reverse` | `reverse_packets()` |
@@ -78,6 +79,10 @@ Browse the catalogue.  Optional `glob` filters with shell-glob syntax (`crc16-*`
 ### `crc_info(name)`
 
 Full Rocksoft/Williams parameters for one algorithm.  Numeric fields appear in both decimal (`poly`) and hex (`poly_hex`).  Mirrors `crcglot info`.
+
+### `crc_self_test_vectors(algorithm)`
+
+The four self-test vectors for one algorithm: the CRC it must produce for the empty message, the check string `123456789`, all 256 byte values, and a 1 KiB pattern.  Use them to check a CRC implementation against a known-good answer instead of trusting it.  The values are independently generated (two engines that had to agree; the check input anchored to reveng), not crcglot's engine grading itself.  Each vector carries its input bytes (hex) and expected CRC (decimal + hex), so the check is runnable.  Mirrors `crcglot vectors`.
 
 ### `crc_detect(packet_hex | packet_text | packet_b64, ...)`
 
