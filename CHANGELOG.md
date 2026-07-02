@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.25.1 — 2026-07-02
+
+A re-run of the independent verification against 0.25.0 (recorded in `docs/independent-verification-report.md`) turned up one boundary gap, fixed here.
+
+### Fixed: the compute path range-checks the CRC width
+
+Building a `Crc` with a width outside 1..64 and computing with it directly used to slip past validation: a width above 64 returned a wrong value silently, and a width below 1 leaked a raw `negative shift count`.  `Crc` now checks its own width at construction, so every compute entry point that takes one (`generic_crc`, `generic_crc_many`, `encode_int`, `CrcStream.from_info`) rejects an out-of-range width with the same `width must be in 1..64, got N` message `custom_algorithm` already raised.  The catalogue and `custom_algorithm` never produce an out-of-range `Crc`, so this only affects hand-built ones.
+
 ## v0.25.0 — 2026-06-19
 
 A pass over error messages: when crcglot rejects something, the message now tells you how to recover instead of leaving you to read the docs.  `reverse_packets` gains a more natural input shape, and the PyPI publish is now gated on the test suite.

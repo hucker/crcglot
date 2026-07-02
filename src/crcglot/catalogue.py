@@ -142,6 +142,13 @@ class Crc:
         refout: True to reflect the final CRC value.
         xorout: XOR applied to the final CRC value.
 
+    Raises:
+        ValueError: ``width`` is outside 1..64.  Validated here so every compute
+            entry point that speaks ``Crc`` (:func:`generic_crc`,
+            :func:`generic_crc_many`, :func:`crcglot.encode_int`,
+            :meth:`crcglot.CrcStream.from_info`) rejects a bad width identically,
+            with the same message :func:`custom_algorithm` already raises.
+
     Examples:
         >>> from crcglot import Crc, generic_crc
         >>> modbus = Crc(width=16, poly=0x8005, init=0xFFFF,
@@ -156,6 +163,15 @@ class Crc:
     refin: bool
     refout: bool
     xorout: int
+
+    def __post_init__(self) -> None:
+        # The value object's one self-check.  Without it the direct Crc-to-engine
+        # path is unguarded: a width above 64 overflows the engine's uint64 state
+        # and returns a wrong value silently, and a width below 1 leaks a raw
+        # "negative shift count" from the reference loop.  Same bound and message
+        # as custom_algorithm, so both doors behave identically.
+        if not 1 <= self.width <= 64:
+            raise ValueError(f"width must be in 1..64, got {self.width}")
 
 
 def generic_crc(data: bytes | bytearray | memoryview, crc: Crc) -> int:

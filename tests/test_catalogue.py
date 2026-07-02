@@ -43,7 +43,9 @@ from crcglot import (
     LANGUAGES,
     AlgorithmInfo,
     Crc,
+    CrcStream,
     LanguageInfo,
+    encode_int,
     generate_c,
     generate_c_from_entry,
     generate_python,
@@ -1117,4 +1119,66 @@ class TestCustomAlgorithm:
         actual = ns["vendor_crc"](b"123456789")
         assert actual == algo.check, (
             f"generated code {actual:#x} != computed check {algo.check:#x}"
+        )
+
+
+class TestCrcWidthValidation:
+    """The Crc value object rejects an out-of-range width at construction.
+
+    Regression for Finding 3 of the 0.25.0 independent-verification report
+    (docs/independent-verification-report.md): the direct Crc-to-engine compute
+    path used to accept any width, so a width above 64 returned a wrong value
+    silently and a width below 1 leaked a raw "negative shift count".  Guarding
+    Crc.__post_init__ closes it for every entry point that speaks Crc, since none
+    of them can be handed an invalid Crc.  The valid range is 1..64 and the
+    message matches custom_algorithm so both doors behave identically.
+    """
+
+    @pytest.mark.parametrize("bad_width", [0, -1, 65, 200])
+    def test_construction_rejects_out_of_range_width(self, bad_width):
+        # Act / Assert
+        with pytest.raises(ValueError, match=f"width must be in 1..64, got {bad_width}"):
+            Crc(bad_width, 0x1021, 0, False, False, 0)
+
+    def test_message_matches_custom_algorithm(self):
+        """Both doors must raise the same text, so a future edit can't let them
+        drift (the report's fix goal was identical behaviour whichever door)."""
+        # Arrange -- capture the message each path raises for the same bad width.
+        with pytest.raises(ValueError) as via_crc:
+            Crc(65, 0x1021, 0, False, False, 0)
+        with pytest.raises(ValueError) as via_custom:
+            custom_algorithm(width=65, poly=0x1021)
+        # Assert
+        actual = str(via_crc.value)
+        expected = str(via_custom.value)
+        assert actual == expected, (
+            f"Crc and custom_algorithm width messages diverged: "
+            f"{actual!r} != {expected!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            lambda c: generic_crc(b"x", c),
+            lambda c: generic_crc_many([b"x"], c),
+            lambda c: encode_int(b"x", c),
+            lambda c: CrcStream.from_info(c),
+        ],
+        ids=["generic_crc", "generic_crc_many", "encode_int", "CrcStream.from_info"],
+    )
+    def test_every_crc_entry_point_is_guarded(self, entry):
+        """Each compute entry point the report named rejects an out-of-range
+        width, because it cannot receive a Crc that never constructed."""
+        # Act / Assert
+        with pytest.raises(ValueError, match="width must be in 1..64, got 65"):
+            entry(Crc(65, 0x1021, 0, False, False, 0))
+
+    @pytest.mark.parametrize("width", [1, 5, 8, 32, 64])
+    def test_valid_widths_still_construct_and_compute(self, width):
+        """The guard must not clip any supported width, sub-byte ones included."""
+        # Act -- a minimal valid Crc at each width computes without raising.
+        actual = generic_crc(b"123456789", Crc(width, 0x1, 0, False, False, 0))
+        # Assert -- result fits the width (the point is that it did not raise).
+        assert 0 <= actual < (1 << width), (
+            f"width={width}: result {actual:#x} does not fit {width} bits"
         )
