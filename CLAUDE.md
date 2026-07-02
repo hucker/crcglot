@@ -173,6 +173,23 @@ refactor, the Go toolchain detection).
 - **Run `/humanizer` over end-user-facing markdown (see below).**
 - **Run the cruft audit (below).**
 
+## Describe it accurately (never oversell)
+
+The goal is a useful tool that we describe accurately, warts and all.  Never
+oversell.  Every claim on the README, the PyPI description, in `docs/`, or in an
+error message must be true as written for the reader who acts on it; a claim
+that needs a charitable reading to hold is overselling.  When a claim is true
+only for part of the tool, scope it to that part: "zero-dependency **core**",
+not "zero dependencies", when the optional MCP server pulls in the MCP SDK;
+"some of the same methods used on certified software", never "certified".  State
+limitations plainly and let them stand, which is the reason "honest" is a banned
+crutch (advertising candor is not the same as being accurate).  A capability
+that is real but partial, a number that is a best case, a check that is
+adversarial self-review rather than a third-party audit: say exactly that.
+Underselling a real strength is a smaller sin than overselling one, but the
+target is neither; it is the description a skeptical user would still call fair
+after they have used the tool.
+
 ## Humanizing end-user prose
 
 Always run `/humanizer` over the **end-user-facing** markdown after editing it —
