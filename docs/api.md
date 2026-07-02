@@ -73,7 +73,7 @@ print(modbus.width, hex(modbus.check), modbus.desc)
 crc32_family = [a for a in ALGORITHMS.values() if a.width == 32]
 ```
 
-Each entry is a frozen `AlgorithmInfo` dataclass with the full Rocksoft / Williams parameter set: `name`, `width`, `poly`, `init`, `refin`, `refout`, `xorout`, `check`, `desc`.
+Each entry is a frozen `AlgorithmInfo` dataclass carrying the full Rocksoft / Williams parameter set (`width`, `poly`, `init`, `refin`, `refout`, `xorout`) plus `check`, `desc`, and `source`.  The algorithm name is the `ALGORITHMS` dict key, not a field on the record.
 
 ## `self_test_vectors`: the four self-test goldens
 
