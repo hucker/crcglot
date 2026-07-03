@@ -117,6 +117,11 @@ class AlgoMeta:
     #: ``prov=True`` is requested; ``None`` (the default) emits nothing, so
     #: existing output is byte-unchanged.
     provenance: ProvInfo | None = None
+    #: True for a custom (non-catalogue) polynomial.  Drives the header's
+    #: origin line: a catalogue algorithm is "from reveng/<name> -- a verified
+    #: reference implementation", which would be false on both counts for a
+    #: custom, so customs get a scoped line instead.
+    custom: bool = False
 
 
 @dataclass(frozen=True)
@@ -224,6 +229,19 @@ HDL_SELFTEST_INPUTS_NOTE = (
     "init-then-finalize path with no message bytes."
 )
 
+#: Self-test ``inputs`` note for a custom (non-catalogue) polynomial, on any
+#: target.  A custom has no independently-generated goldens (the independent
+#: engines only cover the catalogue), so its self-test checks a single value
+#: crcglot computed itself -- say exactly that instead of the catalogue
+#: wording, which would overclaim independence.
+CUSTOM_SELFTEST_INPUTS_NOTE = (
+    'A custom polynomial has no independent reference, so this checks a '
+    'single "123456789" value computed by crcglot itself.  That still '
+    "catches a compiler / endianness / width mismatch on your toolchain, but "
+    "unlike a catalogue algorithm it cannot catch an error shared by the "
+    "generator and this code."
+)
+
 
 def standard_doc_blocks(
     names: dict[str, str],
@@ -237,6 +255,7 @@ def standard_doc_blocks(
     extra_notes: dict[str, tuple[str, ...]] | None = None,
     oneshot_params: tuple[DocParam, ...] | None = None,
     selftest_inputs_note: str = DEFAULT_SELFTEST_INPUTS_NOTE,
+    independent_refs: bool = True,
 ) -> dict[str, DocBlock]:
     """Build the five standard :class:`DocBlock`s for a generated algorithm.
 
@@ -260,6 +279,11 @@ def standard_doc_blocks(
         oneshot_params: The one-shot's parameters when they differ from
             ``data_params`` (Verilog: ``update`` takes one byte but the
             one-shot takes the whole array).  Defaults to ``data_params``.
+        independent_refs: True (default) when the self-test values are the
+            independently-generated catalogue goldens.  Pass False for a
+            custom polynomial: its single check value is crcglot-computed, so
+            the self-test wording must not claim independent references, and
+            ``selftest_inputs_note`` is replaced with the scoped custom note.
 
     Returns:
         Dict keyed by ``init|update|finalize|oneshot|self_test``.
@@ -267,6 +291,17 @@ def standard_doc_blocks(
     notes = extra_notes or {}
     if oneshot_params is None:
         oneshot_params = data_params
+    if independent_refs:
+        selftest_summary = (
+            "Self-test the implementation against independent reference CRCs."
+        )
+        selftest_reproduces = "every embedded reference value"
+    else:
+        selftest_summary = (
+            "Self-test the implementation against its embedded check value."
+        )
+        selftest_reproduces = "the embedded check value"
+        selftest_inputs_note = CUSTOM_SELFTEST_INPUTS_NOTE
     state_param = DocParam(
         "state", f"running {state_type} state (from init or a prior update)."
     )
@@ -300,9 +335,9 @@ def standard_doc_blocks(
             symbol=names["oneshot"],
         ),
         "self_test": DocBlock(
-            summary="Self-test the implementation against independent reference CRCs.",
-            returns=f"{selftest_returns} iff the generated CRC reproduces every "
-            "embedded reference value.",
+            summary=selftest_summary,
+            returns=f"{selftest_returns} iff the generated CRC reproduces "
+            f"{selftest_reproduces}.",
             notes=(
                 selftest_inputs_note,
                 "Run once on your target toolchain -- it is the cheapest way "

@@ -26,9 +26,9 @@ shape for a "verified reference implementation"; a hardware
 designer will typically want to wrap a synthesizable wrapper
 around it.
 
-Verified at build time by ``tests.test_crc_codegen_exec
-.TestGeneratedVhdlExecutes`` (one-shot path) and
-``TestGeneratedVhdlStreaming`` (streaming splittability invariant).
+Verified at build time by ``tests.test_vhdl_gen.TestGeneratedVhdlExecutes``
+(one-shot path) and ``TestGeneratedVhdlStreaming`` (streaming
+splittability invariant).
 """
 
 # ruff: noqa: F541  - f-strings without placeholders used for code alignment
@@ -202,8 +202,9 @@ def generate_vhdl_from_entry(
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
-        provenance=provenance,
+        provenance=provenance, custom=algo.source == "custom",
     )
+    goldens = goldens_for(algo)
     usage = UsageExample(
         streaming=(
             f"s := {names['init']}();",
@@ -232,6 +233,7 @@ def generate_vhdl_from_entry(
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
         selftest_inputs_note=HDL_SELFTEST_INPUTS_NOTE,
+        independent_refs=goldens is not None,
     )
 
     # ---- package declaration (forward declarations + API docs) ----
@@ -401,7 +403,7 @@ def generate_vhdl_from_entry(
 
     # ---- self-test ----
     lines.append("")
-    lines.append(_self_test_vhdl(names, check, w, goldens_for(algo)))
+    lines.append(_self_test_vhdl(names, check, w, goldens))
 
     lines.append(f"end package body;")
 

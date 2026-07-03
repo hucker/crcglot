@@ -22,11 +22,10 @@ framework, boot self-check, factory burn-in, or crcglot's CI runner
 harness; no ``main()`` is emitted so the file links cleanly alongside
 the user's own entry point.
 
-Verified at build time by ``tests.test_crc_codegen_exec
-.TestGeneratedCExecutes`` (one-shot path) and ``TestGeneratedCStreaming``
-(streaming splittability invariant) -- write the pair to a tmpdir,
-synthesize a runner, compile with ``gcc -std=c99 -Wall -Werror``,
-assert exit 0.
+Verified at build time by ``tests.test_c_gen.TestGeneratedCExecutes``
+(one-shot path) and ``TestGeneratedCStreaming`` (streaming splittability
+invariant) -- write the pair to a tmpdir, synthesize a runner, compile
+with ``gcc -std=c99 -Wall -Werror``, assert exit 0.
 """
 
 # ruff: noqa: F541  - f-strings without placeholders used for code alignment
@@ -277,7 +276,7 @@ def _update_loop_c(
         # C's precedence rules give the same result.  Embedded devs
         # routinely build with -Wall -Werror, so the generator must
         # produce code that survives that.  (Caught by the execution
-        # tests in test_crc_codegen_exec.py via the -Werror gcc flag.)
+        # tests in test_c_gen.py via the -Werror gcc flag.)
         return [
             "    for (size_t i = 0; i < len; i++) {",
             f"        crc = crc_table[((crc >> {w - 8}) ^ data[i]) & 0xFFU] ^ ((crc << 8) & {mask});",
@@ -666,8 +665,9 @@ def generate_c_from_entry(
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
-        provenance=provenance,
+        provenance=provenance, custom=algo.source == "custom",
     )
+    goldens = goldens_for(algo)
     usage = UsageExample(
         streaming=(
             f"{ctype} s = {names['init']}();",
@@ -686,6 +686,7 @@ def generate_c_from_entry(
         ),
         selftest_returns="0",
         refin=refin, refout=refout, xorout=xorout,
+        independent_refs=goldens is not None,
     )
 
     lines: list[str] = []
@@ -747,7 +748,7 @@ def generate_c_from_entry(
     lines.append("")
 
     # ----- self-test -----
-    lines.append(_self_test_c(names, check, w, ctype, goldens_for(algo)))
+    lines.append(_self_test_c(names, check, w, ctype, goldens))
     lines.append("")
 
     # ----- linkable provenance record (stripped by --gc-sections if unused) -----

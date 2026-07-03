@@ -475,8 +475,9 @@ def generate_rust_from_entry(
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
-        provenance=provenance,
+        provenance=provenance, custom=algo.source == "custom",
     )
+    goldens = goldens_for(algo)
     usage = UsageExample(
         streaming=(
             f"let s = {names['init']}();",
@@ -497,6 +498,7 @@ def generate_rust_from_entry(
         data_params=(DocParam("data", "the message bytes."),),
         selftest_returns="true",
         refin=refin, refout=refout, xorout=xorout,
+        independent_refs=goldens is not None,
     )
 
     lines: list[str] = []
@@ -563,7 +565,7 @@ def generate_rust_from_entry(
     )
     lines.append(f"}}")
     lines.append(
-        _self_test_rust(names, check, w, rtype, style, docs, goldens_for(algo))
+        _self_test_rust(names, check, w, rtype, style, docs, goldens)
     )
 
     module = "\n".join(lines)

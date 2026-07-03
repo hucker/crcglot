@@ -543,8 +543,9 @@ def generate_java_from_entry(
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=algo.init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
-        provenance=provenance,
+        provenance=provenance, custom=algo.source == "custom",
     )
+    goldens = goldens_for(algo)
     usage = UsageExample(
         streaming=(
             f"{jtype} s = {cls}.{names['init']}();",
@@ -565,6 +566,7 @@ def generate_java_from_entry(
             {"finalize": unsigned_note, "oneshot": unsigned_note}
             if signed32 else None
         ),
+        independent_refs=goldens is not None,
     )
 
     lines: list[str] = []
@@ -634,7 +636,7 @@ def generate_java_from_entry(
 
     # ----- self-test -----
     lines.extend(
-        _self_test_java(names, check, w, jtype, style, docs, goldens_for(algo))
+        _self_test_java(names, check, w, jtype, style, docs, goldens)
     )
 
     lines.append(f"}}")

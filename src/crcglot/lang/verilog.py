@@ -176,8 +176,9 @@ def generate_verilog_from_entry(
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
-        provenance=provenance,
+        provenance=provenance, custom=algo.source == "custom",
     )
+    goldens = goldens_for(algo)
     usage = UsageExample(
         streaming=(
             f"state = {names['init']}();",
@@ -203,6 +204,7 @@ def generate_verilog_from_entry(
         selftest_returns="1'b1",
         refin=refin, refout=refout, xorout=xorout,
         selftest_inputs_note=HDL_SELFTEST_INPUTS_NOTE,
+        independent_refs=goldens is not None,
         extra_notes={
             "update": (
                 "Consumes one byte per call -- loop over your message bytes.",
@@ -351,7 +353,7 @@ def generate_verilog_from_entry(
     ]
 
     # ---- self-test ----
-    lines.extend(_self_test_sv(names, check, w, style, docs, goldens_for(algo)))
+    lines.extend(_self_test_sv(names, check, w, style, docs, goldens))
 
     lines += [
         f"",

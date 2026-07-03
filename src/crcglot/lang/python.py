@@ -264,8 +264,9 @@ def generate_python_from_entry(
     meta = AlgoMeta(
         name=name, desc=desc, width=w, poly=poly, init=init, refin=refin,
         refout=refout, xorout=xorout, check=check, variant=variant,
-        provenance=provenance,
+        provenance=provenance, custom=algo.source == "custom",
     )
+    goldens = goldens_for(algo)
     usage = UsageExample(
         streaming=(
             f"s = {names['init']}()",
@@ -281,6 +282,7 @@ def generate_python_from_entry(
         data_params=(DocParam("data", "the message bytes (a bytes-like object)."),),
         selftest_returns="True",
         refin=refin, refout=refout, xorout=xorout,
+        independent_refs=goldens is not None,
     )
 
     lines: list[str] = []
@@ -344,7 +346,7 @@ def generate_python_from_entry(
     lines.append("")
 
     # ----- <self_test>() -----
-    lines.extend(_self_test_python(names, check, w, style, docs, goldens_for(algo)))
+    lines.extend(_self_test_python(names, check, w, style, docs, goldens))
 
     module = "\n".join(lines)
     # Namespace the lookup table per symbol so several generated modules
