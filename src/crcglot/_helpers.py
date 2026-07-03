@@ -304,4 +304,5 @@ def _variant_to_flags(
 # generate both bit-by-bit and slice-by-8 in the target language,
 # compile both, run both on the same inputs, assert they agree.
 # Bit-by-bit is reveng-verified, so equivalence means slice-by-8 is
-# correct.  Tests live in tests/test_crc_codegen_exec.py.
+# correct.  Tests live in the per-language files (tests/test_c_gen.py,
+# tests/test_rust_gen.py, ...).

@@ -47,7 +47,7 @@ Python 3.11+, zero runtime dependencies: `crcglot` imports nothing beyond the st
 | ---------------------------------------- | ---------------------------------------------------------------- |
 | `<fname>_init` / `_update` / `_finalize` | Streaming triple; feed data chunk by chunk                       |
 | `<fname>`                                | One-shot wrapper that calls the streaming triple                 |
-| `<fname>_self_test`                      | Verify against four independent reference CRCs on your toolchain |
+| `<fname>_self_test`                      | Verify against embedded reference CRCs on your toolchain (see "How it's verified" for what each target checks) |
 
 Every target ships a runtime-callable `_self_test()`: C returns 0/1; Rust / Go / C# / Java / TypeScript / Python / Verilog / VHDL return `bool` / `boolean` / `bit`.  No `#[cfg(test)]` gating, so you can call it from your release build, a boot self-check, or a startup assertion.  The generated files are also documented (per-language doc-tool styles) and named in each target's idiomatic casing; see [docs/generated-code.md](docs/generated-code.md).
 
