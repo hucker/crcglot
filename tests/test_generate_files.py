@@ -387,3 +387,17 @@ class TestErrors:
     def test_unknown_algorithm(self):
         with pytest.raises(ValueError, match="unknown algorithm"):
             generate_files("rust", "nope-not-a-crc")
+
+    def test_algorithm_info_as_algorithm_points_at_custom(self):
+        """Passing an AlgorithmInfo where a name belongs used to leak
+        "'AlgorithmInfo' object is not iterable" (Fable report, Finding 6);
+        the boundary now points at the ``custom=`` door."""
+        with pytest.raises(TypeError, match="custom="):
+            generate_files("rust", ALGORITHMS["crc32"])  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    def test_custom_of_wrong_type_names_the_type(self):
+        """A dict where an AlgorithmInfo belongs used to leak an
+        AttributeError from inside a generator module (Fable report,
+        Finding 6); the boundary now echoes the offending type."""
+        with pytest.raises(TypeError, match="got dict"):
+            generate_files("rust", None, custom={"width": 8, "poly": 7})  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]

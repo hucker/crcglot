@@ -165,13 +165,52 @@ class Crc:
     xorout: int
 
     def __post_init__(self) -> None:
-        # The value object's one self-check.  Without it the direct Crc-to-engine
-        # path is unguarded: a width above 64 overflows the engine's uint64 state
-        # and returns a wrong value silently, and a width below 1 leaks a raw
-        # "negative shift count" from the reference loop.  Same bound and message
-        # as custom_algorithm, so both doors behave identically.
+        # The value object's self-checks.  Without the width bound the direct
+        # Crc-to-engine path is unguarded: a width above 64 overflows the
+        # engine's uint64 state and returns a wrong value silently, and a width
+        # below 1 leaks a raw "negative shift count" from the reference loop.
+        # Same bound and message as custom_algorithm, so both doors behave
+        # identically.
         if not 1 <= self.width <= 64:
             raise ValueError(f"width must be in 1..64, got {self.width}")
+        # The value fields must fit the width.  The engines would silently mask
+        # an out-of-range or negative value, producing a check value that
+        # corresponds to no real CRC; reject it at the boundary instead so the
+        # mistake surfaces where it was made.
+        mask = (1 << self.width) - 1
+        for field_name in ("poly", "init", "xorout"):
+            value = getattr(self, field_name)
+            if not 0 <= value <= mask:
+                raise ValueError(
+                    f"{field_name} must be in 0..0x{mask:X} for width "
+                    f"{self.width}, got {value!r}"
+                )
+
+
+def _as_byte_data(data: bytes | bytearray | memoryview) -> bytes | bytearray | memoryview:
+    """Normalize ``data`` to a C-contiguous view of byte-sized items.
+
+    ``bytes`` / ``bytearray`` pass through untouched.  A ``memoryview`` (or any
+    other buffer-protocol object) is checked once here so every engine sees the
+    same bytes: a non-byte item format is re-cast to ``'B'`` (zero-copy), and a
+    non-contiguous view is rejected with one friendly error instead of
+    engine-dependent behavior (the C extension refuses it, the pure-Python loop
+    would silently accept it, and neither would agree with the other on a
+    multi-byte item format).  A non-buffer type gets ``memoryview()``'s own
+    "a bytes-like object is required" TypeError on every path, not just the C
+    one.
+    """
+    if isinstance(data, (bytes, bytearray)):
+        return data
+    view = data if isinstance(data, memoryview) else memoryview(data)
+    if not view.c_contiguous:
+        raise ValueError(
+            "data memoryview is not C-contiguous; pass a contiguous view "
+            "(bytes(view) copies it into one)"
+        )
+    if view.format != "B":
+        view = view.cast("B")
+    return view
 
 
 def generic_crc(data: bytes | bytearray | memoryview, crc: Crc) -> int:
@@ -228,6 +267,7 @@ def generic_crc(data: bytes | bytearray | memoryview, crc: Crc) -> int:
         >>> hex(generic_crc(b"123456789", spec))
         '0x4b37'
     """
+    data = _as_byte_data(data)
     width, poly, init = crc.width, crc.poly, crc.init
     refin, refout, xorout = crc.refin, crc.refout, crc.xorout
     fast_path = _ZLIB_FAST_PATHS.get((width, poly, init, refin, refout, xorout))
@@ -270,20 +310,21 @@ def generic_crc_many(
         >>> generic_crc_many([b"123456789", b""], crc32)
         [3421780262, 0]
     """
+    normalized = [_as_byte_data(b) for b in buffers]
     width, poly, init = crc.width, crc.poly, crc.init
     refin, refout, xorout = crc.refin, crc.refout, crc.xorout
     fast_path = _ZLIB_FAST_PATHS.get((width, poly, init, refin, refout, xorout))
     if fast_path is not None:
-        return [fast_path(b) for b in buffers]
+        return [fast_path(b) for b in normalized]
     # C extension domain is width in [8, 64]; sub-byte CRCs fall back to the
     # reference loop (bit-identical).  See generic_crc.
     if _c_crc_many is not None and 8 <= width <= 64:
         return _c_crc_many(
-            list(buffers), width, poly, init, refin, refout, xorout
+            normalized, width, poly, init, refin, refout, xorout
         )
     return [
         _generic_crc_python(b, width, poly, init, refin, refout, xorout)
-        for b in buffers
+        for b in normalized
     ]
 
 
@@ -422,7 +463,10 @@ def custom_algorithm(
 
     Raises:
         ValueError: ``width`` is outside 1..64 (above 64 overflows the
-            engine's 64-bit state and the generators' integer types).
+            engine's 64-bit state and the generators' integer types), or
+            ``poly`` / ``init`` / ``xorout`` is negative or does not fit the
+            width (the engines would silently mask it into a CRC no real
+            algorithm has).
 
     Examples:
         >>> from crcglot import custom_algorithm, generic_crc
@@ -431,11 +475,8 @@ def custom_algorithm(
         >>> generic_crc(b"123456789", algo) == algo.check
         True
     """
-    if not 1 <= width <= 64:
-        # The upper bound is load-bearing: widths above 64 overflow the
-        # engine's uint64 state and the generators' integer types, so a
-        # value like 200 would otherwise emit nonsense rather than error.
-        raise ValueError(f"width must be in 1..64, got {width}")
+    # Validation (width bound, field ranges) happens in Crc.__post_init__,
+    # so this door and a hand-built Crc reject bad parameters identically.
     check = generic_crc(
         b"123456789", Crc(width, poly, init, refin, refout, xorout)
     )

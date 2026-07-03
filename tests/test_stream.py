@@ -14,7 +14,6 @@ import pytest
 
 from crcglot import (
     ALGORITHMS,
-    Crc,
     CrcStream,
     UnknownAlgorithmError,
     crc_stream,
@@ -195,6 +194,48 @@ def test_hexdigest_is_zero_padded_to_width() -> None:
     assert actual_len == 2, f"crc8 hexdigest should be 2 nibbles, got {actual_len}"
 
 
+class TestCrcStreamKeywordValidation:
+    """The keyword constructor validates its raw integers like a ``Crc``.
+
+    Regression for Finding 1 of the Fable verification report
+    (docs/fable-verification-report.md): ``from_name`` / ``from_crc`` /
+    ``from_info`` route through ``Crc`` and inherit its validation, but the
+    keyword path took raw integers, so ``CrcStream(width=65, ...)`` silently
+    computed a 65-bit CRC and ``width=0`` leaked a raw "negative shift
+    count".  The constructor now applies the same checks with the same
+    messages.
+    """
+
+    @pytest.mark.parametrize("bad_width", [0, -3, 65])
+    def test_keyword_constructor_rejects_out_of_range_width(self, bad_width):
+        # Act / Assert -- the Crc message, not "negative shift count".
+        with pytest.raises(
+            ValueError, match=f"width must be in 1..64, got {bad_width}"
+        ):
+            CrcStream(width=bad_width, poly=0x1, init=0)
+
+    def test_keyword_constructor_rejects_out_of_range_poly(self):
+        # Act / Assert -- the field validation applies to this door too.
+        with pytest.raises(
+            ValueError, match="poly must be in 0..0xFF for width 8, got -1"
+        ):
+            CrcStream(width=8, poly=-1, init=0)
+
+    def test_keyword_constructor_still_accepts_sub_byte_widths(self):
+        # Arrange -- CRC-5/USB parameters through the raw keyword door.
+        s = CrcStream(
+            width=5, poly=0x05, init=0x1F, refin=True, refout=True, xorout=0x1F
+        )
+        # Act
+        s.update(_DATA)
+        # Assert -- matches the catalogue's crc5-usb check value.
+        actual = s.digest()
+        expected = ALGORITHMS["crc5-usb"].check
+        assert actual == expected, (
+            f"width-5 keyword stream {actual:#x} != crc5-usb check {expected:#x}"
+        )
+
+
 # ── construction surfaces & errors ────────────────────────────────────────
 
 
@@ -229,26 +270,31 @@ def test_unknown_algorithm_raises() -> None:
 
 
 def test_dirty_xorout_is_masked_to_width() -> None:
-    """A dirty ``xorout`` (bits above the width) is masked at digest, on the
-    public stream and the pure-Python backend, matching ``generic_crc``.
+    """A dirty ``xorout`` (bits above the width) is masked at digest by the
+    raw pure-Python backend, matching the raw C engine's finalize.
 
-    Guards the finalize-masking fix: without it the pure-Python backend
-    would leak the high xorout bits while the C/zlib backends would not.
+    Guards the finalize-masking parity of the RAW engines, which take bare
+    integers below the validation boundary: without the mask the pure-Python
+    backend would leak the high xorout bits while the C/zlib backends would
+    not.  The validated doors (``Crc``, ``CrcStream``) now reject a dirty
+    xorout outright instead of masking it -- see ``TestCrcFieldValidation``
+    and ``TestCrcStreamKeywordValidation`` (Fable report, Finding 4).
     """
     # Arrange -- crc16-modbus params with an xorout bit above width 16.
-    w, poly, init, refin, refout, xorout = 16, 0x8005, 0xFFFF, True, True, 1 << 20
-    expected = generic_crc(_DATA, Crc(w, poly, init, refin, refout, xorout))
-    assert expected < (1 << w), "reference result must be within the width"
+    from crcglot.catalogue import _generic_crc_python
 
-    # Act / Assert -- public stream (whatever backend is selected here).
-    s = CrcStream(
-        width=w, poly=poly, init=init, refin=refin, refout=refout, xorout=xorout
-    )
-    s.update(_DATA)
-    assert s.digest() == expected, "public stream must match generic_crc"
-    assert s.digest() < (1 << w), "digest must stay within the width"
+    w, poly, init, refin, refout, xorout = 16, 0x8005, 0xFFFF, True, True, 1 << 20
+    expected = _generic_crc_python(_DATA, w, poly, init, refin, refout, xorout)
+    assert expected < (1 << w), "raw engine result must be masked to the width"
 
     # Act / Assert -- the pure-Python backend explicitly (the one that was lax).
     b = _PyBackend(w, poly, init, refin, refout, xorout)
     b.update(_DATA)
     assert b.digest() == expected, "pure-Python backend must mask to width too"
+
+    # Act / Assert -- the validated public door rejects the dirty value.
+    with pytest.raises(ValueError, match="xorout must be in 0..0xFFFF"):
+        CrcStream(
+            width=w, poly=poly, init=init,
+            refin=refin, refout=refout, xorout=xorout,
+        )

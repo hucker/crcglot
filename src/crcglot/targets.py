@@ -29,6 +29,7 @@ from crcglot._helpers import _func_name, _join_naming, combine_concat
 from crcglot.catalogue import (
     ALGORITHMS,
     AlgorithmInfo,
+    Crc,
     has_faster_alternative,
     unknown_algorithm_error,
 )
@@ -645,6 +646,10 @@ class LanguageInfo:
             ValueError: bad ``algorithm`` / ``custom`` combination, ``symbol``
                 with a bundle, ``symbol`` for Java, or a ``name`` that can't be
                 a legal class name for a strict target.
+            TypeError: ``custom`` is not an :class:`AlgorithmInfo`, or
+                ``algorithm`` was given an :class:`Crc` /
+                :class:`AlgorithmInfo` instead of a name (customs go through
+                ``custom=``).
 
         Examples:
             >>> from crcglot import LANGUAGES
@@ -660,6 +665,16 @@ class LanguageInfo:
         """
         if (algorithm is None) == (custom is None):
             raise ValueError("supply exactly one of algorithm or custom")
+        if custom is not None and not isinstance(custom, AlgorithmInfo):
+            raise TypeError(
+                f"custom must be an AlgorithmInfo (build one with "
+                f"custom_algorithm(...)); got {type(custom).__name__}"
+            )
+        if isinstance(algorithm, Crc):
+            raise TypeError(
+                "algorithm takes a catalogue name or a sequence of names; "
+                "pass a custom AlgorithmInfo via custom="
+            )
         naming_resolved = naming_convention_for(
             self.code, naming or self.default_naming
         )

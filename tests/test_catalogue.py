@@ -35,6 +35,8 @@ Zero toolchain calls -- all assertions run in-process.
 
 from __future__ import annotations
 
+import array
+
 import pytest
 
 from crcglot import (
@@ -1182,3 +1184,134 @@ class TestCrcWidthValidation:
         assert 0 <= actual < (1 << width), (
             f"width={width}: result {actual:#x} does not fit {width} bits"
         )
+
+
+class TestCrcFieldValidation:
+    """The Crc value object rejects poly / init / xorout that do not fit the width.
+
+    Regression for Finding 4 of the Fable verification report
+    (docs/fable-verification-report.md): negative or above-width field values
+    were silently masked by the engines, so ``custom_algorithm(poly=-1)``
+    produced a check value corresponding to no real CRC and rendered
+    ``poly=0x-1`` in its description.  Validating in ``Crc.__post_init__``
+    surfaces the mistake at the boundary for every door that speaks Crc.
+    """
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("poly", -1),
+            ("poly", 0x1FF),
+            ("init", -255),
+            ("init", 0x100),
+            ("xorout", -1),
+            ("xorout", 0xFF00),
+        ],
+        ids=[
+            "poly-negative", "poly-above-width",
+            "init-negative", "init-above-width",
+            "xorout-negative", "xorout-above-width",
+        ],
+    )
+    def test_construction_rejects_out_of_range_field(self, field, value):
+        # Arrange -- a valid width-8 Crc with one field pushed out of range.
+        fields = {"poly": 0x07, "init": 0, "xorout": 0}
+        fields[field] = value
+
+        # Act / Assert -- the message names the field, the range, and the value.
+        with pytest.raises(
+            ValueError,
+            match=f"{field} must be in 0..0xFF for width 8, got {value}",
+        ):
+            Crc(8, fields["poly"], fields["init"], False, False, fields["xorout"])
+
+    def test_custom_algorithm_front_door_rejects_negative_poly(self):
+        """The documented front door reports the identical message, so the two
+        doors cannot drift (same goal as the width-message parity test)."""
+        # Act / Assert
+        with pytest.raises(
+            ValueError, match="poly must be in 0..0xFFFF for width 16, got -1"
+        ):
+            custom_algorithm(width=16, poly=-1)
+
+    def test_all_ones_fields_still_construct_and_compute(self):
+        """The guard must not clip the legal maximum (every bit set)."""
+        # Act -- mask-valued fields at width 8 compute without raising.
+        actual = generic_crc(b"123456789", Crc(8, 0xFF, 0xFF, True, True, 0xFF))
+        # Assert
+        assert 0 <= actual <= 0xFF, (
+            f"all-ones width-8 fields must compute; got {actual:#x}"
+        )
+
+
+class TestBufferNormalization:
+    """Every engine sees the same bytes for exotic ``memoryview`` inputs.
+
+    Regression for Finding 5 of the Fable verification report
+    (docs/fable-verification-report.md): a non-contiguous memoryview was
+    rejected by the C engine (raw ``BufferError``) but silently accepted by
+    the pure-Python path, and a multi-byte-item view produced a different
+    value per engine (the C path hashed the underlying bytes, the pure path
+    hashed 16-bit items as if they were bytes).  ``generic_crc``,
+    ``generic_crc_many``, and ``CrcStream.update`` now normalize buffers at
+    the boundary: contiguous non-byte views are re-cast to bytes (zero-copy),
+    non-contiguous views get one friendly error on every path.
+    """
+
+    # Width 16 rides the C engine when built; width 5 always rides the
+    # pure-Python engine.  Both must behave identically at the boundary.
+    _CRC16 = Crc(16, 0x1021, 0xFFFF, False, False, 0)
+    _CRC5 = Crc(5, 0x05, 0x1F, True, True, 0x1F)
+
+    @pytest.mark.parametrize("crc", [_CRC16, _CRC5], ids=["c-engine", "pure-python"])
+    def test_non_contiguous_view_rejected_on_every_engine(self, crc):
+        # Arrange -- a strided view is not C-contiguous.
+        strided = memoryview(bytes(range(64)))[::2]
+        # Act / Assert
+        with pytest.raises(ValueError, match="not C-contiguous"):
+            generic_crc(strided, crc)
+
+    @pytest.mark.parametrize("crc", [_CRC16, _CRC5], ids=["c-engine", "pure-python"])
+    def test_multibyte_item_view_hashes_its_raw_bytes(self, crc):
+        # Arrange -- array('H') exposes 2-byte items; its raw bytes are b"1234".
+        arr = array.array("H", [0x3231, 0x3433])
+        # Act
+        actual = generic_crc(memoryview(arr), crc)
+        expected = generic_crc(b"1234", crc)
+        # Assert
+        assert actual == expected, (
+            f"'H'-format view must hash its raw bytes: {actual:#x} != {expected:#x}"
+        )
+
+    @pytest.mark.parametrize("crc", [_CRC16, _CRC5], ids=["c-engine", "pure-python"])
+    def test_str_data_gets_bytes_like_typeerror_on_every_engine(self, crc):
+        """The pure-Python loop used to leak ``unsupported operand type(s)``
+        where the C path said "a bytes-like object is required"."""
+        # Act / Assert
+        with pytest.raises(TypeError, match="bytes-like"):
+            generic_crc("123456789", crc)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    def test_generic_crc_many_normalizes_each_buffer(self):
+        # Arrange
+        arr = array.array("H", [0x3231, 0x3433])
+        # Act
+        actual = generic_crc_many([memoryview(arr), b"1234"], self._CRC16)
+        # Assert -- both entries hash the same underlying bytes.
+        assert actual[0] == actual[1], (
+            f"batch entries over the same bytes diverged: {actual}"
+        )
+
+    def test_crcstream_update_normalizes_too(self):
+        # Arrange
+        arr = array.array("H", [0x3231, 0x3433])
+        s = CrcStream.from_crc(self._CRC5)
+        # Act
+        s.update(memoryview(arr))
+        expected = generic_crc(b"1234", self._CRC5)
+        # Assert
+        assert s.digest() == expected, (
+            f"stream over an 'H' view diverged from bytes: "
+            f"{s.digest():#x} != {expected:#x}"
+        )
+        with pytest.raises(ValueError, match="not C-contiguous"):
+            s.update(memoryview(bytes(range(16)))[::2])

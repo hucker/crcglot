@@ -35,6 +35,7 @@ from crcglot.catalogue import (
     AlgorithmInfo,
     Crc,
     _ZLIB_FAST_PATHS,
+    _as_byte_data,
     _reflect,
     unknown_algorithm_error,
 )
@@ -220,13 +221,24 @@ class CrcStream:
         """Build a stream from raw Rocksoft/Williams parameters.
 
         Args:
-            width: CRC bit width (8, 16, 32, 64).
+            width: CRC bit width, 1..64 (sub-byte widths ride the pure-Python
+                backend).
             poly: Generator polynomial in normal (MSB-first) form.
             init: Initial register value.
             refin: Reflect each input byte.
             refout: Reflect the final CRC value.
             xorout: XOR applied to the final CRC value.
+
+        Raises:
+            ValueError: ``width`` is outside 1..64, or ``poly`` / ``init`` /
+                ``xorout`` does not fit the width.
         """
+        # The named constructors route through Crc and inherit its validation;
+        # this keyword path takes raw integers, and unguarded it would
+        # silently compute a >64-bit CRC or leak a raw "negative shift count"
+        # from the backend.  Building a Crc applies the same checks with the
+        # same messages.
+        Crc(width, poly, init, refin, refout, xorout)
         self._backend = _make_backend(width, poly, init, refin, refout, xorout)
         self._width = width
 
@@ -285,7 +297,7 @@ class CrcStream:
 
     def update(self, data: _BytesLike, /) -> None:
         """Fold ``data`` into the running CRC state.  May be called repeatedly."""
-        self._backend.update(data)
+        self._backend.update(_as_byte_data(data))
 
     def digest(self) -> int:
         """Return the finalized CRC of everything fed so far (non-destructive)."""

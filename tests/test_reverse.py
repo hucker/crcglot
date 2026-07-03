@@ -422,6 +422,49 @@ class TestReversePackets:
             reverse_packets([bad])
 
 
+class TestReverseFrameShapeValidation:
+    """``reverse()`` rejects malformed frames with a pointer to reverse_packets.
+
+    Regression for Finding 6 of the Fable verification report
+    (docs/fable-verification-report.md): raw packet bytes (the CRC still
+    attached) passed to ``reverse()`` leaked a bare "too many values to
+    unpack (expected 2)" instead of naming the expected shape.  The element
+    rules and message now mirror ``reverse_packets``' pairs validation.
+    """
+
+    def test_raw_frame_bytes_point_at_reverse_packets(self):
+        # Act / Assert -- the most likely misuse names the right function.
+        with pytest.raises(ValueError, match="reverse_packets"):
+            reverse([b"raw-packet-with-crc-attached"])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
+
+    def test_bool_crc_rejected(self):
+        # Act / Assert -- same rule as reverse_packets: a bool is not a CRC.
+        with pytest.raises(
+            ValueError,
+            match=r"frames\[0\] must be a \(message: bytes, crc: int\) pair",
+        ):
+            reverse([(b"x", True)])
+
+    def test_str_crc_echoes_the_offending_element(self):
+        # Act / Assert
+        with pytest.raises(ValueError, match=r"got \(b'x', '5'\)"):
+            reverse([(b"x", "5")])  # type: ignore[list-item]  # ty: ignore[invalid-argument-type]
+
+    def test_single_frame_note_reads_singular(self):
+        """The underdetermined note used to say "all 1 frames have distinct
+        lengths" for one frame (Fable report, Finding 7)."""
+        # Act -- one junk frame cannot pin anything.
+        r = reverse([(b"x" * 20, 0xDEADBEEF)], std_algo_only=False)
+
+        # Assert
+        assert r.status == "underdetermined", (
+            f"one junk frame must stay underdetermined, got {r.status}"
+        )
+        assert "single frame" in r.note, (
+            f"singular wording missing from the note: {r.note!r}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Guarantee: never confidently wrong -- correct on unseen data, or
 # underdetermined.  Regression for the over-reported (init, xorout) class and

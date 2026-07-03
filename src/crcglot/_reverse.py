@@ -540,7 +540,9 @@ def reverse(
         observationally-identical models.
 
     Raises:
-        ValueError: ``frames`` is empty.
+        ValueError: ``frames`` is empty, or an element is not a
+            ``(message: bytes, crc: int)`` pair (raw packet bytes with the CRC
+            still attached go to :func:`reverse_packets`).
 
     Examples:
         >>> from crcglot import Crc, generic_crc, reverse
@@ -552,7 +554,25 @@ def reverse(
         >>> r.info.poly
         4129
     """
-    codewords = [(bytes(m), int(c)) for m, c in frames]
+    # Validate the shape before unpacking: raw packet bytes (the CRC still
+    # attached) are the single most likely wrong input here, and letting them
+    # hit the tuple unpack leaks "too many values to unpack".  Same element
+    # rules and message as reverse_packets' pairs form.
+    codewords: list[Codeword] = []
+    for i, frame in enumerate(frames):
+        if (
+            not isinstance(frame, tuple)
+            or len(frame) != 2
+            or not isinstance(frame[0], (bytes, bytearray))
+            or not isinstance(frame[1], int)
+            or isinstance(frame[1], bool)
+        ):
+            raise ValueError(
+                f"frames[{i}] must be a (message: bytes, crc: int) pair; "
+                f"got {frame!r}.  For raw packet bytes with the CRC still "
+                f"attached, use reverse_packets()"
+            )
+        codewords.append((bytes(frame[0]), int(frame[1])))
     if not codewords:
         raise ValueError("reverse() needs at least one (message, crc) frame")
 
@@ -602,6 +622,14 @@ def reverse(
             note = (
                 "could not solve init/xorout for the supplied polynomial -- "
                 "supply more frames, varied in content and length."
+            )
+        elif len(codewords) == 1:
+            note = (
+                "could not pin the polynomial from a single frame: the "
+                "polynomial step needs at least two frames of the SAME length "
+                "-- their difference cancels init/xorout, leaving a multiple "
+                "of the generator to GCD.  Capture a few frames at one "
+                "length, then add other lengths to separate init from xorout."
             )
         elif all_distinct:
             note = (
