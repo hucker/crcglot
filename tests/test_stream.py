@@ -198,7 +198,7 @@ class TestCrcStreamKeywordValidation:
     """The keyword constructor validates its raw integers like a ``Crc``.
 
     Regression for Finding 1 of the Fable verification report
-    (docs/fable-verification-report.md): ``from_name`` / ``from_crc`` /
+    (docs/verification/2026-07-02-fable.md): ``from_name`` / ``from_crc`` /
     ``from_info`` route through ``Crc`` and inherit its validation, but the
     keyword path took raw integers, so ``CrcStream(width=65, ...)`` silently
     computed a 65-bit CRC and ``width=0`` leaked a raw "negative shift

@@ -2,7 +2,7 @@
 
 ## v0.25.1 — 2026-07-02
 
-A re-run of the independent verification against 0.25.0 (recorded in `docs/independent-verification-report.md`) turned up one boundary gap, fixed here.
+A re-run of the independent verification against 0.25.0 (recorded in `docs/verification/2026-06-18-independent.md`) turned up one boundary gap, fixed here.
 
 ### Fixed: the compute path range-checks the CRC width
 
@@ -34,7 +34,7 @@ The PyPI publish is now gated on the Linux fast suite, so a failing test blocks 
 
 ## v0.24.0 — 2026-06-19
 
-This release closes the defects an independent end-to-end review turned up (recorded in `docs/independent-verification-report.md`), hardens `reverse()`, and gives `detect` a uniform `form` field.  Two output-shape changes are breaking and are called out below.
+This release closes the defects an independent end-to-end review turned up (recorded in `docs/verification/2026-06-18-independent.md`), hardens `reverse()`, and gives `detect` a uniform `form` field.  Two output-shape changes are breaking and are called out below.
 
 ### Fixed: C# generated code now compiles
 
@@ -71,7 +71,7 @@ The reference vectors each generated file embeds are computed by two independent
 
 ### Docs
 
-The certification page is reframed: crcglot is not certified software and not a drop-in certified component, it is a generator that held itself to some of the same verification methods used on certified software and hands you that evidence; it now also states that crcglot is developed with Claude Code.  The runtime-speed story was corrected to separate the stdlib `zlib.crc32` hardware path from the bundled C extension.  An independent verification report was added (`docs/independent-verification-report.md`), with a resolution note recording how its findings were closed for this release.
+The certification page is reframed: crcglot is not certified software and not a drop-in certified component, it is a generator that held itself to some of the same verification methods used on certified software and hands you that evidence; it now also states that crcglot is developed with Claude Code.  The runtime-speed story was corrected to separate the stdlib `zlib.crc32` hardware path from the bundled C extension.  An independent verification report was added (`docs/verification/2026-06-18-independent.md`), with a resolution note recording how its findings were closed for this release.
 
 ## v0.23.0 — 2026-06-17
 

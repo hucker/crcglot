@@ -426,7 +426,7 @@ class TestReverseFrameShapeValidation:
     """``reverse()`` rejects malformed frames with a pointer to reverse_packets.
 
     Regression for Finding 6 of the Fable verification report
-    (docs/fable-verification-report.md): raw packet bytes (the CRC still
+    (docs/verification/2026-07-02-fable.md): raw packet bytes (the CRC still
     attached) passed to ``reverse()`` leaked a bare "too many values to
     unpack (expected 2)" instead of naming the expected shape.  The element
     rules and message now mirror ``reverse_packets``' pairs validation.

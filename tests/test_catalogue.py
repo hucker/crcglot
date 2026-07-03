@@ -1128,7 +1128,7 @@ class TestCrcWidthValidation:
     """The Crc value object rejects an out-of-range width at construction.
 
     Regression for Finding 3 of the 0.25.0 independent-verification report
-    (docs/independent-verification-report.md): the direct Crc-to-engine compute
+    (docs/verification/2026-06-18-independent.md): the direct Crc-to-engine compute
     path used to accept any width, so a width above 64 returned a wrong value
     silently and a width below 1 leaked a raw "negative shift count".  Guarding
     Crc.__post_init__ closes it for every entry point that speaks Crc, since none
@@ -1190,7 +1190,7 @@ class TestCrcFieldValidation:
     """The Crc value object rejects poly / init / xorout that do not fit the width.
 
     Regression for Finding 4 of the Fable verification report
-    (docs/fable-verification-report.md): negative or above-width field values
+    (docs/verification/2026-07-02-fable.md): negative or above-width field values
     were silently masked by the engines, so ``custom_algorithm(poly=-1)``
     produced a check value corresponding to no real CRC and rendered
     ``poly=0x-1`` in its description.  Validating in ``Crc.__post_init__``
@@ -1248,7 +1248,7 @@ class TestBufferNormalization:
     """Every engine sees the same bytes for exotic ``memoryview`` inputs.
 
     Regression for Finding 5 of the Fable verification report
-    (docs/fable-verification-report.md): a non-contiguous memoryview was
+    (docs/verification/2026-07-02-fable.md): a non-contiguous memoryview was
     rejected by the C engine (raw ``BufferError``) but silently accepted by
     the pure-Python path, and a multi-byte-item view produced a different
     value per engine (the C path hashed the underlying bytes, the pure path

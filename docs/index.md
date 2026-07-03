@@ -8,8 +8,7 @@ The [README](../README.md) is the overview; the reference lives here, one sectio
 - **[MCP server](MCP.md)**: exposing crcglot's tools to LLM clients (Claude Desktop, Cursor, …): setup, every tool, resources, prompts.
 - **[Certification story](certification.md)**: crcglot is not certified code and not a drop-in certified component; it held itself to some of the same verification methods you would use on real certified software and hands you that evidence.  What you get, what stays yours, what is not claimed.
 - **[Architecture](ARCHITECTURE.md)**: how the package is put together.
-- **[Independent verification report](independent-verification-report.md)**: a 2026-06-18 external check that grades the engine, the generators, and the reverse-engineering against an oracle anchored outside the package, including findings.
-- **[Fable verification report](fable-verification-report.md)**: a 2026-07-02 adversarial re-verification of 0.25.1 by Claude Fable 5 with a fresh oracle and wider coverage (sub-byte fuzz, streaming boundaries, mixed-reflection execution), recording seven boundary and accuracy findings.
+- **[Verification reports](verification/index.md)**: the series of adversarial verification passes (one dated file per pass), each grading the engine, the generators, and the reverse-engineering against an oracle anchored outside the package, with findings and their resolutions.
 
 Also in the repository root:
 
