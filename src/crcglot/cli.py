@@ -758,16 +758,18 @@ def _cmd_codegen(args: argparse.Namespace, lang: str) -> int:
         except ValueError as e:
             print(f"Error: custom CRC param: {e}", file=sys.stderr)
             return 2
-        if width not in (8, 16, 32, 64):
-            print(
-                f"Error: custom CRC width must be 8, 16, 32, or 64 (got {width})",
-                file=sys.stderr,
+        # No width pre-check here: custom_algorithm validates the full 1..64
+        # range plus the field ranges, so the CLI supports every width the
+        # generators do (sub-byte and non-byte-aligned included) and reports
+        # the same message as the Python API.
+        try:
+            gen_custom = custom_algorithm(
+                width=width, poly=poly, init=init, refin=refin, refout=refout,
+                xorout=xorout, desc=kv.get("desc", ""),
             )
+        except ValueError as e:
+            print(f"Error: custom CRC param: {e}", file=sys.stderr)
             return 2
-        gen_custom = custom_algorithm(
-            width=width, poly=poly, init=init, refin=refin, refout=refout,
-            xorout=xorout, desc=kv.get("desc", ""),
-        )
         advised_algos: list[str | AlgorithmInfo] = [gen_custom]
     else:
         # ----- Catalogue lookup (one or more algorithms) -----

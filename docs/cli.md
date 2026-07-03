@@ -230,7 +230,7 @@ Rules:
 - `--slice8 python` silently falls back to `--table` (CPython's per-int overhead eats the slice-by-8 speedup; stderr warns).  `--fast` never needs this fallback; it only picks slice-by-8 where it actually applies.
 - Without `file=`, output goes to stdout.  For C, header is emitted first, then source.
 - Every target embeds `<symbol>_self_test()` (C returns 0 on success; the rest return `bool` / `boolean` / `bit`).  In constrained embedded targets, standard toolchain flags (`-Wl,--gc-sections` for C, LTO for Rust) strip whatever you don't call.
-- Every file header carries a `Reproduce with crcglot` block of the resolved parameters (algorithm, target, variant, comment style, symbol, naming), so generated code says how it was produced.  There is no flag for it; it costs nothing once the compiler discards comments.  C additionally emits a linkable `const crcglot_provenance_t <symbol>_provenance` for runtime introspection of the CRC configuration.  Being a public symbol it never warns under `-Werror`; `-Wl,--gc-sections` drops it when unused, and `-DCRCGLOT_NO_PROVENANCE` omits it for a toolchain without section GC.  The block records only request-derived values (no tool version), so the same request always produces the same bytes.
+- Every file header carries a `Reproduce with crcglot` block of the resolved parameters (algorithm, target, variant, comment style, symbol, naming), so generated code says how it was produced.  There is no flag for it; it costs nothing once the compiler discards comments.  C additionally emits a linkable `const crcglot_provenance_t <symbol>_provenance` for runtime introspection of the CRC configuration.  Being a public symbol it never warns under `-Werror`; `-Wl,--gc-sections` drops it when unused, and `-DCRCGLOT_NO_PROVENANCE` omits it for a toolchain without section GC.  The block records the resolved request values plus the crcglot version that produced them, so the same request on the same crcglot version always produces the same bytes.
 
 ## `--custom` (raw Rocksoft/Williams parameters)
 
@@ -243,7 +243,7 @@ crcglot c --custom width=16 poly=0x1234 init=0xFFFF \
 
 | Param       | Required | Notes                                                                                                       |
 | ----------- | -------- | ----------------------------------------------------------------------------------------------------------- |
-| `width=N`   | yes      | 8, 16, 32, or 64 only                                                                                       |
+| `width=N`   | yes      | 1..64 (sub-byte and non-byte-aligned widths included, same as the catalogue)                                |
 | `poly=X`    | yes      | Hex (`0x...`) or decimal                                                                                    |
 | `init=X`    | no       | Default 0.  Hex or decimal.                                                                                 |
 | `refin=B`   | no       | Default `false`.  Accepts `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off`.                                     |

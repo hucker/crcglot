@@ -998,14 +998,49 @@ class TestCodegenCustom:
         assert rc == 2
         assert "custom CRC param" in err
 
-    def test_custom_unsupported_width_returns_2(self, capsys):
+    def test_custom_sub_byte_width_generates(self, tmp_path, monkeypatch):
+        """The CLI accepts every width the generators support (1..64); the old
+        8/16/32/64-only pre-check rejected sub-byte and non-byte widths the
+        Python API and MCP already generated (Fable report, Finding 2)."""
+        # Arrange
+        monkeypatch.chdir(tmp_path)
+
+        # Act -- CRC-5/USB parameters through --custom
+        rc = main([
+            "c", "--custom",
+            "width=5", "poly=0x05", "init=0x1F",
+            "refin=true", "refout=true", "xorout=0x1F",
+            "file=w5",
+        ])
+
+        # Assert
+        assert rc == 0, "width=5 custom generation exits 0"
+        actual = (tmp_path / "w5.c").read_text(encoding="utf-8")
+        assert "width=5" in actual, "generated source records the width"
+
+    def test_custom_width_out_of_range_returns_2(self, capsys):
+        rc = main([
+            "c", "--custom",
+            "width=65", "poly=0x3",
+        ])
+        _out, err = capsys.readouterr()
+        assert rc == 2, "width=65 exits 2"
+        assert "width must be in 1..64, got 65" in err, (
+            "reports the same 1..64 message as the Python API"
+        )
+
+    def test_custom_poly_wider_than_width_returns_2(self, capsys):
+        """A poly with bits above the width is rejected, not silently masked
+        into a CRC no real algorithm has (Fable report, Finding 4)."""
         rc = main([
             "c", "--custom",
             "width=12", "poly=0x8005",
         ])
         _out, err = capsys.readouterr()
-        assert rc == 2
-        assert "width must be 8, 16, 32, or 64" in err
+        assert rc == 2, "out-of-range poly exits 2"
+        assert "poly must be in 0..0xFFF for width 12, got 32773" in err, (
+            "echoes the field, the valid range, and the offending value"
+        )
 
     def test_custom_slice8_narrow_width_returns_2(self, capsys):
         """Slice-by-8 on a width-16 custom CRC should bubble up the
