@@ -201,7 +201,7 @@ machine-written.  Humanize *after* the substantive edits land, so a later
 content change doesn't reintroduce the tells.  Code comments / docstrings are
 exempt; this is about prose docs.
 
-Three crutches this project has specifically overused; grep for them on every
+Crutches this project has specifically overused; grep for them on every
 prose pass:
 
 - **"honest" / "honestly".**  Don't advertise candor; state the limitation
@@ -217,6 +217,13 @@ prose pass:
   what breaks without it: "a load-bearing convention" becomes "a convention
   the public API depends on"; "the load-bearing check" becomes "the check that
   catches X".  If nothing concrete replaces it, delete it.
+- **"prove" / "proof" / "proves".**  Banned for anything tests establish.  The
+  input space is infinite; a finite test set yields evidence, never proof, and
+  claiming proof is overselling.  Say "verified by execution", "checked",
+  "re-checked", "carries its own evidence".  Sweep:
+  `grep -rniE "\b(re-)?(prove[sdn]?|proofs?|proving)\b" README.md docs llms.txt`.
+  (The one legitimate use is stating this rule itself, e.g. the scoping note in
+  docs/verification/index.md.)
 
 ## Cruft audit (every release, minimum)
 

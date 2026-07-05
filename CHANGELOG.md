@@ -949,7 +949,7 @@ Typed introspection API + slice-by-8 for every compiled target.  **Breaking chan
 
 Go, C#, and Zig now emit slice-by-8 implementations on demand (`crcglot <lang> <algo> --slice8`).  Previously only C and Rust did; the three new targets in v0.3.0 shipped with bit-by-bit and `--table` only.  All five compiled languages now offer the same three implementation shapes: bit-by-bit, table-driven, slice-by-8.
 
-Verification: each new slice-by-8 generator is checked by an execution-equivalence test that compiles both the bit-by-bit and the slice-by-8 forms under disjoint symbol names, runs them on inputs of varying lengths (0, 1, 7, 8, 9, 15, 16, 100 bytes), and asserts every result matches.  Since the bit-by-bit forms are reveng-verified, equivalence proves slice-by-8 is correct.
+Verification: each new slice-by-8 generator is checked by an execution-equivalence test that compiles both the bit-by-bit and the slice-by-8 forms under disjoint symbol names, runs them on inputs of varying lengths (0, 1, 7, 8, 9, 15, 16, 100 bytes), and asserts every result matches.  Since the bit-by-bit forms are reveng-verified, equivalence carries that verification over to slice-by-8.
 
 Python remains bit-by-bit + table only (CPython per-int overhead measurably negates the speedup; measured 0.79x).  VHDL remains bit-by-bit only (simulator reference, not synthesizable throughput).
 

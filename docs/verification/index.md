@@ -2,6 +2,20 @@
 
 Every adversarial verification pass of crcglot is recorded here, one file per pass, so the series has a permanent home instead of accumulating one-off filenames.
 
+## The model: evidence instead of review
+
+crcglot is a working example of shifting the basis of software correctness from human inspection of code to evidence of behavioral conformance.  The traditional chain (spec, implementation, a few unit tests, a reviewer's sign-off) locates trust in the review: someone read the code and vouched for it.  crcglot locates trust in a body of evidence built from sources that fail independently:
+
+- **An exhaustively enumerated conformance matrix.**  Every catalogue algorithm, in every variant, in every target language, executed rather than sampled.  CRC correctness is a finite, enumerable space, and an enumerable space gets enumerated.
+- **Vectors that cover regions, not points.**  The reference inputs (empty message, canonical check string, all 256 byte values, bulk pseudo-random data) stake out structural regions of the input space: the null path, the published anchor, the full byte table, the long-run mixing behavior.  Each vector class covers a distinct region of behavioral certainty, not another point on the happy path.
+- **Expected values the code under test never computed.**  Two independent engines that had to agree, anchored to reveng's published constants.  A tool grading itself establishes nothing.
+- **Cross-language execution as differential validation.**  Nine toolchains must interpret the same parameter set identically.  Agreement constrains the interpretation of the spec itself, not just any one implementation.
+- **Adversarial passes (this series).**  Each pass rebuilds its oracle from scratch and tries to break the results: boundary conditions, parameterization ambiguity, the known failure modes of CRC bit handling.
+
+Under this model the test suite is not a QA gate bolted onto development; it is the correctness argument.  Human review still happens, but the claim does not rest on it: a reviewer can vouch for what they read, while the matrix vouches for what the code does, on toolchains and inputs no reviewer holds in their head.  Trust comes from the density, diversity, and independence of the evidence, which is also why the suite is yours to re-run.
+
+Scoping notes, so the claim stays exactly as strong as it is.  This works as well as it does because a CRC's behavior space is closed and enumerable; the same approach on a sprawling behavior space buys evidence density, not exhaustiveness.  No finite test set can prove an implementation over an infinite input space, which is why these pages say "verified" and "checked", never "proven": the claim is convergent evidence, deliberately not proof.  And the harness was designed by the same development process it grades; the independent passes in this series exist to attack precisely that residual assumption.
+
 ## The series
 
 | Report | Reviewer | Target | Outcome |
