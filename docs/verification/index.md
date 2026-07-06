@@ -4,6 +4,8 @@ Every adversarial verification pass of crcglot is recorded here, one file per pa
 
 ## The model: review by evidence, not by reading
 
+crcglot is developed with Claude Code (Anthropic's AI coding tool), on these terms: every release gates on the verification matrix below, the reference values come from engines that are not ours, and the suite is yours to run.  You never have to trust how the code was written, only what it does when you run it.  If a vector fails, file an issue.
+
 crcglot is a working example of shifting the basis of software correctness from human inspection of code to evidence of behavioral conformance.  The traditional chain (spec, implementation, a few unit tests, a reviewer's sign-off) locates trust in the review: someone read the code and vouched for it.  crcglot locates trust in a body of evidence built from sources that fail independently:
 
 - **An exhaustively enumerated conformance matrix.**  Every catalogue algorithm, in every variant, in every target language, executed rather than sampled.  CRC correctness is a finite, enumerable space, and an enumerable space gets enumerated.
@@ -34,6 +36,28 @@ The evidence sources above organize into ten categories: the first nine are chec
 A row-10 finding is traceable end to end in the git history, not just in the report.  Each one leaves three permanent artifacts: the as-reviewed report entry, a fix commit that names it, and a regression test that cites it.  Examples: `aea296d` ("range-check CRC width at Crc construction (Finding 3)") closed the width guard from the first series' 0.25.0 re-run; the seven findings of the Fable pass drove `ee73c59` (boundary validation), `b2ccee2` (`--custom` width range), `0d61a3b` (custom-polynomial comment scoping), and `b9d9809` (stale citations and README scoping), closed by the resolution note in `de0fe1c`; and `tests/test_stream.py` carries regression tests citing Fable Findings 1 and 4 in their docstrings.
 
 Scoping notes, so the claim stays exactly as strong as it is.  This works as well as it does because crcglot's verify-space is countable while its input space is infinite: the suite enumerates the countable axis (algorithms × variants × languages) completely and covers the infinite one with structured and random samples, a shape the project uses to its advantage.  The same approach on a sprawling, non-enumerable behavior space buys evidence density, not exhaustiveness.  No finite test set can prove an implementation over an infinite input space, which is why these pages say "verified" and "checked", never "proven": the claim is convergent evidence, deliberately not proof.  And the harness was designed by the same development process it grades; the independent passes in this series exist to attack precisely that residual assumption.
+
+## The execution cross
+
+Rows 4 and 8 of the matrix are carried by a fully crossed structure: every catalogue algorithm, in every variant a target supports (bit-by-bit, table-driven, slice-by-8), in every target language, executed through its real toolchain.
+
+| Language | bit-by-bit | table | slice-by-8 | executed via |
+| -------- | :--------: | :---: | :--------: | ------------ |
+| C / C++ | ✓ | ✓ | ✓ | `gcc` |
+| Rust | ✓ | ✓ | ✓ | `rustc` |
+| Go | ✓ | ✓ | ✓ | `go` |
+| C# | ✓ | ✓ | ✓ | `dotnet` |
+| Java | ✓ | ✓ | ✓ | `javac` + `java` |
+| TypeScript | ✓ | ✓ | ✓ | `tsx` (Node) |
+| Python | ✓ | ✓ | — | CPython |
+| Verilog | ✓ | — | — | `iverilog` |
+| VHDL | ✓ | — | — | `ghdl` |
+
+Every ✓ is the whole catalogue generated, compiled, and executed through that real toolchain in CI, with outputs checked against the reference vectors.  The em-dash cells are variants the target deliberately does not offer, not gaps in coverage.
+
+The cross is also why crcglot's test count runs into the thousands.  The count is not coverage chasing: it is a small set of assertions parametrized over algorithms × languages × variants × reference inputs, because CRC correctness is a finite, enumerable space and covering an enumerable space exhaustively is cheap (the whole cross runs in about a minute).  The number measures the size of the matrix, not the size of the test code.
+
+CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against four independent reference vectors (the empty input, the canonical `"123456789"` check string, all 256 byte values, and a 1 KiB pseudo-random pattern), computed by two independent engines that had to agree, so the null, the trivial, and the complex cases are all covered and a silent regression in crcglot's own engine can't hide.  The Python generator is run end-to-end (generated, exec'd, and exercised) against those same vectors.  The slow tier on top of that compiles and executes the generated source for every algorithm in the eight compiled/simulated targets and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain.
 
 ## The series
 

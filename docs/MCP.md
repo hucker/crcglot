@@ -166,7 +166,9 @@ The third preempts invalid `crc_generate` calls: the LLM can check `variants_by_
 
 A user-invokable template for the open-ended *"I need a CRC"* / *"add a checksum to my protocol"* ask, the case where someone would otherwise grab an arbitrary algorithm.  It expands to a guided message that walks the **match-vs-choose** decision: if the CRC must interoperate with something you don't control, *match* it (`crc_detect` / `crc_reverse`); if the protocol is yours, *choose* by sizing the CRC to the payload and overhead budget (`crc32` for large / unconstrained transfers, `crc16` for small framed or serial protocols à la XMODEM / Modbus / CAN, `crc8` for tiny payloads), then `crc_generate` / `crc_encode` / `crc_verify`.  The optional `use_case` string is folded in.  The same guidance lives ambiently in the server instructions, so the model steers correctly even without the explicit prompt.
 
-## End-to-end example
+## End-to-end examples
+
+### Naming a known CRC and generating code
 
 ```text
 USER:  Here's a packet from my Modbus device:
@@ -186,6 +188,24 @@ LLM:   It's CRC-16/Modbus.  The CRC field is little-endian on the wire
        with an embedded self-test.  Drop crc16_modbus.h + .c into your
        STM32 project.
 ```
+
+### Recovering an unknown custom CRC (chat session)
+
+The case where the judgment/arithmetic split matters most: recovering *unknown* CRC parameters is a search, not a generation task, and a hand-written searcher that's subtly wrong fails silently.  Every value below is a real tool output; paste the same frames at a connected client and you get the same answers.
+
+> **You:** I captured these frames from a serial link.  Last two bytes look like a CRC but nothing standard matches: `5057523a31322e3430569771`, `544d503a34382e31433d4d`, `52504d3a303031343530da2e`, `5354413a4f4bea3b`
+>
+> **Claude** *(calls `crc_detect`)*: No catalogue algorithm matches, and it's not a common non-CRC trailer (checksum or digest) either; this is a custom CRC.  *(calls `crc_reverse`)*  Four frames aren't enough to pin the polynomial: I need a few more captures, ideally including two or more of the **same length** with different content.
+>
+> **You:** Here are six more: `5057523a31322e333856b10d`, `544d503a34382e3343bde8`, `52504d3a303031343438eebc`, `5354413a52554e0492`, `5057523a31322e3431565723`, `4552523a4e4f4e458030`
+>
+> **Claude** *(calls `crc_reverse`)*: Recovered it: **CRC-16, poly 0xA097, init 0x1D0F, refin/refout true, xorout 0**, CRC field 2 bytes little-endian, verified against a held-out frame.  (Three algebraically equivalent init/xorout labellings also reproduce every frame; all predict identical CRCs, so any of them interoperates.)  Want a drop-in implementation?
+>
+> **You:** C, for an STM32.
+>
+> **Claude** *(calls `crc_generate`)*: Here's `vendor_crc.h` / `vendor_crc.c`: table-driven CRC-16 with your recovered parameters and an embedded `vendor_crc_self_test()` you can call at boot.
+
+Four tool calls, no hand-rolled bit arithmetic anywhere, and the artifact carries its own evidence.  Note the middle beat: when the data couldn't support an answer, the tool said so and named exactly what was missing.  A deterministic "underdetermined" beats a confident guess.
 
 ## Troubleshooting
 
