@@ -30,6 +30,8 @@ import warnings
 
 import pytest
 
+from crcglot.catalogue import AlgorithmInfo
+
 
 # ---------------------------------------------------------------------------
 # PATH-setup helpers (plain functions; called from ``pytest_configure``
@@ -324,3 +326,68 @@ def warm_go_build_cache_on_windows() -> None:
         )
     except (subprocess.TimeoutExpired, OSError):
         pass
+
+
+# ---------------------------------------------------------------------------
+# Shared verification-matrix fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def asymmetric_oracle_cases() -> list[tuple[str, AlgorithmInfo, int]]:
+    """Two ``refin != refout`` custom parameter sets with two-oracle expected CRCs.
+
+    The catalogue's single asymmetric entry (crc12-umts) covers only the
+    refin=False/refout=True direction with xorout=0.  These two customs cover
+    the opposite direction and the reflect+XOR finalize, for the generated-code
+    execution tests (``TestAsymmetricCustomExecution`` in each language file
+    and the generated-Python equivalent).
+
+    Expected values for ``b"123456789"`` are computed live by anycrc and
+    crccheck, which must agree.  Hard imports: a missing oracle errors every
+    dependent test, never skips.  ``AlgorithmInfo.check`` is computed by
+    crcglot's own engine and is deliberately not the reference here.
+
+    Returns:
+        ``[(label, AlgorithmInfo, oracle_crc_of_check_string), ...]`` in the
+        fixed order refin-only, refout-only-xor (tests parametrize by index).
+    """
+    import anycrc
+    from crccheck.crc import Crc as CrccheckCrc
+
+    from crcglot import custom_algorithm
+
+    data = b"123456789"
+    specs = [
+        (
+            "refin-only",
+            custom_algorithm(
+                width=16, poly=0x8005, init=0xFFFF, refin=True, refout=False,
+                desc="asymmetric probe: input reflection only",
+            ),
+        ),
+        (
+            "refout-only-xor",
+            custom_algorithm(
+                width=32, poly=0x04C11DB7, init=0xFFFFFFFF, refin=False,
+                refout=True, xorout=0xFFFFFFFF,
+                desc="asymmetric probe: output reflection + final XOR",
+            ),
+        ),
+    ]
+    cases: list[tuple[str, AlgorithmInfo, int]] = []
+    for label, algo in specs:
+        v_anycrc = anycrc.CRC(
+            algo.width, algo.poly, algo.init, algo.refin, algo.refout, algo.xorout
+        ).calc(data)
+        v_crccheck = CrccheckCrc(
+            width=algo.width, poly=algo.poly, initvalue=algo.init,
+            reflect_input=algo.refin, reflect_output=algo.refout,
+            xor_output=algo.xorout,
+        ).calc(data)
+        assert v_anycrc == v_crccheck, (
+            f"{label}: anycrc=0x{v_anycrc:X} != crccheck=0x{v_crccheck:X} "
+            f"-- oracle regression, not a crcglot bug"
+        )
+        cases.append((label, algo, v_anycrc))
+    return cases
