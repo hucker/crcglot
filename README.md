@@ -8,7 +8,7 @@ LLMs will gladly write you CRC code, guess a polynomial, or reverse a capture by
 
 If you work with CRCs, this is most of the toolbox in one install: the package that generates the code also computes, detects, reverse-engineers, and identifies non-CRC trailers, so one tool covers the workflow end to end.  The deliberate exception is bulk runtime hashing throughput; [when to reach for something else](#when-to-reach-for-something-else) names the better tool for that.
 
-crcglot is developed with Claude Code (Anthropic's AI coding tool), on these terms: every release gates on the verification matrix below, the reference values come from engines that are not ours, and the suite is yours to run.  Correctness here is not argued from the code outward, with a reviewer's sign-off as the warrant; it is inferred from the convergence of independent evidence: two reference engines that had to agree, nine toolchains that had to interpret the same parameters identically, and [adversarial passes](docs/verification/index.md) that tried to break the result.  You never have to trust how the code was written, only what it does when you run it.  If a vector fails, file an issue.
+crcglot is developed with Claude Code (Anthropic's AI coding tool), on these terms: every release gates on the verification matrix below, the reference values come from engines that are not ours, and the suite is yours to run.  You never have to trust how the code was written, only what it does when you run it.  If a vector fails, file an issue.
 
 ## Quick start
 
@@ -75,7 +75,7 @@ That cross is also why crcglot's test count runs into the thousands.  The count 
 
 ### The verification matrix
 
-The cross above is one axis of a larger structure.  The evidence is organized as ten distinct categories, the first nine checked by the suite on every run and the tenth performed episodically by independent agents:
+Ten categories of evidence, the first nine checked by the suite on every run, the tenth performed episodically by independent agents:
 
 | # | Evidence category | What it checks |
 | - | ----------------- | -------------- |
@@ -90,9 +90,7 @@ The cross above is one axis of a larger structure.  The evidence is organized as
 | 9 | Parameter edge cases | Sub-byte and non-byte-aligned widths, init/xorout edge values, asymmetric reflection (refin != refout, in both orders) against the reference engines and through compiled code, and reverse-engineering ambiguity |
 | 10 | Adversarial review | Separate verification passes in which an independent agent rebuilds its own oracle from scratch, validates it outside the package, and tries to break the engine, the generators, and the reverse-engineering; each pass is recorded as-reviewed in [docs/verification/](docs/verification/index.md) |
 
-So the claim is not "the tests pass"; it is that ten distinct categories of evidence converge on the same answer.  That convergence is the review this code gets: nobody vouches for how the source reads, the matrix vouches for what it does, and you can re-run all of it.  Distinct rather than independent, deliberately: the categories share one engine and one catalogue, so they are different lenses on the same artifact, and the independence lives in the references instead (two engines crcglot did not write, nine toolchains it does not control, a published catalogue it did not author).
-
-One scoping note, because this style of review is not equally available to every project.  A CRC library is unusually well suited to it: the things to verify form a countable space (algorithms × variants × languages) while the inputs form an infinite one, so the suite can enumerate the countable axis completely and cover the infinite one with structured and random samples.  crcglot uses that shape to its advantage; a system whose behavior space is not enumerable gets evidence density from the same approach, but not exhaustiveness.  The full category-to-test mapping is in [docs/verification/index.md](docs/verification/index.md).
+The categories share one engine; the independence lives in the references: two engines crcglot did not write, nine toolchains it does not control, a catalogue it did not author.  That convergence, not a reviewer's sign-off, backs the correctness claim, and all of it is yours to re-run.  The review model behind this and the full category-to-test mapping are in [docs/verification/index.md](docs/verification/index.md).
 
 CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against **four independent reference vectors** (the empty input, the canonical `"123456789"` check string, all 256 byte values, and a 1 KiB pseudo-random pattern), computed by two independent engines that had to agree, so the null, the trivial, and the complex cases are all covered and a silent regression in crcglot's own engine can't hide.  The Python generator is run end-to-end (generated, exec'd, and exercised) against those same vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, Java, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `javac`+`java` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain.
 
