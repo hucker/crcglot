@@ -107,15 +107,15 @@ This is the Python twin of the CLI's `--custom width=... poly=...` tokens and th
 
 ## Runtime CRC computation
 
-Beyond *generating* code, crcglot can *compute* CRCs at runtime, and it's fast.  The everyday form is by name, sharing the verb with `crcglot compute` and the MCP `crc_compute` tool:
+Beyond *generating* code, crcglot can *compute* CRCs at runtime.  The everyday form is by name, sharing the verb with `crcglot compute` and the MCP `crc_compute` tool:
 
 ```python
 from crcglot import compute
 
 compute(b"123456789", "crc16-modbus")   # 0x4B37; any catalogue name or Crc/AlgorithmInfo
-```  There's **no variant choice to make**, the same philosophy as `--small`/`--fast` on the generator, taken all the way: you just call `crcglot.generic_crc(data, crc)` (passing a `Crc`, or any `AlgorithmInfo`) and it picks the fastest path available on your machine.  There's no `table=`/`slice8=` knob here; the speed you get depends only on whether the C extension is installed.
+```
 
-Under the hood it dispatches three ways (you never select among them):
+There is no variant knob: `compute` (and `generic_crc`, its typed twin taking a `Crc` or `AlgorithmInfo`) picks the fastest path available on your machine, and the speed you get depends only on whether the C extension is installed.  Under the hood it dispatches three ways, and you never select among them:
 
 1. **IEEE CRC-32 / JAMCRC → stdlib `zlib.crc32`** (hardware CRC folding: PCLMULQDQ on x86, PMULL / `crc32` instructions on ARM): tens of GB/s.  No software CRC out-runs silicon, so crcglot borrows the stdlib's path for the algorithms it covers.
 2. **Everything else → the optional C extension** (`crcglot._c`, slice-by-8 / table-driven): ~1-2 GB/s on bulk data, compiled-C-class.  The gain over pure Python ranges from a few hundred times to a few thousand, widening with the width (a 64-bit CRC's pure-Python loop is far slower than a 16-bit one), so it is not a single headline number.
@@ -140,7 +140,7 @@ crc = generic_crc(b"123456789", ieee)
 
 ## Streaming and batch
 
-> **⚠️ Don't call `generic_crc` in a hot loop.**  It's a *one-shot*: for any table/slice-by-8 algorithm (everything byte-aligned except IEEE crc32 / jamcrc, which ride zlib) it **rebuilds the lookup table on every call**, with no cache.  Looping it over many messages of the same algorithm rebuilds the table each iteration, which on small buffers is **4–11× slower than necessary** and only worsens the longer you loop.  **For many CRCs of the same algorithm, build the table once with a `CrcStream` and `update` per message** (and independent streams run fully in parallel across threads).  Use `generic_crc` for a *single* CRC; use streaming for repetition.
+> **Don't call `generic_crc` in a hot loop.**  It is a one-shot: for any table/slice-by-8 algorithm (everything byte-aligned except IEEE crc32 / jamcrc, which ride zlib) it rebuilds the lookup table on every call, so looping it over many messages of one algorithm is 4-11× slower than necessary on small buffers.  For repetition, build the table once: a `CrcStream` with one `update` per message (independent streams run in parallel across threads), or `generic_crc_many` for a batch.
 
 Two reasons to use the **streaming** API instead of `generic_crc`: **chunked data** (a message arriving in pieces, such as large files, sockets, or sensor logs) and **repetition** (many messages of the same algorithm, so you build the table once, not per call).  It's the runtime counterpart to the generated `init → update* → finalize` triple.  Bind the algorithm once by catalogue name, feed chunks, and read the finalized value on demand (hashlib idiom: `update` / `digest` / `reset` / `copy`):
 

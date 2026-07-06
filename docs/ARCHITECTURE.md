@@ -6,10 +6,10 @@ You can read crcglot's internal structure straight off its feature list. Whereve
 
 | User-visible axis (many options)        | First-class entity behind it                | Add one by…                 |
 | --------------------------------------- | ------------------------------------------- | --------------------------- |
-| **Algorithms** (113)                    | `ALGORITHMS: dict[str, AlgorithmInfo]`      | adding a catalogue row      |
-| **Languages** (9)                       | `LANGUAGES: dict[str, LanguageInfo]`        | registering a generator     |
+| **Algorithms** (100+)                   | `ALGORITHMS: dict[str, AlgorithmInfo]`      | adding a catalogue row      |
+| **Languages** (nine)                    | `LANGUAGES: dict[str, LanguageInfo]`        | registering a generator     |
 | **Variants** (bitwise / table / slice8) | `VARIANT_ORDER` + `VariantInfo`             | a generator branch + record |
-| **Comment styles** (10)                 | `comment_styles_for_language` + `StyleInfo` | a style record              |
+| **Comment styles** (per language)       | `comment_styles_for_language` + `StyleInfo` | a style record              |
 | **Naming** (snake / camel / pascal)     | `NAMING_ORDER` + `NamingInfo`               | a naming record             |
 
 We support nine languages because it is easy: a language is a registered entity, not a fork in the control flow. We support several naming conventions for the same reason. None of these are special-cased; each is just another row along an axis the architecture already treats as first-class.

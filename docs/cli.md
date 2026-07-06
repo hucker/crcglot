@@ -56,14 +56,10 @@ Brute-force identify which catalogue CRC matches a packet whose tail is the CRC.
 
 If you have a hex string you can find the CRC type using `detect` with `--hex` (this frame is the bytes `123456789` followed by an unknown 2-byte trailer):
 
-```text
-> crcglot detect --hex "31323334353637383931c3"
-crc16-xmodem  width=16  endianness=big
+```console
+$ crcglot detect --hex "31323334353637383931c3"
+crc16-xmodem  width=16  endianness=big  form=hex  separator=''  prefix=''  per_byte=False  uppercase=False
 ```
-
-```text
-> crcglot detect packet.bin   
-
 
 From there, `crcglot c crc16-xmodem file=mycrc` generates the matching implementation.
 
@@ -85,8 +81,8 @@ crcglot detect --text '{"t":1234,"v":42,"crc":"1352"}'  # a crclink JSON frame
 
 A CRC is not always a bare tail.  A JSON frame can carry it inside the object as `{"t":1234,"v":42,"crc":"1352"}`, where the `"crc"` value is the CRC-16/XMODEM of the text up to that key.  `detect` recognises such **payload forms** automatically, reports `form=json`, and surfaces the embedded CRC:
 
-```text
-> crcglot detect --text '{"t":1234,"v":42,"crc":"1352"}'
+```console
+$ crcglot detect --text '{"t":1234,"v":42,"crc":"1352"}'
 crc16-xmodem  width=16  endianness=big  form=json  crc='1352'
 ```
 
@@ -100,8 +96,12 @@ Recover the parameters of an **unknown / custom** CRC from whole captured frames
 
 Recovered candidates print as ready-to-paste `--custom` tokens, so the loop closes straight into generation:
 
-```text
-$ crcglot reverse --hex 5057523a31322e3430569771 --hex 544d503a34382e31433d4d                   --hex 52504d3a303031343530da2e --hex 5354413a4f4bea3b                   --hex 5057523a31322e333856b10d --hex 544d503a34382e3343bde8                   --hex 52504d3a303031343438eebc --hex 5354413a52554e0492                   --hex 5057523a31322e3431565723 --hex 4552523a4e4f4e458030
+```console
+$ crcglot reverse --hex 5057523a31322e3430569771 --hex 544d503a34382e31433d4d \
+    --hex 52504d3a303031343530da2e --hex 5354413a4f4bea3b \
+    --hex 5057523a31322e333856b10d --hex 544d503a34382e3343bde8 \
+    --hex 52504d3a303031343438eebc --hex 5354413a52554e0492 \
+    --hex 5057523a31322e3431565723 --hex 4552523a4e4f4e458030
 status=equivalent  candidates=4  validated_frames=8
 --custom width=16 poly=0xA097 init=0x1D0F refin=true refout=true xorout=0x0
 ...
