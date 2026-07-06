@@ -591,8 +591,10 @@ def test_finalize_summary_tracks_xorout(lang: str) -> None:
 def test_finalize_summary_reflect_case() -> None:
     """A ``refin != refout`` algorithm documents output reflection in finalize.
 
-    No catalogue entry hits this (all have ``refin == refout``); a custom spec
-    is the only way to reach the reflect branch, so it is exercised directly.
+    One catalogue entry is asymmetric (crc12-umts: refin=False, refout=True,
+    xorout=0) and reaches the reflect-only branch; no catalogue entry combines
+    reflection with a final XOR, so the reflect+XOR wording is only reachable
+    through a custom spec and is exercised directly here.
     """
     # Arrange -- a custom spec with mismatched reflection and a final XOR;
     # generate_python_from_entry is the seam for non-catalogue algorithms.
