@@ -58,7 +58,7 @@ Each entry is a frozen `LanguageInfo` dataclass with:
 - `display_name`: human-readable name (e.g. `"C / C++"`, `"TypeScript"`), distinct from `code`
 - UI helpers: `generate_files(...)` returns ready-to-write `GeneratedFile`s; `format_name(stem, kind)` / `format_filename(stem)` case a stem to the identifier or filename crcglot will emit; `validate_symbol(stem)` pre-checks a name; module-level `default_stem(algorithm)` gives crcglot's default stem (the algorithm name, or `crc_bundle` for a bundle).  A UI reads its name field from these instead of hardcoding per-language rules
 
-Every generated file header carries a `Reproduce with crcglot` provenance block: the producing crcglot `version`, then the resolved parameters (algorithm, target, variant, comment style, symbol, naming); it is always on, with no flag.  C additionally emits a linkable `const crcglot_provenance_t <symbol>_provenance` for runtime introspection of the CRC configuration and producing version, macro-guarded by `CRCGLOT_NO_PROVENANCE` and dropped by `--gc-sections` when unused.  The `version` is read from `crcglot.__version__` (the same string `crcglot version` prints); the rest are request-derived constrained tokens.  The record is modelled by the public `ProvInfo` dataclass in `crcglot.comments` (built via `build_prov(...)`) and carried on `AlgoMeta.provenance`.
+Every generated file header carries a `Reproduce with crcglot` provenance block (the producing crcglot version, then the resolved request values; details in [generated-code.md](generated-code.md#provenance)).  On the API side the record is the public `ProvInfo` dataclass in `crcglot.comments` (built via `build_prov(...)`, carried on `AlgoMeta.provenance`), and its `version` is `crcglot.__version__`.
 
 ## `ALGORITHMS`: the reveng CRC catalogue
 
@@ -154,7 +154,7 @@ s.digest()        # 0xCBF43926 (an int; non-destructive, call it again)
 s.hexdigest()     # 'cbf43926'
 ```
 
-`crc_stream` is **backend-smart**, taking the same three-tier dispatch as `generic_crc`: stdlib `zlib.crc32` for IEEE crc32 / jamcrc, the C extension when built, pure-Python otherwise.  So it always works, and is fast where it can be.  For a custom (non-catalogue) CRC, build it from a `Crc` value object (or its raw keyword parameters), or from an `AlgorithmInfo`:
+`crc_stream` takes the same three-tier dispatch as `generic_crc`: stdlib `zlib.crc32` for IEEE crc32 / jamcrc, the C extension when built, pure-Python otherwise.  For a custom (non-catalogue) CRC, build it from a `Crc` value object (or its raw keyword parameters), or from an `AlgorithmInfo`:
 
 ```python
 from crcglot import CrcStream, Crc, ALGORITHMS

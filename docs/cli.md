@@ -43,7 +43,7 @@ crcglot info crc64-xz
 
 ## `crcglot vectors <name>`
 
-Print the four self-test vectors for one algorithm: the CRC it must produce for the empty message, the check string `123456789`, all 256 byte values, and a 1 KiB pattern.  Use them to check an implementation against a known-good answer.  The values are independently generated (two engines that had to agree; the check input anchored to reveng), so they do not come from crcglot's own engine grading itself.  `--json` emits each input's bytes (as hex) alongside its expected CRC, so the check is runnable.  Exit 2 on unknown name.
+Print the four self-test vectors for one algorithm: the CRC it must produce for the empty message, the check string `123456789`, all 256 byte values, and a 1 KiB pattern.  Use them to check an implementation against a known-good answer; the values are independently generated, not crcglot grading itself ([provenance](generated-code.md#the-embedded-self-test)).  `--json` emits each input's bytes (as hex) alongside its expected CRC, so the check is runnable.  Exit 2 on unknown name.
 
 ```bash
 crcglot vectors crc32
@@ -230,7 +230,7 @@ Rules:
 - `--slice8 python` silently falls back to `--table` (CPython's per-int overhead eats the slice-by-8 speedup; stderr warns).  `--fast` never needs this fallback; it only picks slice-by-8 where it actually applies.
 - Without `file=`, output goes to stdout.  For C, header is emitted first, then source.
 - Every target embeds `<symbol>_self_test()` (C returns 0 on success; the rest return `bool` / `boolean` / `bit`).  In constrained embedded targets, standard toolchain flags (`-Wl,--gc-sections` for C, LTO for Rust) strip whatever you don't call.
-- Every file header carries a `Reproduce with crcglot` block of the resolved parameters (algorithm, target, variant, comment style, symbol, naming), so generated code says how it was produced.  There is no flag for it; it costs nothing once the compiler discards comments.  C additionally emits a linkable `const crcglot_provenance_t <symbol>_provenance` for runtime introspection of the CRC configuration.  Being a public symbol it never warns under `-Werror`; `-Wl,--gc-sections` drops it when unused, and `-DCRCGLOT_NO_PROVENANCE` omits it for a toolchain without section GC.  The block records the resolved request values plus the crcglot version that produced them, so the same request on the same crcglot version always produces the same bytes.
+- Every file header carries a `Reproduce with crcglot` block (the producing crcglot version, then the resolved request values), and C additionally emits it as a linkable provenance record; details in [generated-code.md](generated-code.md#provenance).
 
 ## `--custom` (raw Rocksoft/Williams parameters)
 

@@ -50,7 +50,7 @@ hardware datapaths, not a software runtime.)
 | Python (runtime) | C extension (`crcglot._c`)   |  8 KiB |        790.0 |      1,424.6 |
 | Python (runtime) | `generic_crc` → `zlib.crc32` |      — |      1,290.6 |     40,023.4 |
 
-The two **Python (runtime)** rows are crcglot's own engines, not generated source: calling `crcglot.generic_crc` from Python uses the compiled C extension (`crcglot._c`, slice-by-8 for *every* algorithm), and for crc32 alone delegates to the stdlib's hardware-accelerated `zlib.crc32`.  They put Python squarely in the compiled-language band, which is the whole reason the package ships C.  The C extension is ~2,201x faster than the pure-Python CRC.
+The two **Python (runtime)** rows are crcglot's own engines, not generated source: calling `crcglot.generic_crc` from Python uses the compiled C extension (`crcglot._c`, slice-by-8 for *every* algorithm), and for crc32 alone delegates to the stdlib's hardware-accelerated `zlib.crc32`.  They put Python squarely in the compiled-language band; in this run the C extension is ~2,201x faster than the pure-Python CRC.
 
 The same compiled paths back the streaming API: `crcglot.crc_stream(name)` / `CrcStream` feed chunks into the C extension's `CrcStream` (or `zlib.crc32` incrementally for crc32), so chunked data (large files, sockets, sensor logs) runs at this same compiled speed, paying the Python/C transition once across the whole message rather than per call.
 
@@ -107,16 +107,9 @@ in its standard library (Python `zlib.crc32`, Java `java.util.zip.CRC32` /
 CLMUL / SSE4.2 on any CPU since ~2010, tens of times faster than any portable
 software CRC.  If you only need crc32 and can lean on the platform library, do.
 
-crcglot's own Python runtime already does, and goes further, which is what
-the two **Python (runtime)** rows in the table above show:
-
-- **crc32** -> the `generic_crc` dispatcher hands it to `zlib.crc32`, silicon
-  speed for free.
-- **the rest of the catalogue** -> the compiled C extension (`crcglot._c`,
-  slice-by-8 in C) runs them at ~1 GB/s from Python, roughly a thousandfold
-  over the pure-Python engine.  This is why there is C in a pure-stdlib
-  package: the Python build has a fast path for *every* algorithm, not just the
-  one zlib happens to cover.
+crcglot's own Python runtime already does: the `generic_crc` dispatcher hands
+crc32 to `zlib.crc32`, and the C extension covers the rest of the catalogue at
+~1 GB/s (the two **Python (runtime)** rows above).
 
 The **generated** source (the per-language rows) is the second product: a
 complete, dependency-free CRC you can drop into firmware, an air-gapped build,
