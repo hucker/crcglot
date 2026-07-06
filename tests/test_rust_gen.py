@@ -560,8 +560,8 @@ def _rust_batch_cases() -> list[tuple[str, _RsVariant]]:
 
 
 def _rust_batch_driver_case(name: str, variant: _RsVariant) -> str:
-    """One Rust block: <sym>_self_test() + split-streaming check, printing
-    ``<name>/<variant> PASS|FAIL:<phase>``."""
+    """One Rust block: <sym>_self_test() + split-streaming + byte-at-a-time
+    checks, printing ``<name>/<variant> PASS|FAIL:<phase>``."""
     sym = f"{_func_name(name)}_{_RS_VARIANT_TAG[variant]}"
     algo = ALGORITHMS[name]
     rtype = _rust_state_type(algo.width)
@@ -573,9 +573,12 @@ def _rust_batch_driver_case(name: str, variant: _RsVariant) -> str:
         "        else {\n"
         "            let full: [u8; 9] = [0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39];\n"
         f"            let mut s = {sym}_init();\n"
+        f"            let mut s2 = {sym}_init();\n"
         f"            s = {sym}_update(s, &full[0..4]);\n"
         f"            s = {sym}_update(s, &full[4..9]);\n"
+        f"            for i in 0..9 {{ s2 = {sym}_update(s2, &full[i..i + 1]); }}\n"
         f"            if {sym}_finalize(s) != {lit} {{ println!(\"{tag} FAIL:streaming\"); }}\n"
+        f"            else if {sym}_finalize(s2) != {lit} {{ println!(\"{tag} FAIL:bytewise\"); }}\n"
         f"            else {{ println!(\"{tag} PASS\"); }}\n"
         "        }\n"
         "    }"
@@ -683,3 +686,78 @@ def test_rust_combined_multi_algorithm_compiles_and_runs(tmp_path):
         f"bundled self_test #{run.returncode} "
         f"({_MULTI_ALGOS[run.returncode - 1]}) failed"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Asymmetric custom execution -- see the matching section in test_c_gen.py:
+# refin != refout in the direction crc12-umts does not cover, plus the
+# reflect+XOR finalize, compiled and graded against two-oracle values.
+# ─────────────────────────────────────────────────────────────────────
+
+_ASYM_IDS = ["refin-only", "refout-only-xor"]
+
+
+@pytest.fixture(scope="session")
+def rust_asymmetric_results(asymmetric_oracle_cases, tmp_path_factory) -> dict[str, str]:
+    """Compile both refin != refout customs plus an oracle-literal driver
+    into one rustc binary, run once, return ``{label: "PASS"|"FAIL"}``."""
+    if not HAS_RUSTC:
+        return {}
+    bodies, driver = [], []
+    for label, algo, oracle in asymmetric_oracle_cases:
+        sym = "asym_" + label.replace("-", "_")
+        bodies.append(generate_rust_from_entry(sym, algo, symbol=sym))
+        rtype = _rust_state_type(algo.width)
+        driver.append(
+            "    {\n"
+            "        let full: [u8; 9] = [0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39];\n"
+            f"        let mut s = {sym}_init();\n"
+            f"        s = {sym}_update(s, &full);\n"
+            f"        if {sym}_finalize(s) != 0x{oracle:X}{rtype}"
+            f" {{ println!(\"{label} FAIL\"); }}\n"
+            f"        else {{ println!(\"{label} PASS\"); }}\n"
+            "    }"
+        )
+    src = "\n\n".join(bodies) + "\n\nfn main() {\n" + "\n".join(driver) + "\n}\n"
+    d = tmp_path_factory.mktemp("rust_asym")
+    main_rs = d / "main.rs"
+    main_rs.write_text(src)
+    binary = d / "run.exe"
+    comp = subprocess.run(
+        ["rustc", "--edition=2021", "-A", "warnings",
+         "-o", str(binary), str(main_rs)],
+        capture_output=True, cwd=d,
+    )
+    if comp.returncode != 0:
+        pytest.fail(
+            "asymmetric custom Rust failed to compile:\n"
+            + comp.stderr.decode(errors="replace")[:3000]
+        )
+    run = subprocess.run([str(binary)], capture_output=True, cwd=d)
+    results: dict[str, str] = {}
+    for line in run.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_RUSTC, reason="rustc not in PATH")
+@pytest.mark.xdist_group("rust_batch")
+class TestAsymmetricCustomExecution:
+    """Compiled Rust for ``refin != refout`` customs must reproduce the value
+    two independent oracles agreed on -- the asymmetry direction and the
+    reflect+XOR finalize that no catalogue algorithm reaches."""
+
+    @pytest.mark.parametrize("idx", [0, 1], ids=_ASYM_IDS)
+    def test_generated_code_matches_oracle(
+        self, idx, asymmetric_oracle_cases, rust_asymmetric_results
+    ):
+        # Assert -- the single-build driver reported PASS for this custom.
+        label, _algo, oracle = asymmetric_oracle_cases[idx]
+        actual = rust_asymmetric_results.get(label)
+        assert actual == "PASS", (
+            f"{label}: compiled Rust disagreed with the two-oracle value "
+            f"0x{oracle:X} (got {actual!r}; missing => absent from driver output)"
+        )

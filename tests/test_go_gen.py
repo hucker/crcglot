@@ -398,8 +398,8 @@ def _go_batch_cases() -> list[tuple[str, _GoVariant]]:
 
 
 def _go_batch_driver_case(name: str, variant: _GoVariant) -> str:
-    """One Go block: <sym>_self_test() + split-streaming check, printing
-    ``<name>/<variant> PASS|FAIL:<phase>``."""
+    """One Go block: <sym>_self_test() + split-streaming + byte-at-a-time
+    checks, printing ``<name>/<variant> PASS|FAIL:<phase>``."""
     sym = f"{_func_name(name)}_{_GO_VARIANT_TAG[variant]}"
     algo = ALGORITHMS[name]
     gtype = _go_state_type(algo.width)
@@ -410,10 +410,17 @@ def _go_batch_driver_case(name: str, variant: _GoVariant) -> str:
         f'\t\tfmt.Println("{tag} FAIL:oneshot")\n'
         "\t} else {\n"
         f"\t\ts := {sym}_init()\n"
-        f'\t\ts = {sym}_update(s, []byte("1234"))\n'
-        f'\t\ts = {sym}_update(s, []byte("56789"))\n'
+        f"\t\ts2 := {sym}_init()\n"
+        f'\t\tfull := []byte("123456789")\n'
+        f"\t\ts = {sym}_update(s, full[0:4])\n"
+        f"\t\ts = {sym}_update(s, full[4:9])\n"
+        "\t\tfor i := 0; i < 9; i++ {\n"
+        f"\t\t\ts2 = {sym}_update(s2, full[i:i+1])\n"
+        "\t\t}\n"
         f"\t\tif {sym}_finalize(s) != {lit} {{\n"
         f'\t\t\tfmt.Println("{tag} FAIL:streaming")\n'
+        f"\t\t}} else if {sym}_finalize(s2) != {lit} {{\n"
+        f'\t\t\tfmt.Println("{tag} FAIL:bytewise")\n'
         "\t\t} else {\n"
         f'\t\t\tfmt.Println("{tag} PASS")\n'
         "\t\t}\n"
@@ -519,3 +526,84 @@ def test_go_combined_multi_algorithm_compiles_and_runs(tmp_path):
         f"combined package failed (rc {result.returncode}); "
         f"stderr={result.stderr!r}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Asymmetric custom execution -- see the matching section in test_c_gen.py:
+# refin != refout in the direction crc12-umts does not cover, plus the
+# reflect+XOR finalize, compiled and graded against two-oracle values.
+# ─────────────────────────────────────────────────────────────────────
+
+_ASYM_IDS = ["refin-only", "refout-only-xor"]
+
+
+@pytest.fixture(scope="session")
+def go_asymmetric_results(asymmetric_oracle_cases, tmp_path_factory) -> dict[str, str]:
+    """Build both refin != refout customs plus an oracle-literal driver as
+    one ``package main``, run once, return ``{label: "PASS"|"FAIL"}``."""
+    if not HAS_GO:
+        return {}
+    bodies, driver = [], []
+    for label, algo, oracle in asymmetric_oracle_cases:
+        sym = "asym_" + label.replace("-", "_")
+        code = generate_go_from_entry(sym, algo, symbol=sym)
+        assert code is not None, f"generate_go_from_entry({label!r}) returned None"
+        bodies.append(code.partition("package crc")[2])
+        gtype = _go_state_type(algo.width)
+        # Each check in its own block so ``s`` stays block-scoped per custom.
+        driver.append(
+            "\t{\n"
+            f"\t\ts := {sym}_init()\n"
+            f'\t\ts = {sym}_update(s, []byte("123456789"))\n'
+            f"\t\tif {sym}_finalize(s) != {gtype}({hex(oracle)}) {{\n"
+            f'\t\t\tfmt.Println("{label} FAIL")\n'
+            "\t\t} else {\n"
+            f'\t\t\tfmt.Println("{label} PASS")\n'
+            "\t\t}\n"
+            "\t}"
+        )
+    src = (
+        'package main\n\nimport "fmt"\n'
+        + "".join(bodies)
+        + "\n\nfunc main() {\n"
+        + "\n".join(driver)
+        + "\n}\n"
+    )
+    d = tmp_path_factory.mktemp("go_asym")
+    main_go = d / "main.go"
+    main_go.write_text(src, encoding="utf-8")
+    proc = subprocess.run(
+        ["go", "run", str(main_go)],
+        capture_output=True, text=True, timeout=300, cwd=d,
+    )
+    if proc.returncode != 0:
+        pytest.fail(
+            "asymmetric custom Go failed to build/run:\n" + proc.stderr[:3000]
+        )
+    results: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GO, reason="go toolchain not on PATH")
+@pytest.mark.xdist_group("go_batch")
+class TestAsymmetricCustomExecution:
+    """Compiled Go for ``refin != refout`` customs must reproduce the value
+    two independent oracles agreed on -- the asymmetry direction and the
+    reflect+XOR finalize that no catalogue algorithm reaches."""
+
+    @pytest.mark.parametrize("idx", [0, 1], ids=_ASYM_IDS)
+    def test_generated_code_matches_oracle(
+        self, idx, asymmetric_oracle_cases, go_asymmetric_results
+    ):
+        # Assert -- the single-build driver reported PASS for this custom.
+        label, _algo, oracle = asymmetric_oracle_cases[idx]
+        actual = go_asymmetric_results.get(label)
+        assert actual == "PASS", (
+            f"{label}: compiled Go disagreed with the two-oracle value "
+            f"0x{oracle:X} (got {actual!r}; missing => absent from driver output)"
+        )

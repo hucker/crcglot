@@ -744,8 +744,8 @@ def _c_batch_cases() -> list[tuple[str, _CVariant]]:
 
 
 def _c_batch_driver_case(name: str, variant: _CVariant) -> str:
-    """One C block: <sym>_self_test() + split-streaming check, printing
-    ``<name>/<variant> PASS|FAIL:<phase>``."""
+    """One C block: <sym>_self_test() + split-streaming + byte-at-a-time
+    checks, printing ``<name>/<variant> PASS|FAIL:<phase>``."""
     sym = f"{_func_name(name)}_{_C_VARIANT_TAG[variant]}"
     algo = ALGORITHMS[name]
     ctype = _c_state_type(algo.width)
@@ -756,9 +756,13 @@ def _c_batch_driver_case(name: str, variant: _CVariant) -> str:
         f'        if ({sym}_self_test() != 0) {{ printf("{tag} FAIL:oneshot\\n"); }}\n'
         "        else {\n"
         f"            {ctype} s = {sym}_init();\n"
+        f"            {ctype} s2 = {sym}_init();\n"
+        "            size_t i;\n"
         f"            s = {sym}_update(s, FULL, 4);\n"
         f"            s = {sym}_update(s, FULL + 4, 5);\n"
+        f"            for (i = 0; i < 9; i++) s2 = {sym}_update(s2, FULL + i, 1);\n"
         f'            if ({sym}_finalize(s) != {lit}) printf("{tag} FAIL:streaming\\n");\n'
+        f'            else if ({sym}_finalize(s2) != {lit}) printf("{tag} FAIL:bytewise\\n");\n'
         f'            else printf("{tag} PASS\\n");\n'
         "        }\n"
         "    }"
@@ -874,3 +878,92 @@ def test_c_combined_multi_algorithm_compiles_and_runs(tmp_path):
         f"bundled self_test #{run_result.returncode} "
         f"({_MULTI_ALGOS[run_result.returncode - 1]}) failed"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Asymmetric custom execution -- the catalogue's one refin != refout
+# entry (crc12-umts) rides every batch case above, but only in the
+# refin=False/refout=True, xorout=0 direction.  The opposite direction
+# and the reflect+XOR finalize are reachable only through custom
+# parameters, so they are generated, compiled, and executed here, graded
+# against the two-oracle values from ``asymmetric_oracle_cases``
+# (conftest); ``AlgorithmInfo.check`` is crcglot-computed and never the
+# reference.
+# ─────────────────────────────────────────────────────────────────────
+
+_ASYM_IDS = ["refin-only", "refout-only-xor"]
+
+
+@pytest.fixture(scope="session")
+def c_asymmetric_results(asymmetric_oracle_cases, tmp_path_factory) -> dict[str, str]:
+    """Compile both refin != refout customs plus an oracle-literal driver
+    into one gcc binary, run once, return ``{label: "PASS"|"FAIL"}``."""
+    if not HAS_GCC:
+        return {}
+    d = tmp_path_factory.mktemp("c_asym")
+    includes, csrcs, driver = [], [], []
+    for label, algo, oracle in asymmetric_oracle_cases:
+        sym = "asym_" + label.replace("-", "_")
+        header, source = generate_c_from_entry(sym, algo, symbol=sym)
+        (d / f"{sym}.h").write_text(header)
+        (d / f"{sym}.c").write_text(source)
+        includes.append(f'#include "{sym}.h"')
+        csrcs.append(f"{sym}.c")
+        ctype = _c_state_type(algo.width)
+        driver.append(
+            "    {\n"
+            f"        {ctype} s = {sym}_init();\n"
+            f"        s = {sym}_update(s, FULL, 9);\n"
+            f"        if ({sym}_finalize(s) != ({ctype})0x{oracle:X}ULL)"
+            f' printf("{label} FAIL\\n");\n'
+            f'        else printf("{label} PASS\\n");\n'
+            "    }"
+        )
+    runner = (
+        "#include <stdio.h>\n#include <stdint.h>\n#include <stddef.h>\n"
+        + "\n".join(includes)
+        + "\nstatic const uint8_t FULL[9] = {0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39};\n"
+        + "int main(void) {\n"
+        + "\n".join(driver)
+        + "\n    return 0;\n}\n"
+    )
+    (d / "runner.c").write_text(runner)
+    binary = d / "run.exe"
+    comp = subprocess.run(
+        ["gcc", "-std=c99", "-O1", "-w", "-o", str(binary),
+         *[str(d / c) for c in csrcs], str(d / "runner.c")],
+        capture_output=True, cwd=d,
+    )
+    if comp.returncode != 0:
+        pytest.fail(
+            "asymmetric custom C failed to compile:\n"
+            + comp.stderr.decode(errors="replace")[:3000]
+        )
+    run = subprocess.run([str(binary)], capture_output=True, cwd=d)
+    results: dict[str, str] = {}
+    for line in run.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_GCC, reason="gcc not in PATH")
+@pytest.mark.xdist_group("c_batch")
+class TestAsymmetricCustomExecution:
+    """Compiled C for ``refin != refout`` customs must reproduce the value
+    two independent oracles agreed on -- the asymmetry direction and the
+    reflect+XOR finalize that no catalogue algorithm reaches."""
+
+    @pytest.mark.parametrize("idx", [0, 1], ids=_ASYM_IDS)
+    def test_generated_code_matches_oracle(
+        self, idx, asymmetric_oracle_cases, c_asymmetric_results
+    ):
+        # Assert -- the single-build driver reported PASS for this custom.
+        label, _algo, oracle = asymmetric_oracle_cases[idx]
+        actual = c_asymmetric_results.get(label)
+        assert actual == "PASS", (
+            f"{label}: compiled C disagreed with the two-oracle value "
+            f"0x{oracle:X} (got {actual!r}; missing => absent from driver output)"
+        )

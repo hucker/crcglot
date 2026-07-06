@@ -457,8 +457,8 @@ def _ts_batch_cases() -> list[tuple[str, _Variant]]:
 
 
 def _ts_batch_driver_case(name: str, variant: _Variant) -> str:
-    """One JS block: run <sym>_self_test() + a split-streaming check and
-    print ``<name>/<variant> PASS|FAIL:<phase>`` (never throws out)."""
+    """One JS block: run <sym>_self_test() + split-streaming + byte-at-a-time
+    checks and print ``<name>/<variant> PASS|FAIL:<phase>`` (never throws out)."""
     sym = f"{_func_name(name)}_{_VARIANT_TAG[variant]}"
     lit = _ts_check_literal(ALGORITHMS[name])
     tag = f"{name}/{variant}"
@@ -470,9 +470,13 @@ def _ts_batch_driver_case(name: str, variant: _Variant) -> str:
         "    else {\n"
         "      const full = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);\n"
         f"      let s = {sym}_init();\n"
+        f"      let s2 = {sym}_init();\n"
         f"      s = {sym}_update(s, full.slice(0, 4));\n"
         f"      s = {sym}_update(s, full.slice(4));\n"
-        f"      r = ({sym}_finalize(s) === {lit}) ? 'PASS' : 'FAIL:streaming';\n"
+        f"      for (let i = 0; i < full.length; i++) {{ s2 = {sym}_update(s2, full.slice(i, i + 1)); }}\n"
+        f"      if ({sym}_finalize(s) !== {lit}) {{ r = 'FAIL:streaming'; }}\n"
+        f"      else if ({sym}_finalize(s2) !== {lit}) {{ r = 'FAIL:bytewise'; }}\n"
+        "      else { r = 'PASS'; }\n"
         "    }\n"
         f"    console.log('{tag} ' + r);\n"
         f"  }} catch (e) {{ console.log('{tag} FAIL:exception'); }}\n"
@@ -537,3 +541,77 @@ def test_ts_batch_execution(name, variant, ts_batch_results):
         f"{key}: expected PASS, got {actual!r} "
         f"(missing => absent from the one-shot batch run's output)"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Asymmetric custom execution -- see the matching section in test_c_gen.py:
+# refin != refout in the direction crc12-umts does not cover, plus the
+# reflect+XOR finalize, executed and graded against two-oracle values.
+# ─────────────────────────────────────────────────────────────────────
+
+_ASYM_IDS = ["refin-only", "refout-only-xor"]
+
+
+@pytest.fixture(scope="session")
+def ts_asymmetric_results(asymmetric_oracle_cases, tmp_path_factory) -> dict[str, str]:
+    """Run both refin != refout customs plus an oracle-literal driver in one
+    tsx invocation, return ``{label: "PASS"|"FAIL"}``."""
+    if not HAS_TSX:
+        return {}
+    bodies, driver = [], []
+    for label, algo, oracle in asymmetric_oracle_cases:
+        sym = "asym_" + label.replace("-", "_")
+        code = generate_typescript_from_entry(sym, algo, symbol=sym)
+        assert code is not None, f"generate_typescript_from_entry({label!r}) returned None"
+        bodies.append(code)
+        lit = f"0x{oracle:X}n" if algo.width == 64 else f"0x{oracle:X}"
+        driver.append(
+            "{\n"
+            "  try {\n"
+            "    const full = new Uint8Array([0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39]);\n"
+            f"    let s = {sym}_init();\n"
+            f"    s = {sym}_update(s, full);\n"
+            f"    console.log('{label} ' + (({sym}_finalize(s) === {lit}) ? 'PASS' : 'FAIL'));\n"
+            f"  }} catch (e) {{ console.log('{label} FAIL:exception'); }}\n"
+            "}"
+        )
+    src = "\n\n".join(bodies) + "\n\n" + "\n".join(driver) + "\n"
+    d = tmp_path_factory.mktemp("ts_asym")
+    entry = d / "asym.ts"
+    entry.write_text(src)
+    result = subprocess.run(
+        [TSX_PATH, str(entry)],
+        capture_output=True, cwd=d, shell=False,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            "asymmetric custom TS failed to compile/run:\n"
+            + result.stderr.decode(errors="replace")[:3000]
+        )
+    results: dict[str, str] = {}
+    for line in result.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_TSX, reason="tsx not in PATH")
+@pytest.mark.xdist_group("ts_batch")
+class TestAsymmetricCustomExecution:
+    """Executed TypeScript for ``refin != refout`` customs must reproduce the
+    value two independent oracles agreed on -- the asymmetry direction and
+    the reflect+XOR finalize that no catalogue algorithm reaches."""
+
+    @pytest.mark.parametrize("idx", [0, 1], ids=_ASYM_IDS)
+    def test_generated_code_matches_oracle(
+        self, idx, asymmetric_oracle_cases, ts_asymmetric_results
+    ):
+        # Assert -- the single-run driver reported PASS for this custom.
+        label, _algo, oracle = asymmetric_oracle_cases[idx]
+        actual = ts_asymmetric_results.get(label)
+        assert actual == "PASS", (
+            f"{label}: executed TypeScript disagreed with the two-oracle value "
+            f"0x{oracle:X} (got {actual!r}; missing => absent from driver output)"
+        )

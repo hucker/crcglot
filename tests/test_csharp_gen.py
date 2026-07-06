@@ -518,8 +518,8 @@ def _cs_check_literal(width: int, check: int) -> str:
 
 
 def _csharp_batch_driver_case(name: str, variant: _CsVariant) -> str:
-    """One C# block: <Cls>.SelfTest() + split-streaming check, printing
-    ``<name>/<variant> PASS|FAIL:<phase>``.
+    """One C# block: <Cls>.SelfTest() + split-streaming + byte-at-a-time
+    checks, printing ``<name>/<variant> PASS|FAIL:<phase>``.
 
     Each case is generated under a unique ``symbol=`` so the *class*
     names stay distinct in the one concatenated project; the methods are
@@ -540,9 +540,15 @@ def _csharp_batch_driver_case(name: str, variant: _CsVariant) -> str:
         f"                if (!{cls}.{n['self_test']}()) {{ r = \"FAIL:oneshot\"; }}\n"
         "                else {\n"
         f"                    {cstype} s = {cls}.{n['init']}();\n"
+        f"                    {cstype} s2 = {cls}.{n['init']}();\n"
         f"                    s = {cls}.{n['update']}(s, FULL04);\n"
         f"                    s = {cls}.{n['update']}(s, FULL49);\n"
-        f"                    r = ({cls}.{n['finalize']}(s) == expected) ? \"PASS\" : \"FAIL:streaming\";\n"
+        "                    for (int i = 0; i < FULL.Length; i++) {\n"
+        f"                        s2 = {cls}.{n['update']}(s2, new byte[] {{ FULL[i] }});\n"
+        "                    }\n"
+        f"                    if ({cls}.{n['finalize']}(s) != expected) {{ r = \"FAIL:streaming\"; }}\n"
+        f"                    else if ({cls}.{n['finalize']}(s2) != expected) {{ r = \"FAIL:bytewise\"; }}\n"
+        "                    else { r = \"PASS\"; }\n"
         "                }\n"
         f"                Console.WriteLine(\"{tag} \" + r);\n"
         f"            }} catch {{ Console.WriteLine(\"{tag} FAIL:exception\"); }}"
@@ -579,6 +585,7 @@ def csharp_batch_results(tmp_path_factory) -> dict[str, str]:
         "    public static void Main() {\n"
         "        byte[] FULL04 = new byte[] { 0x31, 0x32, 0x33, 0x34 };\n"
         "        byte[] FULL49 = new byte[] { 0x35, 0x36, 0x37, 0x38, 0x39 };\n"
+        "        byte[] FULL = new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 };\n"
         + "\n".join(driver)
         + "\n    }\n}\n"
     )
@@ -614,3 +621,93 @@ def test_csharp_batch_execution(name, variant, csharp_batch_results):
         f"{key}: expected PASS, got {actual!r} "
         f"(missing => absent from the one-shot batch run's output)"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Asymmetric custom execution -- see the matching section in test_c_gen.py:
+# refin != refout in the direction crc12-umts does not cover, plus the
+# reflect+XOR finalize, compiled and graded against two-oracle values.
+# ─────────────────────────────────────────────────────────────────────
+
+_ASYM_IDS = ["refin-only", "refout-only-xor"]
+
+
+@pytest.fixture(scope="session")
+def csharp_asymmetric_results(asymmetric_oracle_cases, tmp_path_factory) -> dict[str, str]:
+    """Build both refin != refout customs plus an oracle-literal driver as
+    one dotnet project, run once, return ``{label: "PASS"|"FAIL"}``."""
+    if not HAS_DOTNET_SDK:
+        return {}
+    d = tmp_path_factory.mktemp("cs_asym")
+    (d / "ProbeAsym.csproj").write_text(textwrap.dedent("""
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <OutputType>Exe</OutputType>
+            <TargetFramework>net8.0</TargetFramework>
+            <Nullable>disable</Nullable>
+            <RootNamespace>ProbeAsym</RootNamespace>
+          </PropertyGroup>
+        </Project>
+    """).strip(), encoding="utf-8")
+    n = _cs_method_names("pascal")
+    driver = []
+    for i, (label, algo, oracle) in enumerate(asymmetric_oracle_cases):
+        sym = "asym_" + label.replace("-", "_")
+        code = generate_csharp_from_entry(sym, algo, symbol=sym)
+        assert code is not None, f"generate_csharp_from_entry({label!r}) returned None"
+        (d / f"Gen{i}.cs").write_text(code, encoding="utf-8")
+        cls = _pascal(sym)
+        cstype = _cs_state_type(algo.width)
+        lit = _cs_check_literal(algo.width, oracle)
+        driver.append(
+            "            try {\n"
+            f"                {cstype} s = {cls}.{n['init']}();\n"
+            f"                s = {cls}.{n['update']}(s, FULL);\n"
+            f"                Console.WriteLine(\"{label} \" + "
+            f"(({cls}.{n['finalize']}(s) == {lit}) ? \"PASS\" : \"FAIL\"));\n"
+            f"            }} catch {{ Console.WriteLine(\"{label} FAIL:exception\"); }}"
+        )
+    program = (
+        "using System;\npublic static class ProbeAsym {\n"
+        "    public static void Main() {\n"
+        "        byte[] FULL = new byte[] { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39 };\n"
+        + "\n".join(driver)
+        + "\n    }\n}\n"
+    )
+    (d / "Program.cs").write_text(program, encoding="utf-8")
+    proc = subprocess.run(
+        ["dotnet", "run", "--project", str(d / "ProbeAsym.csproj")],
+        capture_output=True, text=True, timeout=600, cwd=d,
+    )
+    if proc.returncode != 0:
+        pytest.fail(
+            "asymmetric custom C# failed to build/run:\n"
+            + proc.stderr[:3000] + proc.stdout[:1500]
+        )
+    results: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_DOTNET_SDK, reason="dotnet SDK not in PATH")
+@pytest.mark.xdist_group("csharp_batch")
+class TestAsymmetricCustomExecution:
+    """Compiled C# for ``refin != refout`` customs must reproduce the value
+    two independent oracles agreed on -- the asymmetry direction and the
+    reflect+XOR finalize that no catalogue algorithm reaches."""
+
+    @pytest.mark.parametrize("idx", [0, 1], ids=_ASYM_IDS)
+    def test_generated_code_matches_oracle(
+        self, idx, asymmetric_oracle_cases, csharp_asymmetric_results
+    ):
+        # Assert -- the single-build driver reported PASS for this custom.
+        label, _algo, oracle = asymmetric_oracle_cases[idx]
+        actual = csharp_asymmetric_results.get(label)
+        assert actual == "PASS", (
+            f"{label}: compiled C# disagreed with the two-oracle value "
+            f"0x{oracle:X} (got {actual!r}; missing => absent from driver output)"
+        )

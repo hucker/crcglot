@@ -250,7 +250,8 @@ def _java_batch_member_class(name: str, variant: _Variant) -> str:
 
 
 def _java_batch_check_method(idx: int, name: str, variant: _Variant) -> str:
-    """A ``static void c<idx>()`` running one case + printing its result.
+    """A ``static void c<idx>()`` running one case (self-test + split-streaming
+    + byte-at-a-time) and printing its result.
 
     Split out of ``main`` so ``main`` (164 calls) stays under the 64 KB
     method limit too."""
@@ -265,10 +266,17 @@ def _java_batch_check_method(idx: int, name: str, variant: _Variant) -> str:
         "            String r;\n"
         f"            if (!{cls}.{sym}_self_test()) r = \"FAIL:oneshot\";\n"
         "            else {\n"
+        "                byte[] full = { 0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39 };\n"
         f"                {jtype} s = {cls}.{sym}_init();\n"
+        f"                {jtype} s2 = {cls}.{sym}_init();\n"
         f"                s = {cls}.{sym}_update(s, new byte[] {{ 0x31,0x32,0x33,0x34 }});\n"
         f"                s = {cls}.{sym}_update(s, new byte[] {{ 0x35,0x36,0x37,0x38,0x39 }});\n"
-        f"                r = ({cls}.{sym}_finalize(s) == {lit}) ? \"PASS\" : \"FAIL:streaming\";\n"
+        "                for (int i = 0; i < full.length; i++) {\n"
+        f"                    s2 = {cls}.{sym}_update(s2, new byte[] {{ full[i] }});\n"
+        "                }\n"
+        f"                if ({cls}.{sym}_finalize(s) != {lit}) r = \"FAIL:streaming\";\n"
+        f"                else if ({cls}.{sym}_finalize(s2) != {lit}) r = \"FAIL:bytewise\";\n"
+        "                else r = \"PASS\";\n"
         "            }\n"
         f"            System.out.println(\"{tag} \" + r);\n"
         f"        }} catch (Throwable e) {{ System.out.println(\"{tag} FAIL:exception\"); }}\n"
@@ -418,3 +426,74 @@ def test_java_slice8_matches_bitbybit(name, tmp_path):
         f"{_SLICE8_LENGTHS[idx - 1] if 1 <= idx <= len(_SLICE8_LENGTHS) else '?'}: "
         f"{run.stderr.decode(errors='replace')}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Asymmetric custom execution -- see the matching section in test_c_gen.py:
+# refin != refout in the direction crc12-umts does not cover, plus the
+# reflect+XOR finalize, compiled and graded against two-oracle values.
+# ─────────────────────────────────────────────────────────────────────
+
+_ASYM_IDS = ["refin-only", "refout-only-xor"]
+
+
+@pytest.fixture(scope="session")
+def java_asymmetric_results(asymmetric_oracle_cases, tmp_path_factory) -> dict[str, str]:
+    """Compile both refin != refout customs plus an oracle-literal driver
+    into one container class, run once, return ``{label: "PASS"|"FAIL"}``."""
+    if not HAS_JDK:
+        return {}
+    members, checks = [], []
+    for label, algo, oracle in asymmetric_oracle_cases:
+        sym = "asym_" + label.replace("-", "_")
+        out = generate_java_from_entry(sym, algo, symbol=sym)
+        assert out is not None, f"generate_java_from_entry({label!r}) returned None"
+        inner = out.split("{", 1)[1].rsplit("}", 1)[0].strip("\n")
+        members.append(f"final class C_{sym} {{\n{inner}\n}}")
+        jtype = _java_jtype(algo.width)
+        checks.append(
+            "        try {\n"
+            "            byte[] full = { 0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39 };\n"
+            f"            {jtype} s = C_{sym}.{sym}_init();\n"
+            f"            s = C_{sym}.{sym}_update(s, full);\n"
+            f"            System.out.println(\"{label} \" + "
+            f"((C_{sym}.{sym}_finalize(s) == 0x{oracle:X}"
+            f"{'L' if algo.width == 64 else ''}) ? \"PASS\" : \"FAIL\"));\n"
+            f"        }} catch (Throwable e) {{ System.out.println(\"{label} FAIL:exception\"); }}"
+        )
+    src = (
+        "\n\n".join(members)
+        + "\n\npublic final class CrcGlotAsym {\n"
+        + "    public static void main(String[] args) {\n"
+        + "\n".join(checks)
+        + "\n    }\n}\n"
+    )
+    d = tmp_path_factory.mktemp("java_asym")
+    run = _compile_and_run_java(d, "CrcGlotAsym", src)
+    results: dict[str, str] = {}
+    for line in run.stdout.decode(errors="replace").splitlines():
+        key, _, res = line.strip().rpartition(" ")
+        if key:
+            results[key] = res
+    return results
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_JDK, reason="JDK (javac/java) not found")
+@pytest.mark.xdist_group("java_batch")
+class TestAsymmetricCustomExecution:
+    """Compiled Java for ``refin != refout`` customs must reproduce the value
+    two independent oracles agreed on -- the asymmetry direction and the
+    reflect+XOR finalize that no catalogue algorithm reaches."""
+
+    @pytest.mark.parametrize("idx", [0, 1], ids=_ASYM_IDS)
+    def test_generated_code_matches_oracle(
+        self, idx, asymmetric_oracle_cases, java_asymmetric_results
+    ):
+        # Assert -- the single-build driver reported PASS for this custom.
+        label, _algo, oracle = asymmetric_oracle_cases[idx]
+        actual = java_asymmetric_results.get(label)
+        assert actual == "PASS", (
+            f"{label}: compiled Java disagreed with the two-oracle value "
+            f"0x{oracle:X} (got {actual!r}; missing => absent from driver output)"
+        )
