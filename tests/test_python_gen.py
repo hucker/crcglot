@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from crcglot import ALGORITHMS, generate_python
+from crcglot.lang.python import generate_python_from_entry
 
 
 # Standard check string used by the reveng catalogue
@@ -180,4 +181,56 @@ class TestGeneratedPythonStreaming:
         assert empty_last_result == expected, (
             f"{name} (variant={variant}): empty-chunk-last streamed result "
             f"{empty_last_result:#x} != check {expected:#x}"
+        )
+
+    @pytest.mark.parametrize("variant", ["bitwise", "table"])
+    @pytest.mark.parametrize("name", sorted(ALGORITHMS.keys()))
+    def test_byte_at_a_time_matches_check(self, name, variant):
+        """The batch drivers assert this for the compiled targets; this is the
+        generated-Python cell of the byte-at-a-time matrix row."""
+        # Arrange
+        expected = ALGORITHMS[name].check
+        code = generate_python(name, variant=variant)
+        assert code is not None, f"generate_python({name!r}) returned code"
+        ns: dict = {}
+        exec(code, ns)
+        fname = name.replace("-", "_").replace(".", "_")
+
+        # Act -- the fully segmented feed: one byte per update.
+        state = ns[f"{fname}_init"]()
+        for i in range(len(CHECK_DATA)):
+            state = ns[f"{fname}_update"](state, CHECK_DATA[i:i + 1])
+        actual = ns[f"{fname}_finalize"](state)
+
+        # Assert
+        assert actual == expected, (
+            f"{name} (variant={variant}): byte-at-a-time result "
+            f"{actual:#x} != check {expected:#x}"
+        )
+
+
+class TestAsymmetricCustomGeneratedPython:
+    """Generated Python for ``refin != refout`` customs matches the two-oracle
+    value.  The catalogue reaches only one asymmetry direction (crc12-umts);
+    the two customs from the ``asymmetric_oracle_cases`` fixture cover the
+    other direction and the reflect+XOR finalize, graded against values
+    crcglot never computed."""
+
+    @pytest.mark.parametrize("idx", [0, 1], ids=["refin-only", "refout-only-xor"])
+    def test_generated_code_matches_oracle(self, asymmetric_oracle_cases, idx):
+        # Arrange -- ids mirror the fixture's fixed order.
+        label, algo, expected = asymmetric_oracle_cases[idx]
+        fname = label.replace("-", "_")
+        code = generate_python_from_entry(fname, algo)
+        ns: dict = {}
+        exec(code, ns)
+
+        # Act
+        actual = ns[fname](CHECK_DATA)
+
+        # Assert
+        hexw = (algo.width + 3) // 4
+        assert actual == expected, (
+            f"{label}: generated Python 0x{actual:0{hexw}X} != "
+            f"two-oracle 0x{expected:0{hexw}X}"
         )

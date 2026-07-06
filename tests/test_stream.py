@@ -104,6 +104,93 @@ def test_pure_python_backend_matches_check(name: str, force_pure_python: None) -
         assert actual == expected, f"{name}: {chunks!r} gave {actual:#x}"
 
 
+# ── segmentation: every split position, both backends ─────────────────────
+
+
+@pytest.fixture(params=["default", "pure-python"])
+def backend(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Run the test twice: real backend dispatch, then the pure-Python fallback.
+
+    The forced case reuses the ``force_pure_python`` monkeypatching so the
+    reference state machine is exercised through the public API even when the
+    C extension and zlib fast-path are available.
+    """
+    if request.param == "pure-python":
+        monkeypatch.setattr("crcglot.stream._CCrcStream", None)
+        monkeypatch.setattr("crcglot.stream._ZLIB_FAST_PATHS", {})
+    return request.param
+
+
+class TestSegmentation:
+    """Any segmentation of a message digests to the same CRC as the one-shot.
+
+    Exhaustive over split positions, not just a few curated framings: every
+    two-part split of the 9-byte check string, every two-part split of a
+    33-byte message, and the fully segmented byte-at-a-time feed.  Runs across
+    the whole catalogue (crc12-umts, the one ``refin != refout`` entry, rides
+    along) on both the default backend dispatch and the forced pure-Python
+    fallback.
+    """
+
+    _LONGER = bytes(range(1, 34))
+
+    def _stream(self, name: str, backend: str) -> CrcStream:
+        stream = crc_stream(name)
+        if backend == "pure-python":
+            assert isinstance(stream._backend, _PyBackend), (
+                f"{name}: expected the forced pure-Python backend"
+            )
+        return stream
+
+    @pytest.mark.parametrize("name", _NAMES)
+    def test_every_split_position_of_check_string_matches_check(
+        self, name: str, backend: str
+    ) -> None:
+        # Arrange
+        expected = ALGORITHMS[name].check
+
+        # Act / Assert -- all ten two-part splits, including the empty ends.
+        for i in range(len(_DATA) + 1):
+            actual = _digest(self._stream(name, backend), [_DATA[:i], _DATA[i:]])
+            assert actual == expected, (
+                f"{name} ({backend}) split at {i}: {actual:#x} != check {expected:#x}"
+            )
+
+    @pytest.mark.parametrize("name", _NAMES)
+    def test_byte_at_a_time_updates_match_check(self, name: str, backend: str) -> None:
+        # Arrange
+        expected = ALGORITHMS[name].check
+
+        # Act -- nine single-byte updates, the fully segmented feed.
+        stream = self._stream(name, backend)
+        for i in range(len(_DATA)):
+            stream.update(_DATA[i:i + 1])
+        actual = stream.digest()
+
+        # Assert
+        assert actual == expected, (
+            f"{name} ({backend}) byte-at-a-time: {actual:#x} != check {expected:#x}"
+        )
+
+    @pytest.mark.parametrize("name", _NAMES)
+    def test_every_split_position_of_longer_message_matches_one_shot(
+        self, name: str, backend: str
+    ) -> None:
+        # Arrange -- the one-shot CRC is the reference; 33 bytes = 34 positions.
+        algo = ALGORITHMS[name]
+        expected = generic_crc(self._LONGER, algo)
+
+        # Act / Assert
+        for i in range(len(self._LONGER) + 1):
+            actual = _digest(
+                self._stream(name, backend), [self._LONGER[:i], self._LONGER[i:]]
+            )
+            assert actual == expected, (
+                f"{name} ({backend}) split at {i}: {actual:#x} != "
+                f"one-shot {expected:#x}"
+            )
+
+
 # ── backend selection ─────────────────────────────────────────────────────
 
 
