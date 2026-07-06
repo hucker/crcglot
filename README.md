@@ -1,6 +1,6 @@
 # crcglot
 
-[![PyPI](https://img.shields.io/pypi/v/crcglot)](https://pypi.org/project/crcglot/) ![license](https://img.shields.io/badge/license-MIT-blue) ![Py 3.11](https://img.shields.io/badge/Py%203.11-passing-brightgreen "5372 tests pass on CPython 3.11") ![Py 3.12](https://img.shields.io/badge/Py%203.12-passing-brightgreen "5372 tests pass on CPython 3.12") ![Py 3.13](https://img.shields.io/badge/Py%203.13-passing-brightgreen "5372 tests pass on CPython 3.13") ![Py 3.14](https://img.shields.io/badge/Py%203.14-passing-brightgreen "5372 tests pass on CPython 3.14") ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
+[![PyPI](https://img.shields.io/pypi/v/crcglot)](https://pypi.org/project/crcglot/) ![license](https://img.shields.io/badge/license-MIT-blue) ![Py 3.11](https://img.shields.io/badge/Py%203.11-passing-brightgreen "8477 tests pass on CPython 3.11") ![Py 3.12](https://img.shields.io/badge/Py%203.12-passing-brightgreen "8477 tests pass on CPython 3.12") ![Py 3.13](https://img.shields.io/badge/Py%203.13-passing-brightgreen "8477 tests pass on CPython 3.13") ![Py 3.14](https://img.shields.io/badge/Py%203.14-passing-brightgreen "8477 tests pass on CPython 3.14") ![coverage](https://img.shields.io/badge/coverage-95%25-brightgreen) ![ruff](https://img.shields.io/badge/ruff-passing-brightgreen) ![ty](https://img.shields.io/badge/ty-passing-brightgreen)
 
 **The CRC backend an AI assistant can delegate to.**  Deterministic, reveng-anchored CRC answers: compute, detect, reverse-engineer, and verify CRCs from a catalogue of 100+ algorithms, plus execution-verified code generation for C / C++ ⚙️, Rust 🦀, Go 🚦, C# 💠, Java ☕, Python 🐍, TypeScript 🔷, Verilog 🔧, and VHDL 🔌.  Call it over MCP, from the CLI, or in Python.  **Zero-dependency core: stdlib only** (an optional bundled C accelerator speeds up computation; the optional MCP server adds the MCP SDK).
 
@@ -72,6 +72,26 @@ The generated **Python is pure Python**: portable and dependency-free, but inter
 Every ✓ is the **whole catalogue** (all 100+ algorithms) generated, compiled, and executed through that real toolchain in CI, with outputs checked against the reference vectors.  The em-dash cells are variants the target deliberately does not offer, not gaps in coverage.
 
 That cross is also why crcglot's test count runs into the thousands.  The count is not coverage chasing: it is a small set of assertions parametrized over algorithms × languages × variants × reference inputs, because CRC correctness is a finite, enumerable space and covering an enumerable space exhaustively is cheap (the whole cross runs in about a minute).  The number measures the size of the matrix, not the size of the test code.
+
+### The verification matrix
+
+The cross above is one axis of a larger structure.  The suite is organized as nine distinct categories of evidence, each checking the same artifacts from a different angle:
+
+| # | Evidence category | What it checks |
+| - | ----------------- | -------------- |
+| 1 | Reference vectors | Every algorithm reproduces reveng's published check value, in the engine and in every generated language |
+| 2 | Extended vectors | All 256 byte values, a 1 KiB pattern, and boundary lengths, against goldens from two engines that had to agree |
+| 3 | Random vectors | Seeded random inputs per algorithm, compared live against both reference engines at test time |
+| 4 | Cross-language equivalence | Nine toolchains interpret the same parameter set and must produce identical CRCs |
+| 5 | Streaming | Chunked updates equal the one-shot result, in the engine and in generated code |
+| 6 | Segmentation | Every split position of a message yields the same CRC through the public streaming API, on both engine backends |
+| 7 | Byte-at-a-time | One byte per update matches the one-shot CRC: the engine, the generated software targets, and the HDL targets (whose update is byte-serial by construction) |
+| 8 | Toolchain execution | Generated code is compiled and run through real toolchains; acceptance is the execution result, not a reading of the source |
+| 9 | Adversarial parameters | Sub-byte and non-byte-aligned widths, init/xorout edge values, asymmetric reflection (refin != refout, in both orders) against the reference engines and through compiled code, and reverse-engineering ambiguity |
+
+So the claim is not "the tests pass"; it is that nine distinct categories of evidence converge on the same answer.  That convergence is the review this code gets: nobody vouches for how the source reads, the matrix vouches for what it does, and you can re-run all of it.  Distinct rather than independent, deliberately: the categories share one engine and one catalogue, so they are different lenses on the same artifact, and the independence lives in the references instead (two engines crcglot did not write, nine toolchains it does not control, a published catalogue it did not author).
+
+One scoping note, because this style of review is not equally available to every project.  A CRC library is unusually well suited to it: the things to verify form a countable space (algorithms × variants × languages) while the inputs form an infinite one, so the suite can enumerate the countable axis completely and cover the infinite one with structured and random samples.  crcglot uses that shape to its advantage; a system whose behavior space is not enumerable gets evidence density from the same approach, but not exhaustiveness.  The full category-to-test mapping is in [docs/verification/index.md](docs/verification/index.md).
 
 CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against **four independent reference vectors** (the empty input, the canonical `"123456789"` check string, all 256 byte values, and a 1 KiB pseudo-random pattern), computed by two independent engines that had to agree, so the null, the trivial, and the complex cases are all covered and a silent regression in crcglot's own engine can't hide.  The Python generator is run end-to-end (generated, exec'd, and exercised) against those same vectors.  The slow tier on top of that compiles and executes the generated source for **every** algorithm in C, Rust, Go, C#, Java, TypeScript, Verilog, and VHDL via `gcc` / `rustc` / `go` / `dotnet` / `javac`+`java` / `tsx` (Node) / `iverilog` / `ghdl` and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain.
 

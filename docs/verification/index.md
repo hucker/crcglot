@@ -2,7 +2,7 @@
 
 Every adversarial verification pass of crcglot is recorded here, one file per pass, so the series has a permanent home instead of accumulating one-off filenames.
 
-## The model: evidence instead of review
+## The model: review by evidence, not by reading
 
 crcglot is a working example of shifting the basis of software correctness from human inspection of code to evidence of behavioral conformance.  The traditional chain (spec, implementation, a few unit tests, a reviewer's sign-off) locates trust in the review: someone read the code and vouched for it.  crcglot locates trust in a body of evidence built from sources that fail independently:
 
@@ -12,7 +12,23 @@ crcglot is a working example of shifting the basis of software correctness from 
 - **Cross-language execution as differential validation.**  Nine toolchains must interpret the same parameter set identically.  Agreement constrains the interpretation of the spec itself, not just any one implementation.
 - **Adversarial passes (this series).**  Each pass rebuilds its oracle from scratch and tries to break the results: boundary conditions, parameterization ambiguity, the known failure modes of CRC bit handling.
 
-Under this model the test suite is not a QA gate bolted onto development; it is the correctness argument.  Human review still happens, but the claim does not rest on it: a reviewer can vouch for what they read, while the matrix vouches for what the code does, on toolchains and inputs no reviewer holds in their head.  Trust comes from the density, diversity, and independence of the evidence, which is also why the suite is yours to re-run.
+Under this model the test suite is not a QA gate bolted onto development; it is the correctness argument.  The code is still reviewed, but the review is performed by evidence rather than by reading: a review by reading vouches for what the reviewer saw, while this one vouches for what the code does, on toolchains and inputs no reader holds in their head.  Trust comes from the density, diversity, and independence of the evidence, which is also why the suite is yours to re-run.
+
+### The verification matrix
+
+The evidence sources above organize into nine categories, each checked by the suite.  The README carries the one-line version of this table; this is the full mapping from category to the tests that carry it.
+
+| # | Category | What it checks | Where it lives |
+| - | -------- | -------------- | -------------- |
+| 1 | Reference vectors | reveng's published check value plus four goldens computed by two engines that had to agree, in the engine and in every generated file's embedded self-test | `tests/test_external_vectors.py`, `tests/test_independent_vectors.py`, `tests/test_verification_vectors.py` (engine, fast); the `_self_test()` embedded in every generated file (generated, slow) |
+| 2 | Extended vectors | all 256 byte values, a 1 KiB pseudo-random pattern, boundary lengths 0/1/7/8/9/15/16/100 | the `all_bytes` / `binary_1k` goldens across the catalogue (fast + embedded); slice-by-8 vs bit-by-bit equivalence at boundary lengths in each `tests/test_<lang>_gen.py` (slow) |
+| 3 | Random vectors | seeded random inputs, computed live by anycrc and crccheck, which must agree before the engine is graded | `tests/test_differential_random.py` (engine, fast); the committed goldens' two-oracle provenance re-run in `tests/test_vectors_provenance.py` (slow) |
+| 4 | Cross-language equivalence | the whole catalogue × every supported variant, generated and executed in nine languages, all pinned to the same references | the batch execution tests in each `tests/test_<lang>_gen.py` (slow) |
+| 5 | Streaming | init/update/finalize fed in chunks equals the one-shot result | `tests/test_stream.py`, `tests/test_independent_vectors.py` (engine, fast); the split-streaming phase in every software batch driver (generated, slow) |
+| 6 | Segmentation | every split position of the check string and of a 33-byte message digests identically, plus curated boundary-hazard framings | `tests/test_stream.py::TestSegmentation` on both engine backends (fast); `tests/test_independent_vectors.py::TestChunkingInvariance` (fast) |
+| 7 | Byte-at-a-time | the fully segmented feed, one byte per update, equals the one-shot CRC | `tests/test_stream.py` (engine, fast); `tests/test_python_gen.py` (generated Python, fast); the `bytewise` phase in every software batch driver (slow); Verilog/VHDL update one byte per invocation by construction |
+| 8 | Toolchain execution | generated source is compiled and run through gcc, rustc, go, dotnet, javac + java, tsx, iverilog, and ghdl; acceptance is the execution result | batch (default) and `--exhaustive` classes in each `tests/test_<lang>_gen.py` (slow) |
+| 9 | Adversarial parameters | sub-byte and non-byte-aligned widths, init/xorout edge values, asymmetric reflection in both orders, reverse-engineering ambiguity | catalogue-wide parametrization carries the odd widths everywhere (crc12-umts is the catalogue's one refin != refout entry); `tests/test_differential_random.py::TestAsymmetricReflectionDifferential` (fast); `TestAsymmetricCustomExecution` in each software `tests/test_<lang>_gen.py` (slow); `tests/test_reverse.py` (fast) |
 
 Scoping notes, so the claim stays exactly as strong as it is.  This works as well as it does because a CRC's behavior space is closed and enumerable; the same approach on a sprawling behavior space buys evidence density, not exhaustiveness.  No finite test set can prove an implementation over an infinite input space, which is why these pages say "verified" and "checked", never "proven": the claim is convergent evidence, deliberately not proof.  And the harness was designed by the same development process it grades; the independent passes in this series exist to attack precisely that residual assumption.
 
