@@ -75,7 +75,7 @@ That cross is also why crcglot's test count runs into the thousands.  The count 
 
 ### The verification matrix
 
-The cross above is one axis of a larger structure.  The suite is organized as nine distinct categories of evidence, each checking the same artifacts from a different angle:
+The cross above is one axis of a larger structure.  The evidence is organized as ten distinct categories, the first nine checked by the suite on every run and the tenth performed episodically by independent agents:
 
 | # | Evidence category | What it checks |
 | - | ----------------- | -------------- |
@@ -87,9 +87,10 @@ The cross above is one axis of a larger structure.  The suite is organized as ni
 | 6 | Segmentation | Every split position of a message yields the same CRC through the public streaming API, on both engine backends |
 | 7 | Byte-at-a-time | One byte per update matches the one-shot CRC: the engine, the generated software targets, and the HDL targets (whose update is byte-serial by construction) |
 | 8 | Toolchain execution | Generated code is compiled and run through real toolchains; acceptance is the execution result, not a reading of the source |
-| 9 | Adversarial parameters | Sub-byte and non-byte-aligned widths, init/xorout edge values, asymmetric reflection (refin != refout, in both orders) against the reference engines and through compiled code, and reverse-engineering ambiguity |
+| 9 | Parameter edge cases | Sub-byte and non-byte-aligned widths, init/xorout edge values, asymmetric reflection (refin != refout, in both orders) against the reference engines and through compiled code, and reverse-engineering ambiguity |
+| 10 | Adversarial review | Separate verification passes in which an independent agent rebuilds its own oracle from scratch, validates it outside the package, and tries to break the engine, the generators, and the reverse-engineering; each pass is recorded as-reviewed in [docs/verification/](docs/verification/index.md) |
 
-So the claim is not "the tests pass"; it is that nine distinct categories of evidence converge on the same answer.  That convergence is the review this code gets: nobody vouches for how the source reads, the matrix vouches for what it does, and you can re-run all of it.  Distinct rather than independent, deliberately: the categories share one engine and one catalogue, so they are different lenses on the same artifact, and the independence lives in the references instead (two engines crcglot did not write, nine toolchains it does not control, a published catalogue it did not author).
+So the claim is not "the tests pass"; it is that ten distinct categories of evidence converge on the same answer.  That convergence is the review this code gets: nobody vouches for how the source reads, the matrix vouches for what it does, and you can re-run all of it.  Distinct rather than independent, deliberately: the categories share one engine and one catalogue, so they are different lenses on the same artifact, and the independence lives in the references instead (two engines crcglot did not write, nine toolchains it does not control, a published catalogue it did not author).
 
 One scoping note, because this style of review is not equally available to every project.  A CRC library is unusually well suited to it: the things to verify form a countable space (algorithms × variants × languages) while the inputs form an infinite one, so the suite can enumerate the countable axis completely and cover the infinite one with structured and random samples.  crcglot uses that shape to its advantage; a system whose behavior space is not enumerable gets evidence density from the same approach, but not exhaustiveness.  The full category-to-test mapping is in [docs/verification/index.md](docs/verification/index.md).
 

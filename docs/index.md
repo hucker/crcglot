@@ -8,7 +8,7 @@ The [README](../README.md) is the overview; the reference lives here, one sectio
 - **[MCP server](MCP.md)**: exposing crcglot's tools to LLM clients (Claude Desktop, Cursor, …): setup, every tool, resources, prompts.
 - **[Certification story](certification.md)**: crcglot is not certified code and not a drop-in certified component; it held itself to some of the same verification methods you would use on real certified software and hands you that evidence.  What you get, what stays yours, what is not claimed.
 - **[Architecture](ARCHITECTURE.md)**: how the package is put together.
-- **[Verification reports](verification/index.md)**: the review model (review by evidence, not by reading) and the nine-category verification matrix with its category-to-test mapping, plus the series of adversarial verification passes (one dated file per pass), each grading the engine, the generators, and the reverse-engineering against an oracle anchored outside the package, with findings and their resolutions.
+- **[Verification reports](verification/index.md)**: the review model (review by evidence, not by reading) and the ten-category verification matrix with its category-to-test mapping, plus the series of adversarial verification passes (one dated file per pass), each grading the engine, the generators, and the reverse-engineering against an oracle anchored outside the package, with findings and their resolutions.
 
 Also in the repository root:
 

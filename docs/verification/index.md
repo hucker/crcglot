@@ -16,7 +16,7 @@ Under this model the test suite is not a QA gate bolted onto development; it is 
 
 ### The verification matrix
 
-The evidence sources above organize into nine categories, each checked by the suite.  The README carries the one-line version of this table; this is the full mapping from category to the tests that carry it.
+The evidence sources above organize into ten categories: the first nine are checked by the test suite on every run, and the tenth is the review series this directory records.  The README carries the one-line version of this table; this is the full mapping from category to the tests (or reports) that carry it.
 
 | # | Category | What it checks | Where it lives |
 | - | -------- | -------------- | -------------- |
@@ -28,7 +28,8 @@ The evidence sources above organize into nine categories, each checked by the su
 | 6 | Segmentation | every split position of the check string and of a 33-byte message digests identically, plus curated boundary-hazard framings | `tests/test_stream.py::TestSegmentation` on both engine backends (fast); `tests/test_independent_vectors.py::TestChunkingInvariance` (fast) |
 | 7 | Byte-at-a-time | the fully segmented feed, one byte per update, equals the one-shot CRC | `tests/test_stream.py` (engine, fast); `tests/test_python_gen.py` (generated Python, fast); the `bytewise` phase in every software batch driver (slow); Verilog/VHDL update one byte per invocation by construction |
 | 8 | Toolchain execution | generated source is compiled and run through gcc, rustc, go, dotnet, javac + java, tsx, iverilog, and ghdl; acceptance is the execution result | batch (default) and `--exhaustive` classes in each `tests/test_<lang>_gen.py` (slow) |
-| 9 | Adversarial parameters | sub-byte and non-byte-aligned widths, init/xorout edge values, asymmetric reflection in both orders, reverse-engineering ambiguity | catalogue-wide parametrization carries the odd widths everywhere (crc12-umts is the catalogue's one refin != refout entry); `tests/test_differential_random.py::TestAsymmetricReflectionDifferential` (fast); `TestAsymmetricCustomExecution` in each software `tests/test_<lang>_gen.py` (slow); `tests/test_reverse.py` (fast) |
+| 9 | Parameter edge cases | sub-byte and non-byte-aligned widths, init/xorout edge values, asymmetric reflection in both orders, reverse-engineering ambiguity | catalogue-wide parametrization carries the odd widths everywhere (crc12-umts is the catalogue's one refin != refout entry); `tests/test_differential_random.py::TestAsymmetricReflectionDifferential` (fast); `TestAsymmetricCustomExecution` in each software `tests/test_<lang>_gen.py` (slow); `tests/test_reverse.py` (fast) |
+| 10 | Adversarial review | independent agents run separate verification passes: each rebuilds its own oracle from scratch, validates it against references outside the package, and tries to break the engine, the generators, and the reverse-engineering | the report series in this directory, one dated file per pass; harnesses are deliberately not archived (see the conventions below), so each pass re-earns its independence |
 
 Scoping notes, so the claim stays exactly as strong as it is.  This works as well as it does because a CRC's behavior space is closed and enumerable; the same approach on a sprawling behavior space buys evidence density, not exhaustiveness.  No finite test set can prove an implementation over an infinite input space, which is why these pages say "verified" and "checked", never "proven": the claim is convergent evidence, deliberately not proof.  And the harness was designed by the same development process it grades; the independent passes in this series exist to attack precisely that residual assumption.
 
