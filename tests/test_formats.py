@@ -190,11 +190,11 @@ class TestFormEncodeDeferred:
 
 
 class TestMcpWireSerialization:
-    """The MCP wire layer projects a form match to a JSON-serializable dict."""
+    """The wire layer projects a form match to a JSON-serializable dict."""
 
     def test_form_match_is_json_serializable(self):
         # Arrange
-        from crcglot.mcp._wire import detect_match_to_dict
+        from crcglot._wire import detect_match_to_dict
 
         m = detect('{"t":1234,"v":42,"crc":"1352"}').candidates[0]
 

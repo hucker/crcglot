@@ -43,3 +43,12 @@ class UnknownVerbError(CrcglotError, ValueError):
     when one exists and lists the full verb vocabulary (built by
     :func:`crcglot.verbs.verb_info`, the vocabulary's owner).
     """
+
+
+class UnknownParamError(CrcglotError, TypeError):
+    """A :func:`crcglot.call_verb` parameter is not in the verb's manifest.
+
+    A ``TypeError`` because that is Python's convention for an unexpected
+    keyword argument.  The message suggests a close match when one exists and
+    lists the verb's valid parameters.
+    """
