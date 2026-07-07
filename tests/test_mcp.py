@@ -24,7 +24,7 @@ import sys
 
 import pytest
 
-from crcglot import ALGORITHMS, LANGUAGES, Crc, encode, generic_crc
+from crcglot import ALGORITHMS, LANGUAGES, VERBS, Crc, encode, generic_crc
 from crcglot.mcp.server import build_server
 
 
@@ -1527,3 +1527,176 @@ class TestLazyImport:
         # Act / Assert -- propagates as ModuleNotFoundError, not SystemExit.
         with pytest.raises(ModuleNotFoundError):
             mcp_pkg.main()
+
+
+# ---------------------------------------------------------------------------
+# The verb manifest is the schema contract
+# ---------------------------------------------------------------------------
+
+# ParamSpec.type -> the JSON Schema type names FastMCP/pydantic may emit for it.
+_MANIFEST_JSON_TYPES = {
+    "string": {"string"},
+    "integer": {"integer"},
+    "boolean": {"boolean"},
+    "object": {"object"},
+    "array[string]": {"array"},
+    "string | array[string]": {"string", "array"},
+}
+
+
+def _flat_prop(prop: dict) -> tuple[set, list | None]:
+    """Normalize one inputSchema property to ``(json_types, enum_values)``.
+
+    Pydantic v2 renders an optional parameter as
+    ``{"anyOf": [{...}, {"type": "null"}], "default": ...}``; unwrap the
+    anyOf, drop the null branch, and collect the type names plus any enum
+    from the remaining branches.
+    """
+    branches = prop.get("anyOf", [prop])
+    types: set = set()
+    enum: list | None = None
+    for b in branches:
+        t = b.get("type")
+        if t == "null":
+            continue
+        if "enum" in b:
+            enum = b["enum"]
+            types.add(t or "string")
+        elif t is not None:
+            types.add(t)
+    return types, enum
+
+
+class TestVerbManifestDrift:
+    """Live tool schemas must match :data:`crcglot.VERBS`.
+
+    The manifest is what frontends (termapy, any MCP client reading
+    crcglot://verbs.json) render typed tools from, so a signature change in
+    server.py without a manifest update must fail here rather than diverge
+    silently.  This generalizes the single-enum pin in
+    ``test_comment_style_enum_matches_registry`` to every tool, every
+    parameter, every enum, and every default.
+    """
+
+    @staticmethod
+    def _tools() -> dict:
+        return {t.name: t for t in _run(build_server().list_tools())}
+
+    def test_tool_names_match_manifest(self):
+        # Assert -- one tool per verb, no strays in either direction.
+        actual = set(self._tools())
+        expected = {spec.mcp_tool for spec in VERBS.values()}
+        assert actual == expected, (
+            f"tools {sorted(actual)} != manifest {sorted(expected)}"
+        )
+
+    @pytest.mark.parametrize("verb", list(VERBS), ids=list(VERBS))
+    def test_schema_matches_manifest(self, verb):
+        # Arrange
+        spec = VERBS[verb]
+        tool = self._tools()[spec.mcp_tool]
+        props = tool.inputSchema.get("properties", {})
+
+        # Assert -- parameter-name set.
+        actual_names = set(props)
+        expected_names = {p.name for p in spec.params}
+        assert actual_names == expected_names, (
+            f"{verb}: schema params {sorted(actual_names)} != "
+            f"manifest {sorted(expected_names)}"
+        )
+        # Assert -- required set.
+        actual_required = set(tool.inputSchema.get("required", []))
+        expected_required = {p.name for p in spec.params if p.required}
+        assert actual_required == expected_required, (
+            f"{verb}: schema required {sorted(actual_required)} != "
+            f"manifest {sorted(expected_required)}"
+        )
+        # Assert -- per-parameter type, enum, and default.
+        for p in spec.params:
+            types, enum = _flat_prop(props[p.name])
+            assert types <= _MANIFEST_JSON_TYPES[p.type], (
+                f"{verb}.{p.name}: schema types {types} outside manifest "
+                f"type {p.type!r}"
+            )
+            if p.choices:
+                actual_enum = enum
+                expected_enum = [c.name for c in p.choices]
+                assert actual_enum == expected_enum, (
+                    f"{verb}.{p.name}: schema enum {actual_enum} != "
+                    f"manifest choices {expected_enum}"
+                )
+            if not p.required:
+                actual_default = props[p.name].get("default")
+                assert actual_default == p.default, (
+                    f"{verb}.{p.name}: schema default {actual_default!r} != "
+                    f"manifest default {p.default!r}"
+                )
+
+    @pytest.mark.parametrize("verb", list(VERBS), ids=list(VERBS))
+    def test_description_renders_from_manifest(self, verb):
+        # Assert -- the shipped description IS the manifest prose plus the
+        # rendered parameter block naming every parameter.
+        spec = VERBS[verb]
+        tool = self._tools()[spec.mcp_tool]
+        description = tool.description or ""
+        assert description.startswith(spec.description), (
+            f"{verb}: tool description does not start with the manifest prose"
+        )
+        for p in spec.params:
+            assert f"- {p.name}:" in description, (
+                f"{verb}: parameter {p.name!r} missing from the rendered "
+                f"Parameters block"
+            )
+
+    def test_literal_enums_match_manifest_choices(self):
+        """The module-level Literal aliases can't be derived at runtime
+        (typing limitation), so pin each to the manifest choices that
+        describe the same parameter."""
+        # Arrange
+        from typing import get_args
+
+        from crcglot.mcp import server as srv
+
+        def choices(verb: str, param: str) -> tuple[str, ...]:
+            p = next(p for p in VERBS[verb].params if p.name == param)
+            return tuple(c.name for c in p.choices)
+
+        # Act / Assert -- one pin per Literal alias.
+        pins = [
+            ("LANG_ENUM", get_args(srv.LANG_ENUM), choices("generate", "language")),
+            ("VARIANT_ENUM", get_args(srv.VARIANT_ENUM), choices("generate", "variant")),
+            ("NAMING_ENUM", get_args(srv.NAMING_ENUM), choices("generate", "naming")),
+            ("ENDIAN_ENUM", get_args(srv.ENDIAN_ENUM), choices("detect", "endian")),
+            ("MATCH_ENUM", get_args(srv.MATCH_ENUM), choices("detect", "match")),
+            (
+                "CRC_BYTE_ORDER_ENUM",
+                get_args(srv.CRC_BYTE_ORDER_ENUM),
+                choices("verify", "crc_byte_order"),
+            ),
+            (
+                "PACKET_FORMAT_ENUM",
+                get_args(srv.PACKET_FORMAT_ENUM),
+                choices("reverse", "packet_format"),
+            ),
+        ]
+        for label, actual, expected in pins:
+            assert actual == expected, (
+                f"{label} {actual} drifted from manifest choices {expected}"
+            )
+
+    def test_verbs_resource_serves_the_manifest(self):
+        # Act
+        data = _read_resource("crcglot://verbs.json")
+        # Assert -- every verb present, spot-check one spec end to end.
+        actual_verbs = set(data["verbs"])
+        expected_verbs = set(VERBS)
+        assert actual_verbs == expected_verbs, (
+            f"resource verbs {sorted(actual_verbs)} != {sorted(expected_verbs)}"
+        )
+        detect = data["verbs"]["detect"]
+        assert detect["mcp_tool"] == "crc_detect", "detect spec lost its mcp_tool"
+        actual_params = [p["name"] for p in detect["params"]]
+        expected_params = [p.name for p in VERBS["detect"].params]
+        assert actual_params == expected_params, (
+            "detect params differ between the resource and crcglot.VERBS"
+        )

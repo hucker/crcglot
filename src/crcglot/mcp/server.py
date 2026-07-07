@@ -44,6 +44,7 @@ from crcglot import (
     verify,
 )
 from crcglot.catalogue import unknown_algorithm_error
+from crcglot.verbs import VERBS
 from crcglot.mcp._wire import (
     algorithm_to_dict,
     trailer_result_to_dict,
@@ -110,6 +111,32 @@ _READONLY = ToolAnnotations(
     destructiveHint=False,
     openWorldHint=False,
 )
+
+
+def _tool_description(verb: str) -> str:
+    """Render a tool's MCP description from the verb manifest.
+
+    The guidance prose lives on ``VerbSpec.description`` (the manifest is the
+    single home for it); this appends a rendered per-parameter block, so an
+    MCP client sees the same choices / defaults / help an importing consumer
+    reads from :data:`crcglot.VERBS`.  ``test_mcp.py::TestVerbManifestDrift``
+    holds the live schemas to the same manifest.
+    """
+    spec = VERBS[verb]
+    if not spec.params:
+        return spec.description
+    lines = []
+    for p in spec.params:
+        suffix = ""
+        if p.choices:
+            suffix += " (choices: " + " / ".join(c.name for c in p.choices) + ")"
+        if p.default is not None:
+            suffix += f" (default {p.default!r})"
+        lines.append(f"- {p.name}: {p.help}{suffix}")
+    for g in spec.mutually_exclusive:
+        rule = "exactly one" if g.required else "at most one"
+        lines.append(f"- supply {rule} of: " + " / ".join(g.params))
+    return spec.description + "\n\nParameters:\n" + "\n".join(lines)
 
 
 def _as_int(value: Any, field: str) -> int:
@@ -208,7 +235,7 @@ def build_server() -> FastMCP:
         "crcglot",
         instructions=(
             "crcglot exposes the reveng CRC catalogue (more than 100 algorithms), "
-            "a multi-language code generator (C / C# / Go / Python / Rust "
+            "a multi-language code generator (C / C# / Go / Java / Python / Rust "
             "/ TypeScript / Verilog / VHDL), and a runtime CRC engine.  "
             "Use crc_list / crc_info to browse.  The packet tools all take the "
             "same shape -- whole frames with the CRC as the trailing field: "
@@ -248,16 +275,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_list",
-        description=(
-            "Browse the crcglot CRC algorithm catalogue.  Returns more than "
-            "100 named algorithms from the reveng catalogue (crc32, "
-            "crc16-modbus, crc8-cdma2000, ...).  Use this when the user "
-            "mentions a CRC by partial name or family, or to disambiguate "
-            "before crc_generate.  Filter with a shell glob like "
-            "'crc16-*' to narrow the list.  This is also the best first "
-            "tool to call when building a candidate set to filter by width "
-            "or description before calling crc_info / crc_generate."
-        ),
+        description=_tool_description("list"),
     )
     def crc_list(glob: str | None = None) -> dict[str, Any]:
         import fnmatch as _fnmatch
@@ -281,15 +299,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_info",
-        description=(
-            "Get the full Rocksoft/Williams parameters (width, poly, "
-            "init, refin, refout, xorout, check) for one catalogue "
-            "algorithm.  Use after crc_list to confirm parameters before "
-            "crc_generate, or to answer 'what polynomial does "
-            "crc16-modbus use?'.  Numeric fields are surfaced in both "
-            "decimal (poly, init, xorout, check) and hex (poly_hex, "
-            "init_hex, xorout_hex, check_hex)."
-        ),
+        description=_tool_description("info"),
     )
     def crc_info(name: str) -> dict[str, Any]:
         algo = ALGORITHMS.get(name)
@@ -302,18 +312,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_self_test_vectors",
-        description=(
-            "Get the canonical self-test vectors for one catalogue "
-            "algorithm: the CRC this algorithm must produce for four fixed "
-            "inputs (empty message, the check string '123456789', all 256 "
-            "byte values, and a 1 KiB pattern).  Use these to verify a CRC "
-            "implementation (hand-written or from elsewhere) against a "
-            "known-good answer instead of trusting it.  The values are "
-            "independently generated (two engines, anycrc + crccheck, that "
-            "had to agree; the check input anchored to reveng).  Each vector "
-            "carries the input bytes (hex) and the expected CRC (decimal + "
-            "hex), so the check is runnable."
-        ),
+        description=_tool_description("vectors"),
     )
     def crc_self_test_vectors(algorithm: str) -> dict[str, Any]:
         algo = ALGORITHMS.get(algorithm)
@@ -326,37 +325,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_detect",
-        description=(
-            "Identify which catalogue CRC matches a packet whose tail "
-            "is a CRC.  Accepts the packet as packet_hex (any common "
-            "formatting -- spaces, commas, colons, 0x prefixes all "
-            "tolerated), packet_text ('data <sep> hex'), or packet_b64 "
-            "(base64-encoded raw bytes).  Exactly one must be supplied.\n"
-            "\n"
-            "IMPORTANT: 'crc_byte_order' in the output describes the "
-            "byte order of the CRC field within the packet -- NOT the "
-            "byte order of the surrounding protocol.  A big-endian "
-            "protocol can serialize its CRC little-endian (and vice "
-            "versa); the two are independent.\n"
-            "\n"
-            "If you already know the CRC value but not its algorithm "
-            "(e.g. user pasted 'expected CRC: 0xCBF43926'), pass it as "
-            "target_crc (decimal int) or target_crc_hex (hex string) "
-            "and pass the data-only bytes as the packet.\n"
-            "\n"
-            "Narrow the scan with 'width' (e.g. 16 for a 2-byte CRC field) "
-            "and/or 'algorithms' (an fnmatch glob like 'crc16-*').\n"
-            "\n"
-            "Every candidate reports 'form' -- the input representation the CRC "
-            "was found in: 'binary', 'hex', 'text', or 'json'.\n"
-            "\n"
-            "For a CRC wrapped in a text/JSON frame rather than a bare tail -- "
-            "such as a crclink JSON frame {\"t\":1234,\"v\":42,\"crc\":\"1352\"} "
-            "-- pass packet_text; it reports form='json' and a 'form_detail' "
-            "with the embedded crc and the covered message.  The 'form' "
-            "argument (distinct from the result field) is an fnmatch glob "
-            "selecting which named payload forms to try."
-        ),
+        description=_tool_description("detect"),
     )
     def crc_detect(
         packet_hex: str | None = None,
@@ -407,32 +376,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_identify_trailer",
-        description=(
-            "Identify a NON-CRC trailing field in a packet -- the heads-up for "
-            "when crc_detect / crc_reverse find no CRC.  Recognises simple "
-            "checksums (8-bit sum / LRC (two's-complement) / one's-complement / "
-            "XOR, 16-bit sum, the Internet checksum (RFC 1071), Fletcher-16, "
-            "Fletcher-32, Adler-32) AND cryptographic digests (MD5, SHA-1, "
-            "SHA-2 and SHA-3 families, BLAKE2, double SHA-256 -- full length or "
-            "the common 4/8-byte leading truncations).  IDENTIFICATION ONLY: "
-            "crcglot does not generate code for these (checksums are "
-            "one-liners; digests live in every stdlib).  The result exists to "
-            "give you -- or the human you are helping -- the next move with an "
-            "unfamiliar packet: it ends the CRC parameter hunt, names the "
-            "likely protocol family, and says whether verification is even "
-            "possible without a key.\n"
-            "\n"
-            "Keyed MACs (HMAC / CMAC) are undetectable without the key; when a "
-            "delimited digest-sized field matches nothing, 'note' says so.\n"
-            "\n"
-            "Pass SEVERAL frames (same shape as crc_reverse: a list, hex by "
-            "default, or base64 / text per packet_format).  Reliability comes "
-            "from corroboration, not a single packet: an 8-bit checksum matches "
-            "a random frame about 1 in 256, so 'frames_agreed' (how many frames "
-            "a candidate fits) is the confidence signal -- one frame is weak, "
-            "several agreeing frames make a hit trustworthy.  'crc_byte_order' "
-            "(endian) only affects the 16/32-bit checksums."
-        ),
+        description=_tool_description("identify_trailer"),
     )
     def crc_identify_trailer(
         packets: list[str],
@@ -478,19 +422,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_encode",
-        description=(
-            "Build a complete packet by computing the CRC of the data "
-            "and appending it.  Pairs round-trip with crc_detect.  For "
-            "binary data pass data_b64; for text use data_text plus "
-            "optional sep / leader / uppercase / fmt formatting.  Use "
-            "this to generate test vectors, write expected values into "
-            "test fixtures, or send a freshly-CRC'd packet on the wire.  "
-            "Identify the CRC with 'algorithm' (catalogue name) OR "
-            "'custom_params' (a custom / recovered Rocksoft tuple).\n"
-            "\n"
-            "crc_byte_order controls the byte order of the appended CRC "
-            "bytes only (the data portion is unaffected)."
-        ),
+        description=_tool_description("encode"),
     )
     def crc_encode(
         algorithm: str | None = None,
@@ -547,24 +479,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_compute",
-        description=(
-            "The deterministic CRC value for this data; call this instead "
-            "of computing a CRC yourself (the bitwise math is easy to get "
-            "subtly wrong).  Returns the raw integer, without packaging or "
-            "framing.  Use when you need the bare number (e.g. compare "
-            "against a captured value, fill in a struct field).  Supply "
-            "exactly one of data_text or data_b64.\n"
-            "\n"
-            "Identify the CRC with 'algorithm' (a catalogue name) OR "
-            "'custom_params' for a custom / recovered polynomial -- "
-            "{width, poly, init, refin, refout, xorout} (width + poly "
-            "required), e.g. the parameter set crc_reverse returns.\n"
-            "\n"
-            "Python-specific perf note: if algorithm is 'crc32' or "
-            "'crc32-jamcrc', the stdlib's zlib.crc32 produces the same "
-            "value with one fewer round-trip and is the routine crcglot "
-            "delegates to internally anyway."
-        ),
+        description=_tool_description("compute"),
     )
     def crc_compute(
         algorithm: str | None = None,
@@ -599,20 +514,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_compute_many",
-        description=(
-            "Compute the CRC of MANY messages with one algorithm in a "
-            "single call -- the batch form of crc_compute.  Each message is "
-            "CRC'd independently (not concatenated); results come back in "
-            "order.  Use this instead of calling crc_compute in a loop: it "
-            "builds the lookup table once for the whole batch (via the C "
-            "extension) and pays the Python<->C transition once, so it is "
-            "dramatically faster for many small messages of the same "
-            "algorithm (packet streams, framed protocols, bulk validation). "
-            "Supply exactly one of data_texts or data_b64s (a list); use "
-            "data_b64s for binary payloads.  Identify the CRC with 'algorithm' "
-            "(catalogue name) OR 'custom_params' (a custom / recovered "
-            "Rocksoft tuple), as in crc_compute."
-        ),
+        description=_tool_description("compute_many"),
     )
     def crc_compute_many(
         algorithm: str | None = None,
@@ -652,55 +554,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_reverse",
-        description=(
-            "Reverse-engineer the parameters of an UNKNOWN / custom CRC from "
-            "captured packets -- the recovery counterpart to crc_detect (which "
-            "only identifies CRCs already in the catalogue).  Takes the SAME "
-            "input shape as crc_detect: whole frames with the CRC as the "
-            "trailing field.  Use this when a device's CRC is NOT any known "
-            "algorithm; it solves the Rocksoft/Williams parameters algebraically "
-            "over GF(2).  A hand-written searcher gets this subtly wrong and "
-            "fails silently, so delegate it: this returns a deterministic answer, "
-            "or 'underdetermined' when the frames cannot pin one, never a guess.\n"
-            "\n"
-            "'packets' is a list of frames.  packet_format selects how each is "
-            "encoded: 'hex' (default; any common formatting -- spaces, colons, "
-            "0x prefixes tolerated), 'base64' (raw bytes), or 'text' for a "
-            "'data <sep> hexcrc' line where the CRC is appended as hex after a "
-            "separator (the trailing hex field is peeled automatically, like "
-            "crc_detect).  Supply SEVERAL frames -- and crucially, at least TWO "
-            "of the SAME length (their difference is what pins the polynomial), "
-            "each varied in CONTENT, PLUS some frames of OTHER lengths (to "
-            "separate init from xorout).  Frames that are all different lengths "
-            "CANNOT recover the polynomial, so if the user only has differently "
-            "sized captures, ask them for a few more at one size.  ~6+ is "
-            "typical and more is better.\n"
-            "\n"
-            "'crc_bytes' is the size of the trailing CRC field for binary frames "
-            "(e.g. 2 for a 16-bit CRC); leave it null to auto-detect, and it's "
-            "ignored for text frames (the hex field is already delimited).  "
-            "'crc_byte_order' is that field's byte order ('big' default, "
-            "'little', or 'both' to try each).  Fix any known parameter (width / "
-            "refin / refout / poly / init / xorout) to reduce how many frames "
-            "are needed.\n"
-            "\n"
-            "Returns 'status': 'catalogue' (matched a known algorithm), "
-            "'unique' (recovered, one parameter set), 'equivalent' (recovered "
-            "and verified, but several (init, xorout) labellings are "
-            "observationally identical -- ALL are returned in 'candidates', a "
-            "complete and provably-exhaustive set of size 2**ambiguity_bits; "
-            "the polynomial is always unique), 'underdetermined' (couldn't pin "
-            "the polynomial -- usually means no two frames share a length; ask "
-            "for >=2 same-length captures), or 'none'.  Every returned model is "
-            "self-verified "
-            "against the engine, and 'validated_frames' reports a held-out "
-            "generalisation check; when the field size / byte order was "
-            "auto-detected, 'note' records the split that was chosen.  "
-            "Guarantee: a recovered model is correct on unseen data, or "
-            "reports underdetermined -- never confidently wrong.  "
-            "std_algo_only=True restricts to the catalogue tier (identical to "
-            "crc_detect)."
-        ),
+        description=_tool_description("reverse"),
     )
     def crc_reverse(
         packets: list[str],
@@ -790,27 +644,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_verify",
-        description=(
-            "Check whether a packet's trailing CRC is valid -- the inverse of "
-            "crc_encode (which builds the packet) and the natural follow-up to "
-            "crc_detect (which names the algorithm).  Splits the trailing CRC "
-            "field off the frame, recomputes the CRC over the message, and "
-            "compares.\n"
-            "\n"
-            "Identify the CRC with 'algorithm' (a KNOWN catalogue name) OR "
-            "'custom_params' (a custom / recovered Rocksoft tuple -- e.g. what "
-            "crc_reverse returns, so you can validate further frames against a "
-            "recovered CRC).  Supply the frame as packet_hex (binary, any common "
-            "formatting tolerated), packet_b64 (binary, base64), or packet_text "
-            "('data <sep> hexcrc' -- the trailing hex CRC is peeled "
-            "automatically, like crc_detect); exactly one.  crc_byte_order is "
-            "the byte order of the trailing CRC field ('big' default / "
-            "'little').\n"
-            "\n"
-            "Returns 'valid' (bool), 'expected' (the CRC the message should "
-            "carry) and 'actual' (the value read from the field), in decimal and "
-            "hex -- comparing the two shows HOW a bad frame is wrong."
-        ),
+        description=_tool_description("verify"),
     )
     def crc_verify(
         algorithm: str | None = None,
@@ -850,84 +684,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_generate",
-        description=(
-            "Generate verified CRC source code for one (language, "
-            "algorithm, variant) cell.  Supports C, C#, Go, Java, Python, "
-            "Rust, TypeScript, Verilog, VHDL.  Variants: 'auto' (DEFAULT -- "
-            "the fastest the target + width support), 'bitwise' (smallest "
-            "code, zero RAM table), 'table' (256-entry LUT), 'slice8' (8 "
-            "tables, fastest, width 32/64 only, not on Python / Verilog / "
-            "VHDL).  The default is fast, not small: pass variant='bitwise' "
-            "for the smallest code (embedded / tiny MCUs).  When the user "
-            "hasn't said, size the choice to payload x frequency: bitwise for "
-            "tiny / infrequent payloads or code-constrained targets, the fast "
-            "default once throughput matters, and for very large data on an "
-            "algorithm both ends control prefer crc32 via the stdlib hardware "
-            "path (see advisories / PERFORMANCE STEER below); ask if unsure.  "
-            "The design-a-crc prompt walks this.  "
-            "Every emitted file embeds a _self_test() against the reveng "
-            "canonical vector for b'123456789'.\n"
-            "\n"
-            "PERFORMANCE STEER: for IEEE crc32 -- and crc32-jamcrc "
-            "which crcglot routes through the same zlib path -- prefer "
-            "the target language's stdlib (Python: zlib.crc32; C: zlib "
-            "or hardware-CRC intrinsic; Rust: crc32fast crate) over "
-            "generated code.  The stdlib path is ~30x faster than even "
-            "slice-by-8 because it uses CPU CRC instructions (PCLMULQDQ "
-            "on x86 since Westmere/2010; PMULL or crc32 instructions "
-            "on ARMv8).  Generated code is the right answer for the "
-            "other 68 catalogue algorithms and for embedded targets "
-            "without a zlib equivalent.\n"
-            "\n"
-            "Supply algorithm OR custom_params (Rocksoft/Williams tuple); "
-            "they are mutually exclusive.  'algorithm' accepts a single "
-            "catalogue name, several names as a list, or a space-separated "
-            "string (e.g. 'crc32 crc16-modbus crc8') -- multiple names "
-            "bundle into ONE file (one .h + one .c for C), each keeping its "
-            "catalogue-derived function names; per-symbol tables keep the "
-            "bundle collision-free.  'name' renames a single CRC -- it replaces "
-            "the algorithm name as the base and is CASED per target (Rust "
-            "my_widget, Java class MyWidget + MyWidget.java, C# MyWidget); this "
-            "is the usual 'call it X' knob (single CRC only).  'symbol' is the "
-            "escape hatch: emit that identifier VERBATIM, un-recased (single "
-            "CRC, not for Java).  Each returned file carries a ready 'filename' "
-            "(crcglot owns the per-target naming; Java/C# name the file after "
-            "the class) -- write content to filename as-is.  The "
-            "chosen 'variant' must be legal for every algorithm's width "
-            "(slice8 is width 32/64 only).  'comment_style' selects the "
-            "documentation style of the emitted comments: 'plain' (default) "
-            "is professional human-readable comments in each language's "
-            "native syntax; 'doxygen' emits /** @brief @param */ markup for "
-            "C / C# / Java; Python has 'google' (Args / Returns), 'numpy' "
-            "(underlined Parameters / Returns) and 'rest' (Sphinx :param: "
-            "field lists); 'rustdoc' emits /// Markdown for "
-            "Rust; 'godoc' emits identifier-led // docs for Go; 'javadoc' "
-            "emits /** @param @return */ for Java; 'jsdoc' emits TSDoc "
-            "markup for TypeScript; 'docfx' emits /// <summary> <param> "
-            "<returns> XML doc comments for C#.  Every file header also carries "
-            "a 'Reproduce with crcglot' block (the resolved algorithm, target, "
-            "variant, comment style, symbol, naming); C additionally emits a "
-            "linkable const provenance record for runtime introspection, dropped "
-            "by --gc-sections when unused or via -DCRCGLOT_NO_PROVENANCE.  The "
-            "returned 'algorithms' "
-            "lists what was generated; 'advisories' carries any "
-            "{severity, kind, message} notes about a faster path (e.g. a "
-            "stdlib CRC-32 for the target, or 'use the crcglot package' for a "
-            "Python target) -- surface these to the user.\n"
-            "\n"
-            "OUTPUT HANDLING: each 'files' entry is a COMPLETE, drop-in source "
-            "file -- 'content' is the whole file (header comment, EVERY table "
-            "row, all functions, the embedded self-test).  Never truncate it: "
-            "do not elide table rows, omit functions, or summarise the body.  "
-            "Prefer WRITING the full content to a file and reporting the path "
-            "rather than pasting it into the chat; only paste it inline when the "
-            "user wants to read or copy it directly, and then IN FULL.  Name the "
-            "file by the language's convention -- the algorithm name for C / "
-            "Rust / Go / Python / TypeScript / Verilog / VHDL; the public class "
-            "name shown in the emitted code for Java / C#.  Large variants make "
-            "this matter: slice8 emits eight 256-entry tables, so write it to a "
-            "file instead of dumping the whole table into the conversation."
-        ),
+        description=_tool_description("generate"),
     )
     def crc_generate(
         language: LANG_ENUM,
@@ -1062,10 +819,7 @@ def build_server() -> FastMCP:
     @mcp.tool(
         annotations=_READONLY,
         name="crc_credits",
-        description=(
-            "Return the projects crcglot stands on (reveng catalogue, "
-            "zlib, Rocksoft/Williams parameterization)."
-        ),
+        description=_tool_description("credits"),
     )
     def crc_credits() -> dict[str, str]:
         return {"attribution": ATTRIBUTION}
@@ -1264,6 +1018,22 @@ def build_server() -> FastMCP:
                 for code, info in LANGUAGES.items()
             }
         return json.dumps({"variants_by_width": by_width}, indent=2)
+
+    @mcp.resource(
+        "crcglot://verbs.json",
+        name="verbs",
+        description=(
+            "The verb manifest: every crcglot verb with its parameters "
+            "(types, defaults, choices, one-line help), mutual-exclusion "
+            "groups, and result fields.  The same data as crcglot.VERBS; "
+            "render typed tools from it instead of hand-rolling parameter "
+            "metadata."
+        ),
+        mime_type="application/json",
+    )
+    def verbs_resource() -> str:
+        payload = {"verbs": {name: asdict(spec) for name, spec in VERBS.items()}}
+        return json.dumps(payload, indent=2)
 
     return mcp
 
