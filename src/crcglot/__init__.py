@@ -15,6 +15,9 @@ Public API:
           callables.
         - ALGORITHMS: dict[str, AlgorithmInfo] -- one entry per
           algorithm in the reveng catalogue.
+        - VERBS: dict[str, VerbSpec] -- the verb manifest: every crcglot
+          verb with its parameters, choices, defaults, and result fields
+          as plain data, for frontends that render typed tools.
 
     Dataclasses:
         - LanguageInfo, Crc, AlgorithmInfo (all frozen; AlgorithmInfo is a
@@ -82,7 +85,7 @@ from crcglot.catalogue import (
     has_faster_alternative,
     suggest_algorithms,
 )
-from crcglot.exceptions import CrcglotError, UnknownAlgorithmError
+from crcglot.exceptions import CrcglotError, UnknownAlgorithmError, UnknownVerbError
 from crcglot.stream import CrcStream, crc_stream
 
 if TYPE_CHECKING:
@@ -147,6 +150,15 @@ if TYPE_CHECKING:
         generate_files,
         naming_info,
         variant_info,
+    )
+    from crcglot.verbs import (
+        VERBS,
+        ChoiceInfo,
+        ExclusiveGroup,
+        ParamSpec,
+        ResultField,
+        VerbSpec,
+        verb_info,
     )
     from crcglot.verification import (
         SELF_TEST_INPUTS,
@@ -221,6 +233,15 @@ def _lazy_map() -> dict[str, str]:
             "naming_info",
             "variant_info",
         ),
+        "crcglot.verbs": (
+            "VERBS",
+            "ChoiceInfo",
+            "ExclusiveGroup",
+            "ParamSpec",
+            "ResultField",
+            "VerbSpec",
+            "verb_info",
+        ),
         "crcglot.verification": (
             "SELF_TEST_INPUTS",
             "SelfTestVectors",
@@ -236,7 +257,7 @@ _LAZY: dict[str, str] = _lazy_map()
 # reachable as attributes (``crcglot.targets`` etc.) without a separate
 # ``import crcglot.targets`` statement.
 _LAZY_SUBMODULES = frozenset(
-    {"attribution", "comments", "lang", "targets"}
+    {"attribution", "comments", "lang", "targets", "verbs"}
 )
 
 
@@ -295,6 +316,7 @@ __all__ = [
     "CrcStream",
     "CrcglotError",
     "UnknownAlgorithmError",
+    "UnknownVerbError",
     "DetectMatch",
     "DetectResult",
     "FormatInfo",
@@ -311,6 +333,13 @@ __all__ = [
     "VerifyResult",
     "VARIANT_ORDER",
     "VariantInfo",
+    "VERBS",
+    "VerbSpec",
+    "ParamSpec",
+    "ChoiceInfo",
+    "ExclusiveGroup",
+    "ResultField",
+    "verb_info",
     "__version__",
     "_reflect",
     "default_stem",

@@ -34,3 +34,12 @@ class UnknownAlgorithmError(CrcglotError, ValueError):
     (a ``crc<width>`` family hint, a close-match "did you mean", or a pointer to
     browse the catalogue).
     """
+
+
+class UnknownVerbError(CrcglotError, ValueError):
+    """A verb name is not in the :data:`crcglot.VERBS` manifest.
+
+    Also a ``ValueError`` by convention.  The message suggests a close match
+    when one exists and lists the full verb vocabulary (built by
+    :func:`crcglot.verbs.verb_info`, the vocabulary's owner).
+    """

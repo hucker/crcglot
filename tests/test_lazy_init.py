@@ -146,6 +146,21 @@ class TestSurfaceIntrospection:
         expected = {"generate_c", "detect", "LANGUAGES", "identify_trailer"}
         assert expected <= names, f"dir() missing {expected - names}"
 
+    def test_verb_manifest_resolves_lazily(self):
+        # Act -- fresh interpreter: bare import must not load the manifest,
+        # first attribute access must.
+        out = _run(
+            "import sys, crcglot;"
+            "before = 'crcglot.verbs' in sys.modules;"
+            "spec = crcglot.VERBS['detect'];"
+            "after = 'crcglot.verbs' in sys.modules;"
+            "print(before, after, spec.mcp_tool)"
+        )
+        # Assert
+        assert out == "False True crc_detect", (
+            f"VERBS must load lazily and resolve (got {out!r})"
+        )
+
     def test_submodule_attribute_resolves_via_getattr(self, monkeypatch):
         # Arrange -- drop any machinery-bound module attribute so the access
         # is forced through __getattr__'s submodule branch.
