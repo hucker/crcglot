@@ -66,7 +66,9 @@ One toolkit, three surfaces.  Every capability has the same name and shape on th
 | Custom polynomial | `--custom` tokens | `custom_params` | `custom_algorithm()` |
 | Credits | `credits` | `crc_credits` | `ATTRIBUTION` |
 
-Resources: `crcglot://catalogue.json`, `crcglot://languages.json`, `crcglot://variants.json`.  One prompt, `design-a-crc`.  Details for each tool follow.
+Resources: `crcglot://catalogue.json`, `crcglot://languages.json`, `crcglot://variants.json`, `crcglot://verbs.json`.  One prompt, `design-a-crc`.  Details for each tool follow.
+
+Tool descriptions (the guidance prose plus a rendered per-parameter block) come from [`crcglot.VERBS`](api.md), the verb manifest, and a drift test holds every live input schema (parameter names, required set, enums, defaults) to the same records, so the manifest and the shipped schemas cannot diverge silently.
 
 Each tool maps to the `crcglot` CLI subcommand of the same name (minus the `crc_` prefix); `crc_compute_many` is the one MCP-only batch form.  Every tool is annotated **read-only / idempotent** (`readOnlyHint`, `idempotentHint`, `destructiveHint=false`, `openWorldHint=false`): they only list / compute / generate, never mutate state or touch the network, so clients can auto-approve them without prompting per call.
 
@@ -157,8 +159,9 @@ Read-only JSON snapshots the LLM can ingest once and reason from.
 | `crcglot://catalogue.json` | Every algorithm with full parameters (decimal + hex)            |
 | `crcglot://languages.json` | Per-target metadata (extensions, supported variants, emoji)     |
 | `crcglot://variants.json`  | `variants_for_width(width)` cross-product for widths 8/16/32/64 |
+| `crcglot://verbs.json`     | The verb manifest: every verb's parameters, choices, defaults, and result fields (same data as `crcglot.VERBS`) |
 
-The third preempts invalid `crc_generate` calls: the LLM can check `variants_by_width["32"]["python"]` before asking for `slice8` on Python.
+The variants resource preempts invalid `crc_generate` calls: the LLM can check `variants_by_width["32"]["python"]` before asking for `slice8` on Python.  The verbs resource lets a non-Python consumer render typed tools from the same manifest crcglot's own tools are described by.
 
 ## Prompts
 

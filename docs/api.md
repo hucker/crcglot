@@ -25,7 +25,7 @@ Every `DetectMatch` carries `.form` -- the input representation the CRC was foun
 
 `detect()` also recognises a CRC wrapped in a named **payload form**: a text/JSON envelope such as `{"t":1234,"v":42,"crc":"1352"}` (CRC-16/XMODEM over the JSON prefix), where the CRC is not a bare tail.  Such a match reports `form="json"` (the protocol name stays on `padding.info`).  Pass `form=` (an fnmatch glob) to narrow or disable the form pass; a matched form is a `FormatMatch` on the candidate's `padding`, carrying the `FormatInfo`.  The forms ship as a registry mirroring the catalogue: `FORMATS` (the dict), `FormatInfo` (the record), and `format_info(name)` (the lookup).
 
-Two registries, both keyed by short code:
+Three registries: languages and algorithms keyed by short code, verbs by verb name.
 
 ## `LANGUAGES`: supported target languages
 
@@ -74,6 +74,24 @@ crc32_family = [a for a in ALGORITHMS.values() if a.width == 32]
 ```
 
 Each entry is a frozen `AlgorithmInfo` dataclass carrying the full Rocksoft / Williams parameter set (`width`, `poly`, `init`, `refin`, `refout`, `xorout`) plus `check`, `desc`, and `source`.  The algorithm name is the `ALGORITHMS` dict key, not a field on the record.
+
+## `VERBS`: the verb manifest
+
+Every crcglot verb (detect, reverse, generate, ...) described as plain data: a frozen `VerbSpec` with a one-line summary, the full guidance prose, `ParamSpec` parameters (type, required, default, one-line help, `ChoiceInfo` choices), mutual-exclusion groups, result fields, and the verb's name on each surface (`mcp_tool` / `cli_command` / `python_api`).  A frontend renders typed tools from it instead of hand-rolling parameter metadata that drifts; crcglot's own MCP server builds its tool descriptions from these records, and a drift test pins the live schemas to them.
+
+```python
+from crcglot import VERBS, verb_info
+
+for verb, spec in VERBS.items():
+    params = ", ".join(f"{p.name}{'' if p.required else '?'}" for p in spec.params)
+    print(f"{verb}({params})  # {spec.summary}")
+
+spec = verb_info("detect")      # UnknownVerbError with a did-you-mean on a miss
+endian = next(p for p in spec.params if p.name == "endian")
+[c.name for c in endian.choices]                # ['big', 'little', 'both']
+```
+
+Choices for registry-backed parameters (language, variant, naming, comment_style) are derived from `LANGUAGES` / `VARIANT_ORDER` / `NAMING_ORDER` / `COMMENT_STYLES`, so a new language or style reaches the manifest with no manifest edit.  Everything JSON-serializes for non-Python consumers (`json.dumps(dataclasses.asdict(spec))`), and the same data is served over MCP as the `crcglot://verbs.json` resource.  Defaults are the tool-surface defaults: where a Python function's own default deliberately differs (`reverse_packets(std_algo_only=True)` vs the tool's `False`), the manifest records the tool surface.
 
 ## `self_test_vectors`: the four self-test goldens
 

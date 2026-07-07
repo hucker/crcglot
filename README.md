@@ -87,7 +87,7 @@ Claude Desktop (and other clients), via `claude_desktop_config.json`:
 }
 ```
 
-Tools: `crc_list` · `crc_info` · `crc_self_test_vectors` · `crc_detect` · `crc_reverse` · `crc_identify_trailer` · `crc_verify` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json`.  Full reference and setup walkthrough live in [docs/MCP.md](docs/MCP.md).
+Tools: `crc_list` · `crc_info` · `crc_self_test_vectors` · `crc_detect` · `crc_reverse` · `crc_identify_trailer` · `crc_verify` · `crc_encode` · `crc_compute` · `crc_compute_many` · `crc_generate` · `crc_credits`.  Resources: `crcglot://catalogue.json` · `crcglot://languages.json` · `crcglot://variants.json` · `crcglot://verbs.json`.  Full reference and setup walkthrough live in [docs/MCP.md](docs/MCP.md).
 
 ## CLI at a glance
 
@@ -124,7 +124,7 @@ print(modbus.width, hex(modbus.check), modbus.desc)
 # → 16 0x4b37 Modbus RTU serial protocol
 ```
 
-`LanguageInfo` carries everything a UI or build script needs per target (extensions, variants, generators, naming/casing helpers); `AlgorithmInfo` is the full parameter set.  Custom polynomials plug into the same generators via `generator_from_entry`.  The full API (registries, custom polys, the runtime engine, streaming and batch) is in [docs/api.md](docs/api.md).
+`LanguageInfo` carries everything a UI or build script needs per target (extensions, variants, generators, naming/casing helpers); `AlgorithmInfo` is the full parameter set; `VERBS` is the verb manifest, every verb's parameters and choices as plain data for frontends that render typed tools.  Custom polynomials plug into the same generators via `generator_from_entry`.  The full API is in [docs/api.md](docs/api.md).
 
 Pointing an LLM or coding agent at crcglot?  Start with [llms.txt](llms.txt): a concise, linked map of what the package does and where to look, to load first instead of crawling the source.
 

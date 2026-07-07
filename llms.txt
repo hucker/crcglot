@@ -14,7 +14,7 @@ crcglot does five things with CRCs, all callable from Python, the `crcglot` CLI,
 
 The model for generation is three choices: which algorithm (`crcglot list` shows 100+), which language, and `--fast` (default) vs `--small`. Custom polynomials plug into the same surfaces via `custom_algorithm` / `--custom` / `custom_params`.
 
-Two typed registries are the entry points for tooling: `ALGORITHMS` (`dict[str, AlgorithmInfo]`) and `LANGUAGES` (`dict[str, LanguageInfo]`). `import crcglot` loads only the compute core; everything else resolves on first use.
+Three typed registries are the entry points for tooling: `ALGORITHMS` (`dict[str, AlgorithmInfo]`), `LANGUAGES` (`dict[str, LanguageInfo]`), and `VERBS` (`dict[str, VerbSpec]`, the verb manifest: every verb's parameters, choices, defaults, and help as plain data, for rendering typed tools). `import crcglot` loads only the compute core; everything else resolves on first use.
 
 ## Docs
 
