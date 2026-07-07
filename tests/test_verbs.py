@@ -24,7 +24,9 @@ from crcglot import (
     VARIANT_ORDER,
     VERBS,
     CrcglotError,
+    UnknownParamError,
     UnknownVerbError,
+    call_verb,
     naming_info,
     variant_info,
     verb_info,
@@ -232,3 +234,89 @@ class TestJsonSerializable:
         assert actual_params == expected_params, (
             f"{verb}: params lost in round trip"
         )
+
+
+class TestCallVerb:
+    """``call_verb`` is the manifest's execution half: manifest param names
+    in, the wire dict ``result_fields`` describe out.  Byte-for-byte MCP
+    equivalence lives in ``test_mcp.py::TestCallVerbEquivalence``; this class
+    covers the invoker's own behavior."""
+
+    def test_compute_returns_the_wire_dict(self):
+        # Act
+        actual = call_verb("compute", algorithm="crc16-modbus", data_text="123456789")
+        # Assert -- the exact shape VERBS["compute"].result_fields document.
+        expected = {"crc": 0x4B37, "crc_hex": "0x4B37", "width": 16}
+        assert actual == expected, f"compute wire dict: {actual}"
+
+    def test_detect_names_the_crc(self):
+        # Act
+        actual = call_verb("detect", packet_hex="313233343536373839cbf43926")
+        # Assert
+        assert actual["matched"] is True, "crc32 frame must match"
+        assert actual["candidates"][0]["algorithm"] == "crc32", (
+            f"expected crc32, got {actual['candidates'][0]}"
+        )
+
+    def test_credits_takes_no_params(self):
+        # Act
+        actual = call_verb("credits")
+        # Assert
+        assert "reveng" in actual["attribution"].lower(), (
+            "credits must mention reveng"
+        )
+
+    def test_omitted_optionals_take_manifest_defaults(self):
+        # Arrange -- generate with only the required-ish params; variant,
+        # comment_style, and naming must default per the manifest.
+        actual = call_verb("generate", language="python", algorithm="crc8")
+        # Assert -- python's fastest variant is table (the "auto" default).
+        assert actual["variant"] == "table", f"auto default: {actual['variant']}"
+        assert actual["comment_style"] == "plain", "comment_style default"
+
+    def test_exclusive_group_violation_uses_the_body_message(self):
+        # Act / Assert -- the same message the MCP tool raises.
+        with pytest.raises(ValueError, match="exactly one of packet_hex"):
+            call_verb("detect")
+
+
+class TestCallVerbValidation:
+    """The invoker validates its vocabulary before dispatch, per the house
+    error rules: echo the value, suggest a fix, list the valid set."""
+
+    def test_unknown_verb_delegates_to_verb_info(self):
+        with pytest.raises(UnknownVerbError, match="did you mean 'detect'"):
+            call_verb("detct", packet_hex="00")
+
+    def test_mcp_tool_name_gets_a_translation_hint(self):
+        with pytest.raises(UnknownVerbError, match="pass the verb name 'detect'"):
+            call_verb("crc_detect", packet_hex="00")
+
+    def test_unknown_param_suggests_close_match(self):
+        with pytest.raises(UnknownParamError, match="did you mean 'endian'"):
+            call_verb("detect", packet_hex="00", endain="big")
+
+    def test_unknown_param_lists_the_verbs_params(self):
+        with pytest.raises(UnknownParamError, match="valid parameters: .*packet_hex"):
+            call_verb("detect", bogus=1)
+
+    def test_unknown_param_error_is_crcglot_and_type_error(self):
+        with pytest.raises(UnknownParamError) as exc:
+            call_verb("credits", bogus=1)
+        assert isinstance(exc.value, CrcglotError), "must derive from CrcglotError"
+        assert isinstance(exc.value, TypeError), "must stay a TypeError"
+
+    def test_unknown_algorithm_carries_the_python_surface_hint(self):
+        # Assert -- the where-to-look-next hint is the Python one
+        # (crcglot.ALGORITHMS), not the MCP tool's crc_list pointer.
+        with pytest.raises(Exception, match="ALGORITHMS") as exc:
+            call_verb("compute", algorithm="crc16", data_text="x")
+        assert "crc_list" not in str(exc.value), (
+            "call_verb must not point at the MCP surface"
+        )
+
+    def test_unknown_language_is_a_friendly_error(self):
+        # The MCP schema enforces the language enum; the core path must
+        # reject a bad language with a message, not a KeyError.
+        with pytest.raises(ValueError, match="unknown language 'cobol'"):
+            call_verb("generate", language="cobol", algorithm="crc32")

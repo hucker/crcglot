@@ -1700,3 +1700,62 @@ class TestVerbManifestDrift:
         assert actual_params == expected_params, (
             "detect params differ between the resource and crcglot.VERBS"
         )
+
+
+# One canonical argument sample per verb, for the call_verb equivalence run.
+_EQUIVALENCE_ARGS: dict[str, dict] = {
+    "list": {"glob": "crc16-*"},
+    "info": {"name": "crc16-modbus"},
+    "vectors": {"algorithm": "crc32"},
+    "detect": {"packet_hex": "313233343536373839cbf43926"},
+    "identify_trailer": {
+        "packets": ["74656c656d657472792d6672616d652d3030314b8806d2"],
+    },
+    "reverse": {"packets": ["313233343536373839cbf43926"]},
+    "verify": {
+        "algorithm": "crc16-xmodem",
+        "packet_hex": "31323334353637383931c3",
+    },
+    "compute": {"algorithm": "crc16-modbus", "data_text": "123456789"},
+    "compute_many": {
+        "algorithm": "crc16-modbus",
+        "data_texts": ["123456789", "hello"],
+    },
+    "encode": {"algorithm": "crc32", "data_text": "123456789"},
+    "generate": {"language": "python", "algorithm": "crc32", "variant": "bitwise"},
+    "credits": {},
+}
+
+
+class TestCallVerbEquivalence:
+    """``crcglot.call_verb`` and the MCP tools run the same implementation,
+    so their results must be dict-equal for identical arguments.  This is the
+    one-code-path guarantee as a test: a divergence between the public
+    invoker and the shipped tools fails here."""
+
+    def test_every_verb_has_an_equivalence_sample(self):
+        # Assert -- a new verb without a sample fails loudly instead of
+        # silently escaping the equivalence check.
+        actual = set(_EQUIVALENCE_ARGS)
+        expected = set(VERBS)
+        assert actual == expected, (
+            f"equivalence samples {sorted(actual)} != verbs {sorted(expected)}"
+        )
+
+    @pytest.mark.parametrize(
+        "verb", list(_EQUIVALENCE_ARGS), ids=list(_EQUIVALENCE_ARGS)
+    )
+    def test_call_verb_equals_mcp_tool_output(self, verb):
+        # Arrange
+        from crcglot import call_verb
+
+        args = _EQUIVALENCE_ARGS[verb]
+
+        # Act -- the same arguments through both surfaces.
+        actual = call_verb(verb, **args)
+        expected = _call(VERBS[verb].mcp_tool, dict(args))
+
+        # Assert
+        assert actual == expected, (
+            f"{verb}: call_verb and the MCP tool diverged for {args}"
+        )

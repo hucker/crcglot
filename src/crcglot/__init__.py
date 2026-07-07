@@ -18,6 +18,10 @@ Public API:
         - VERBS: dict[str, VerbSpec] -- the verb manifest: every crcglot
           verb with its parameters, choices, defaults, and result fields
           as plain data, for frontends that render typed tools.
+        - call_verb(name, **params): the manifest's execution half --
+          invoke any verb by manifest parameter names and get the wire
+          dict its result_fields describe (the same implementation the
+          MCP tools run).
 
     Dataclasses:
         - LanguageInfo, Crc, AlgorithmInfo (all frozen; AlgorithmInfo is a
@@ -85,7 +89,12 @@ from crcglot.catalogue import (
     has_faster_alternative,
     suggest_algorithms,
 )
-from crcglot.exceptions import CrcglotError, UnknownAlgorithmError, UnknownVerbError
+from crcglot.exceptions import (
+    CrcglotError,
+    UnknownAlgorithmError,
+    UnknownParamError,
+    UnknownVerbError,
+)
 from crcglot.stream import CrcStream, crc_stream
 
 if TYPE_CHECKING:
@@ -106,6 +115,7 @@ if TYPE_CHECKING:
         FormatMatch,
         format_info,
     )
+    from crcglot._invoke import call_verb
     from crcglot._encode import (
         VerifyResult,
         compute,
@@ -197,6 +207,7 @@ def _lazy_map() -> dict[str, str]:
             "FormatMatch",
             "format_info",
         ),
+        "crcglot._invoke": ("call_verb",),
         "crcglot._encode": (
             "VerifyResult",
             "compute",
@@ -316,6 +327,7 @@ __all__ = [
     "CrcStream",
     "CrcglotError",
     "UnknownAlgorithmError",
+    "UnknownParamError",
     "UnknownVerbError",
     "DetectMatch",
     "DetectResult",
@@ -340,6 +352,7 @@ __all__ = [
     "ExclusiveGroup",
     "ResultField",
     "verb_info",
+    "call_verb",
     "__version__",
     "_reflect",
     "default_stem",
