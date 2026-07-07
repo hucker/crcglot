@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.28.0 — 2026-07-07
+
+One addition: `crcglot.call_verb`, the execution half of the 0.27.0 verb manifest, so a frontend that renders typed tools from `VERBS` can also run them through crcglot without writing per-verb handler code.
+
+### Added: `call_verb`, the manifest's uniform invoker
+
+`call_verb(name, **params)` invokes any verb by its `VERBS` name using the manifest's parameter names (`packet_hex`, `crc_byte_order`, `custom_params`, ...) and returns the JSON-ready dict the spec's `result_fields` describe.  It runs the exact implementation crcglot's MCP tools wrap: the twelve tool bodies moved into a core, SDK-free module and the MCP tools became one-line delegations, so the two surfaces cannot diverge (an equivalence test holds every tool's output dict-equal to `call_verb`'s).  A frontend's whole loop is now: render the tool declaration from the `VerbSpec`, call `call_verb` in the handler, return the dict.
+
+Errors follow the house rules: an unknown verb raises `UnknownVerbError` with a did-you-mean (passing the `crc_`-prefixed MCP tool name gets an explicit use-the-verb-name hint); an unknown parameter raises the new `UnknownParamError` (a `TypeError`, Python's convention for an unexpected keyword) naming the close match and the verb's valid parameters; unknown algorithms point at `crcglot.ALGORITHMS` on this surface rather than the MCP `crc_list` tool.  The native dataclass API (`crcglot.detect()`, `reverse_packets()`, ...) is unchanged and remains the right surface for typed results.
+
 ## v0.27.0 — 2026-07-06
 
 Two headline items: a new public **verb manifest** (`crcglot.VERBS`) so frontends render typed crcglot tools from crcglot's own metadata, and the verification story restated as an explicit **ten-category matrix**, with new tests filling the four categories that were only partial.  The README and docs also lost about half their words: one home per fact, links everywhere else, real CLI output in every transcript.
