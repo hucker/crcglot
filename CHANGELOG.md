@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.27.0 — 2026-07-06
+
+Two headline items: a new public **verb manifest** (`crcglot.VERBS`) so frontends render typed crcglot tools from crcglot's own metadata, and the verification story restated as an explicit **ten-category matrix**, with new tests filling the four categories that were only partial.  The README and docs also lost about half their words: one home per fact, links everywhere else, real CLI output in every transcript.
+
+### Added: the verb manifest (`crcglot.VERBS`)
+
+Every crcglot verb (detect, reverse, generate, ...) is now described as plain data: a frozen `VerbSpec` per verb carrying a summary, the guidance prose, `ParamSpec` parameters (type, required, default, one-line help, described choices), mutual-exclusion groups, result fields, and the verb's name on each surface (MCP tool / CLI command / Python API).  A frontend that wraps crcglot renders typed tools from it instead of hand-rolling parameter metadata that drifts.  Choices for language / variant / naming / comment style derive from the existing registries; the four wire-level enums that had no registry (endian, match, crc_byte_order, packet_format) now have their single home here.  `verb_info("detct")` raises `UnknownVerbError` with a did-you-mean; everything JSON-serializes via `dataclasses.asdict`; the same data is served over MCP as the new `crcglot://verbs.json` resource.  Details in `docs/api.md`.
+
+crcglot's own MCP server now renders its tool descriptions from the manifest, which also adds per-parameter documentation (help, choices, defaults) the MCP surface never had, and a drift test pins every live tool schema (parameter names, required set, enums, defaults) to the manifest, so the two cannot diverge silently.
+
+### Added: the verification matrix, stated and fully satisfied
+
+The suite is now organized as ten explicit categories of evidence (reference vectors, extended vectors, random vectors, cross-language equivalence, streaming, segmentation, byte-at-a-time, toolchain execution, parameter edge cases, adversarial review), summarized in the README with the full category-to-test mapping in `docs/verification/index.md`.  Four categories gained the tests they were missing:
+
+- **Random vectors**: every catalogue algorithm on seeded random inputs, computed live at test time by two independent engines (anycrc + crccheck) that must agree before crcglot is graded.
+- **Segmentation and byte-at-a-time**: every split position of two messages and the one-byte-per-update feed, across the whole catalogue on both engine backends; every software batch driver also verifies the byte-at-a-time feed through its real toolchain.
+- **Parameter edge cases**: asymmetric reflection (`refin != refout`, both orders) now has independent-truth checks and compiled execution in all six software languages.  crc12-umts turned out to be the catalogue's one asymmetric entry; a test docstring claiming no catalogue asymmetry existed was corrected.
+
+Full suite: 8,613 passed, 0 skipped, 95% coverage.  `docs/verification/index.md` also now opens with the development model the matrix serves: review by evidence, not by reading, with each adversarial finding traceable to its fix commit and regression test.
+
+### Changed: README and docs diet
+
+The README dropped from roughly 3,800 to 1,900 words.  Verification detail, the embedded self-test story, and the MCP chat transcript moved to the docs pages that own them; repeated facts (vector provenance, the Reproduce-with block, bundle rules, runtime dispatch) now have one canonical home each with links elsewhere; quick-start and CLI transcripts show real command output; and prose retired "prove"/"proof" for anything tests establish, since a finite test set over an infinite input space yields evidence, not proof.  The per-version test-count badges now state a floor ("6,000+") that stays true between releases and only ratchets up.
+
+### Fixed: stale facts the docs pass caught
+
+The MCP docs claimed "seven tools" (there are twelve), omitted Java from `crc_generate`'s language list, and said the provenance record carries no tool version (it has carried one since 0.26); the server's own instructions were missing Java too, and the `crc_generate` prose counted "the other 68 catalogue algorithms".  `docs/cli.md` had an unclosed code fence swallowing two paragraphs and a truncated `detect` output.  All corrected, and every output shown in the docs is now the real one.
+
 ## v0.26.0 — 2026-07-02
 
 The self-test vectors are now public data on all three surfaces, and a second adversarial verification pass (run by Claude Fable 5, recorded in `docs/verification/2026-07-02-fable.md`) re-verified every core claim against a fresh oracle and turned up seven boundary and accuracy findings, all fixed in this release.  None of them affected a computed CRC value on documented inputs.  A v0.25.1 was prepared but never published; its width-validation fix ships here.

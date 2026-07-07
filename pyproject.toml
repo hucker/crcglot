@@ -1,6 +1,6 @@
 [project]
 name = "crcglot"
-version = "0.26.0"
+version = "0.27.0"
 description = "Deterministic CRC toolkit: compute, detect, reverse-engineer, verify, and generate execution-verified code (C/C++, C#, Go, Java, Python, Rust, TypeScript, Verilog, VHDL). Catalogue-driven, zero-dependency core, optional MCP server for AI assistants."
 license = "MIT"
 requires-python = ">=3.11"
