@@ -68,7 +68,7 @@ One toolkit, three surfaces.  Every capability has the same name and shape on th
 
 Resources: `crcglot://catalogue.json`, `crcglot://languages.json`, `crcglot://variants.json`, `crcglot://verbs.json`.  One prompt, `design-a-crc`.  Details for each tool follow.
 
-Tool descriptions (the guidance prose plus a rendered per-parameter block) come from [`crcglot.VERBS`](api.md), the verb manifest, and a drift test holds every live input schema (parameter names, required set, enums, defaults) to the same records, so the manifest and the shipped schemas cannot diverge silently.
+Tool descriptions (the guidance prose plus a rendered per-parameter block) come from [`crcglot.VERBS`](api.md), the verb manifest, and a drift test holds every live input schema (parameter names, required set, enums, defaults) to the same records, so the manifest and the shipped schemas cannot diverge silently.  The tool bodies themselves are thin wrappers over [`crcglot.call_verb`](api.md#call_verb-the-manifests-execution-half)'s implementations, so an external frontend calling `call_verb` gets dict-identical results to these tools by construction.
 
 Each tool maps to the `crcglot` CLI subcommand of the same name (minus the `crc_` prefix); `crc_compute_many` is the one MCP-only batch form.  Every tool is annotated **read-only / idempotent** (`readOnlyHint`, `idempotentHint`, `destructiveHint=false`, `openWorldHint=false`): they only list / compute / generate, never mutate state or touch the network, so clients can auto-approve them without prompting per call.
 

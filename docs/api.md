@@ -93,6 +93,22 @@ endian = next(p for p in spec.params if p.name == "endian")
 
 Choices for registry-backed parameters (language, variant, naming, comment_style) are derived from `LANGUAGES` / `VARIANT_ORDER` / `NAMING_ORDER` / `COMMENT_STYLES`, so a new language or style reaches the manifest with no manifest edit.  Everything JSON-serializes for non-Python consumers (`json.dumps(dataclasses.asdict(spec))`), and the same data is served over MCP as the `crcglot://verbs.json` resource.  Defaults are the tool-surface defaults: where a Python function's own default deliberately differs (`reverse_packets(std_algo_only=True)` vs the tool's `False`), the manifest records the tool surface.
 
+### `call_verb`: the manifest's execution half
+
+`call_verb(name, **params)` invokes any verb by its `VERBS` name with the manifest's parameter names and returns the JSON-ready dict the spec's `result_fields` describe.  It runs the exact implementation crcglot's MCP tools wrap (an equivalence test holds the two dict-equal), so a frontend's whole loop is: render the tool declaration from the `VerbSpec`, call `call_verb` in the handler, return the dict.
+
+```python
+from crcglot import call_verb
+
+call_verb("compute", algorithm="crc16-modbus", data_text="123456789")
+# {'crc': 19255, 'crc_hex': '0x4B37', 'width': 16}
+
+call_verb("detect", packet_hex="313233343536373839cbf43926")
+# {'matched': True, 'candidates': [{'algorithm': 'crc32', ...}], 'trailer_hint': None}
+```
+
+An unknown verb raises `UnknownVerbError` with a did-you-mean (and passing the `crc_`-prefixed MCP tool name gets an explicit hint to use the verb name); an unknown parameter raises `UnknownParamError` (a `TypeError`, Python's convention for an unexpected keyword) naming the close match and the verb's valid parameters.  Bad values raise the same errors the MCP tools raise, except that unknown-algorithm messages point at `crcglot.ALGORITHMS` rather than the `crc_list` tool.  The native dataclass API (`crcglot.detect()`, `reverse_packets()`, ...) remains the right surface when you want typed results instead of wire dicts; `VerbSpec.python_api` names it per verb.
+
 ## `self_test_vectors`: the four self-test goldens
 
 `check` is one of four fixed vectors the generated `self_test` drives; the other three (`empty`, `all_bytes`, `binary_1k`) were computed the same way (two independent engines agreeing, `check` anchored to reveng) but only lived inside the generated code. `self_test_vectors(name)` exposes all four as a typed record, and `SELF_TEST_INPUTS` gives the inputs, so you can validate any implementation:

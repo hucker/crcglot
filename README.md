@@ -124,7 +124,7 @@ print(modbus.width, hex(modbus.check), modbus.desc)
 # → 16 0x4b37 Modbus RTU serial protocol
 ```
 
-`LanguageInfo` carries everything a UI or build script needs per target (extensions, variants, generators, naming/casing helpers); `AlgorithmInfo` is the full parameter set; `VERBS` is the verb manifest, every verb's parameters and choices as plain data for frontends that render typed tools.  Custom polynomials plug into the same generators via `generator_from_entry`.  The full API is in [docs/api.md](docs/api.md).
+`LanguageInfo` carries everything a UI or build script needs per target (extensions, variants, generators, naming/casing helpers); `AlgorithmInfo` is the full parameter set; `VERBS` is the verb manifest, every verb's parameters and choices as plain data for frontends that render typed tools, with `call_verb(name, **params)` as their uniform invoker.  Custom polynomials plug into the same generators via `generator_from_entry`.  The full API is in [docs/api.md](docs/api.md).
 
 Pointing an LLM or coding agent at crcglot?  Start with [llms.txt](llms.txt): a concise, linked map of what the package does and where to look, to load first instead of crawling the source.
 
