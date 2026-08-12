@@ -16,3 +16,4 @@ Also in the repository root:
 - **[EXAMPLES.md](../EXAMPLES.md)**: generated source for `crc32` in every language × variant combination (auto-generated gallery).
 - **[BENCHMARKS.md](../BENCHMARKS.md)**: measured throughput per language × variant, plus the runtime engine's paths.
 - **[CHANGELOG.md](../CHANGELOG.md)**: release history.
+- **[DECISIONS.md](../DECISIONS.md)**: the design decisions behind the releases and the reasoning recorded for each, reconstructed from the commit history.
