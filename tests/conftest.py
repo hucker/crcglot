@@ -201,8 +201,20 @@ def _register_hypothesis_profiles() -> None:
 
     Selected with ``HYPOTHESIS_PROFILE`` (default ``dev``); CI sets
     ``ci`` in ``.github/workflows/{tests,exec}.yml``.
+
+    No-ops when Hypothesis is absent.  cibuildwheel tests each built
+    wheel in a MINIMAL venv (``test-requires = "pytest"``) running only
+    ``tests/test_c_extension.py``, which needs no property testing --
+    and an unguarded import here raised ``ModuleNotFoundError`` inside
+    ``pytest_configure``, which pytest reports as INTERNALERROR, failing
+    all five wheel jobs and skipping the PyPI publish.  A genuinely
+    missing Hypothesis still fails loudly where it matters: the property
+    test modules import it at the top and error at collection.
     """
-    from hypothesis import HealthCheck, settings
+    try:
+        from hypothesis import HealthCheck, settings
+    except ImportError:
+        return
 
     # Passed explicitly rather than via a **dict: an untyped dict widens the
     # values and the checker then matches them against the wrong parameter.
