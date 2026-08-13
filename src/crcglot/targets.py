@@ -9,7 +9,7 @@ Example:
 
     >>> from crcglot import LANGUAGES, ALGORITHMS
     >>> sorted(LANGUAGES.keys())
-    ['c', 'csharp', 'go', 'java', 'python', 'rust', 'typescript', 'verilog', 'vhdl']
+    ['c', 'csharp', 'go', 'java', 'python', 'rust', 'typescript', 'verilog', 'vhdl', 'zig']
     >>> LANGUAGES["c"].extensions
     ('.h', '.c')
     >>> "slice8" in LANGUAGES["vhdl"].variants
@@ -924,7 +924,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_c,
         generator_from_entry=generate_c_from_entry,
         combiner=combine_c,
-        emoji="⚙️",  # gear
+        emoji="\u2699\uFE0F",  # ⚙️ gear (U+2699 + VS16)
         display_name="C / C++",
         stdlib_crc32="zlib's `crc32()` (`<zlib.h>`)",
     ),
@@ -937,7 +937,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_csharp,
         generator_from_entry=generate_csharp_from_entry,
         combiner=combine_csharp,
-        emoji="\U0001F4A0",  # diamond with a dot
+        emoji="#\uFE0F\u20E3",  # #️⃣ keycap number sign (was 💠 -- confusable with TypeScript's 🔷)
         display_name="C#",
         stdlib_crc32="`System.IO.Hashing.Crc32` (.NET 6+)",
         filename_case="pascal",  # file is named after the public class
@@ -951,7 +951,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_go,
         generator_from_entry=generate_go_from_entry,
         combiner=combine_go,
-        emoji="\U0001F6A6",  # vertical traffic light
+        emoji="\U0001F6A6",  # 🚦 vertical traffic light
         display_name="Go",
         stdlib_crc32="the `hash/crc32` stdlib (`crc32.ChecksumIEEE`)",
     ),
@@ -964,7 +964,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_java,
         generator_from_entry=generate_java_from_entry,
         combiner=combine_java,
-        emoji="☕",  # hot beverage (coffee)
+        emoji="\u2615",  # ☕ hot beverage (coffee)
         display_name="Java",
         stdlib_crc32="`java.util.zip.CRC32`",
         filename_case="pascal",  # file MUST be named after the public class
@@ -978,7 +978,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_python,
         generator_from_entry=generate_python_from_entry,
         combiner=combine_concat,
-        emoji="\U0001F40D",  # snake
+        emoji="\U0001F40D",  # 🐍 snake
         display_name="Python",
         stdlib_crc32="`zlib.crc32`",
     ),
@@ -991,7 +991,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_rust,
         generator_from_entry=generate_rust_from_entry,
         combiner=combine_concat,
-        emoji="\U0001F980",  # crab
+        emoji="\U0001F980",  # 🦀 crab
         display_name="Rust",
         stdlib_crc32="the `crc32fast` crate (`crc32fast::hash`)",
     ),
@@ -1004,7 +1004,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_typescript,
         generator_from_entry=generate_typescript_from_entry,
         combiner=combine_concat,
-        emoji="\U0001F537",  # large blue diamond
+        emoji="\U0001F537",  # 🔷 large blue diamond
         display_name="TypeScript",
         stdlib_crc32="the `crc-32` npm package (`CRC32.buf`)",
     ),
@@ -1017,7 +1017,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_verilog,
         generator_from_entry=generate_verilog_from_entry,
         combiner=combine_concat,
-        emoji="\U0001F527",  # wrench
+        emoji="\U0001F527",  # 🔧 wrench
         display_name="Verilog",
     ),
     "vhdl": LanguageInfo(
@@ -1029,7 +1029,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_vhdl,
         generator_from_entry=generate_vhdl_from_entry,
         combiner=combine_concat,
-        emoji="\U0001F50C",  # electric plug
+        emoji="\U0001F50C",  # 🔌 electric plug
         display_name="VHDL",
     ),
     "zig": LanguageInfo(
@@ -1041,7 +1041,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         generator=generate_zig,
         generator_from_entry=generate_zig_from_entry,
         combiner=combine_concat,
-        emoji="⚡",  # high voltage (the Zig logo's lightning bolt)
+        emoji="\u26A1",  # ⚡ high voltage (the Zig logo's lightning bolt)
         display_name="Zig",
         # No stdlib_crc32: std.hash.Crc32 exists but is portable software
         # (slicing-by-16), and the shared advisory text claims CPU CRC

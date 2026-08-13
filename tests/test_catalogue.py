@@ -175,6 +175,52 @@ class TestLanguageMetadata:
             f"/ zig; got {sorted(slice8_langs)}"
         )
 
+    def test_emoji_comment_glyph_matches_value(self):
+        """Guard the escape-vs-comment duplication on ``emoji=`` in targets.py.
+
+        The declarations keep the value as an escape (mojibake in a comment
+        is cosmetic; in the value it silently corrupts every listing) with
+        the rendered glyph leading the comment for readability.  The comment
+        can rot while behavior tests stay green -- same failure mode the
+        cruft audit exists for -- so this pins comment glyph == decoded
+        value, per language, straight from the source text.
+        """
+        # Arrange -- parse every emoji= declaration out of targets.py.
+        import ast
+        import re
+        from pathlib import Path
+
+        import crcglot.targets as targets_mod
+
+        source = Path(targets_mod.__file__).read_text(encoding="utf-8")
+        matches = re.findall(
+            r'emoji=("(?:[^"\\]|\\.)*"),\s+#\s+(\S+)', source
+        )
+
+        # Assert -- one match per registered language (a reformatted line
+        # must fail loudly, not silently escape the guard).
+        actual_count = len(matches)
+        expected_count = len(LANGUAGES)
+        assert actual_count == expected_count, (
+            f"parsed {actual_count} emoji= declarations from targets.py, "
+            f"expected {expected_count}; the guard regex no longer matches "
+            f"the declaration shape"
+        )
+        # The LANGUAGES dict literal appears in source order, so zip pairs
+        # each declaration with its language code.
+        for (value_src, comment_glyph), code in zip(matches, LANGUAGES):
+            actual = ast.literal_eval(value_src)
+            expected = LANGUAGES[code].emoji
+            assert actual == expected, (
+                f"{code}: source-parsed emoji {value_src} decodes to "
+                f"{actual!r} but the registry holds {expected!r}; the guard "
+                f"paired declarations with the wrong languages"
+            )
+            assert comment_glyph == actual, (
+                f"{code}: comment glyph {comment_glyph!r} != emoji value "
+                f"{actual!r}; update the comment next to emoji= in targets.py"
+            )
+
     def test_hardware_targets_are_bitwise_only(self):
         # Assert -- both HDL generators emit bit-by-bit only (no table
         # / slice8); these are simulator-reference, not synthesizable

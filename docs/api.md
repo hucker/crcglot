@@ -36,7 +36,7 @@ for code, info in LANGUAGES.items():
     print(f"{info.emoji} {info.display_name:<10}  {info.extensions}  "
           f"{sorted(info.variants)}")
     # → ⚙️ C / C++       ('.h', '.c')  ['bitwise', 'slice8', 'table']
-    # → 💠 C#            ('.cs',)      ['bitwise', 'slice8', 'table']
+    # → #️⃣ C#            ('.cs',)      ['bitwise', 'slice8', 'table']
     # → 🚦 Go            ('.go',)      ['bitwise', 'slice8', 'table']
     # → ☕ Java          ('.java',)    ['bitwise', 'slice8', 'table']
     # → 🐍 Python        ('.py',)      ['bitwise', 'table']

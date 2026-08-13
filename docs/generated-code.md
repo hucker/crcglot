@@ -9,7 +9,7 @@ Every file gets a header (algorithm parameters, a copy-paste streaming example, 
 | Language           | `--comment` styles                                    |
 | ------------------ | ----------------------------------------------------- |
 | C / C++ ⚙️          | `plain`, `doxygen`                                    |
-| C# 💠               | `plain`, `doxygen`, `docfx` (XML `/// <summary>`)     |
+| C# #️⃣               | `plain`, `doxygen`, `docfx` (XML `/// <summary>`)     |
 | Java ☕             | `plain`, `doxygen`, `javadoc`                         |
 | Python 🐍           | `plain`, `google`, `numpy`, `rest` (Sphinx `:param:`) |
 | Rust 🦀             | `plain`, `rustdoc` (`///` + `# Arguments`)            |
@@ -63,7 +63,7 @@ The generated public functions read like hand-written code in each target: Go an
 | Language           | default  | `--naming` choices         |
 | ------------------ | -------- | -------------------------- |
 | C / C++ ⚙️          | `snake`  | `snake`, `camel`, `pascal` |
-| C# 💠               | `pascal` | `pascal`, `camel`          |
+| C# #️⃣               | `pascal` | `pascal`, `camel`          |
 | Go 🚦               | `pascal` | `pascal`, `camel`          |
 | Java ☕             | `camel`  | `camel`, `pascal`          |
 | TypeScript 🔷       | `camel`  | `camel`, `pascal`          |
