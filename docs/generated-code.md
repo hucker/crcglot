@@ -15,6 +15,7 @@ Every file gets a header (algorithm parameters, a copy-paste streaming example, 
 | Rust 🦀             | `plain`, `rustdoc` (`///` + `# Arguments`)            |
 | Go 🚦               | `plain`, `godoc`                                      |
 | TypeScript 🔷       | `plain`, `jsdoc` (TSDoc)                              |
+| Zig ⚡              | `plain` (`///` doc comments)                          |
 | Verilog 🔧 / VHDL 🔌 | `plain`                                               |
 
 ```bash
@@ -57,7 +58,7 @@ C goes one step further and emits the same record as **linkable data**: a public
 
 ## Naming conventions
 
-The generated public functions read like hand-written code in each target: Go and C# get `PascalCase` (`Crc16ModbusUpdate`), Java and TypeScript get `camelCase` (`crc16ModbusUpdate`), and C, Rust, Python, Verilog, and VHDL get `snake_case` (`crc16_modbus_update`).  Those are the **defaults**, so a linter (`govet`, StyleCop, ESLint, …) won't flag the output.  Override with `--naming=<convention>`; each language offers only the conventions its ecosystem actually uses (C is a free-for-all, Python and Rust are snake-only):
+The generated public functions read like hand-written code in each target: Go and C# get `PascalCase` (`Crc16ModbusUpdate`), Java, TypeScript, and Zig get `camelCase` (`crc16ModbusUpdate`), and C, Rust, Python, Verilog, and VHDL get `snake_case` (`crc16_modbus_update`).  Those are the **defaults**, so a linter (`govet`, StyleCop, ESLint, …) won't flag the output.  Override with `--naming=<convention>`; each language offers only the conventions its ecosystem actually uses (C is a free-for-all, Python and Rust are snake-only):
 
 | Language           | default  | `--naming` choices         |
 | ------------------ | -------- | -------------------------- |
@@ -66,6 +67,7 @@ The generated public functions read like hand-written code in each target: Go an
 | Go 🚦               | `pascal` | `pascal`, `camel`          |
 | Java ☕             | `camel`  | `camel`, `pascal`          |
 | TypeScript 🔷       | `camel`  | `camel`, `pascal`          |
+| Zig ⚡              | `camel`  | `camel`, `snake`           |
 | Rust 🦀             | `snake`  | `snake`                    |
 | Python 🐍           | `snake`  | `snake`                    |
 | Verilog 🔧 / VHDL 🔌 | `snake`  | `snake`                    |
@@ -81,7 +83,7 @@ Only the public function/method names are re-cased; header guards, table symbols
 
 Every generated file ships its own `_self_test()`:
 
-- **What it checks.**  Table-driven targets check four fixed inputs: the empty string, `"123456789"`, all 256 byte values, and a 1 KiB pseudo-random pattern, so the byte-table and the high-bit handling get exercised, not just the one short check string.  Verilog and VHDL are bitwise with no lookup table, so the two large (table-coverage) vectors are dropped there; they check the empty input and the check string.
+- **What it checks.**  Table-driven targets check four fixed inputs: the empty string, `"123456789"`, all 256 byte values, and a 1 KiB pseudo-random pattern, so the byte-table and the high-bit handling get exercised, not just the one short check string.  Verilog and VHDL are bitwise with no lookup table, so the two large (table-coverage) vectors are dropped there; they check the empty input and the check string.  Zig ships the four-vector self-test plus a native `test` declaration wrapping it, so `zig test <file>.zig` runs the check with no harness (test declarations are stripped from normal builds).
 - **Nothing bulky lands in flash.**  The two large inputs are regenerated inside the self-test with a byte-at-a-time loop, so the embedded code carries no big array.
 - **The expected values are not crcglot's own.**  A tool grading itself is not evidence, so they come from two independent implementations ([anycrc](https://pypi.org/project/anycrc/) and [crccheck](https://pypi.org/project/crccheck/)) that had to agree, anchored to reveng's published value at the check string.  Both are dev-only tools; the shipped package stays zero-dependency.
 - **Customs carry a weaker check.**  A non-catalogue polynomial has no independent reference, so its self-test compares against a single value crcglot computed itself: that still catches a toolchain mismatch, but cannot catch an error shared by the generator and the generated code.

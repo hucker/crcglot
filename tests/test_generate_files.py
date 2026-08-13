@@ -40,6 +40,7 @@ class TestFilenameContract:
         "typescript": ["crc16_xmodem.ts"],
         "verilog": ["crc16_xmodem.sv"],
         "vhdl": ["crc16_xmodem.vhd"],
+        "zig": ["crc16_xmodem.zig"],
     }
 
     @pytest.mark.parametrize("language", sorted(_EXPECTED))

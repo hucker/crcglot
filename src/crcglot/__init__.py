@@ -37,6 +37,7 @@ Public API:
         - generate_typescript / generate_typescript_from_entry
         - generate_verilog / generate_verilog_from_entry
         - generate_vhdl / generate_vhdl_from_entry
+        - generate_zig / generate_zig_from_entry
 
     Engine utilities:
         - generic_crc: public helper to compute a check value for any
@@ -147,6 +148,7 @@ if TYPE_CHECKING:
     )
     from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
     from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
+    from crcglot.lang.zig import generate_zig, generate_zig_from_entry
     from crcglot.targets import (
         LANGUAGES,
         NAMING_ORDER,
@@ -230,6 +232,7 @@ def _lazy_map() -> dict[str, str]:
         ),
         "crcglot.lang.verilog": ("generate_verilog", "generate_verilog_from_entry"),
         "crcglot.lang.vhdl": ("generate_vhdl", "generate_vhdl_from_entry"),
+        "crcglot.lang.zig": ("generate_zig", "generate_zig_from_entry"),
         "crcglot.targets": (
             "LANGUAGES",
             "NAMING_ORDER",
@@ -390,6 +393,8 @@ __all__ = [
     "generate_verilog_from_entry",
     "generate_vhdl",
     "generate_vhdl_from_entry",
+    "generate_zig",
+    "generate_zig_from_entry",
     "crc_stream",
     "generic_crc",
     "generic_crc_many",

@@ -44,6 +44,7 @@ for code, info in LANGUAGES.items():
     # → 🔷 TypeScript    ('.ts',)      ['bitwise', 'slice8', 'table']
     # → 🔧 Verilog       ('.sv',)      ['bitwise']
     # → 🔌 VHDL          ('.vhd',)     ['bitwise']
+    # → ⚡ Zig           ('.zig',)     ['bitwise', 'slice8', 'table']
 ```
 
 Each entry is a frozen `LanguageInfo` dataclass with:

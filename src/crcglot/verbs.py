@@ -824,7 +824,7 @@ _register(
         description=(
             "Generate verified CRC source code for one (language, "
             "algorithm, variant) cell.  Supports C, C#, Go, Java, Python, "
-            "Rust, TypeScript, Verilog, VHDL.  Variants: 'auto' (DEFAULT -- "
+            "Rust, TypeScript, Verilog, VHDL, Zig.  Variants: 'auto' (DEFAULT -- "
             "the fastest the target + width support), 'bitwise' (smallest "
             "code, zero RAM table), 'table' (256-entry LUT), 'slice8' (8 "
             "tables, fastest, width 32/64 only, not on Python / Verilog / "
@@ -894,8 +894,9 @@ _register(
             "rather than pasting it into the chat; only paste it inline when the "
             "user wants to read or copy it directly, and then IN FULL.  Name the "
             "file by the language's convention -- the algorithm name for C / "
-            "Rust / Go / Python / TypeScript / Verilog / VHDL; the public class "
-            "name shown in the emitted code for Java / C#.  Large variants make "
+            "Rust / Go / Python / TypeScript / Verilog / VHDL / Zig; the public "
+            "class name shown in the emitted code for Java / C#.  Large variants "
+            "make "
             "this matter: slice8 emits eight 256-entry tables, so write it to a "
             "file instead of dumping the whole table into the conversation."
         ),

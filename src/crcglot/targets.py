@@ -56,6 +56,7 @@ from crcglot.lang.typescript import (
 )
 from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
 from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
+from crcglot.lang.zig import generate_zig, generate_zig_from_entry
 
 
 VARIANT_ORDER: tuple[str, ...] = ("bitwise", "table", "slice8")
@@ -910,6 +911,7 @@ _SNAKE_ONLY = frozenset({"snake"})
 _ALL_CASES = frozenset({"snake", "camel", "pascal"})
 _PASCAL_CAMEL = frozenset({"pascal", "camel"})
 _CAMEL_PASCAL = frozenset({"camel", "pascal"})
+_CAMEL_SNAKE = frozenset({"camel", "snake"})
 
 
 LANGUAGES: dict[str, LanguageInfo] = {
@@ -1029,6 +1031,21 @@ LANGUAGES: dict[str, LanguageInfo] = {
         combiner=combine_concat,
         emoji="\U0001F50C",  # electric plug
         display_name="VHDL",
+    ),
+    "zig": LanguageInfo(
+        code="zig",
+        extensions=(".zig",),
+        variants=_BITWISE_TABLE_SLICE8,
+        naming=_CAMEL_SNAKE,
+        default_naming="camel",  # Zig style guide: functions are camelCase
+        generator=generate_zig,
+        generator_from_entry=generate_zig_from_entry,
+        combiner=combine_concat,
+        emoji="⚡",  # high voltage (the Zig logo's lightning bolt)
+        display_name="Zig",
+        # No stdlib_crc32: std.hash.Crc32 exists but is portable software
+        # (slicing-by-16), and the shared advisory text claims CPU CRC
+        # instructions -- that claim would be false for Zig.
     ),
 }
 

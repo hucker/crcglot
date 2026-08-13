@@ -35,6 +35,7 @@ _EXPECTED = {
     "typescript": ("camel", {"camel", "pascal"}),
     "verilog": ("snake", {"snake"}),
     "vhdl": ("snake", {"snake"}),
+    "zig": ("camel", {"camel", "snake"}),
 }
 
 

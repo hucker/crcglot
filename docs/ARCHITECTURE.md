@@ -13,7 +13,7 @@ You can read crcglot's internal structure straight off its feature list. Whereve
 | **Naming** (snake / camel / pascal)     | `NAMING_ORDER` + `NamingInfo`               | a naming record             |
 | **Verbs** (detect / reverse / generate / …) | `VERBS: dict[str, VerbSpec]` + `verb_info` | a verb record               |
 
-We support nine languages because it is easy: a language is a registered entity, not a fork in the control flow. We support several naming conventions for the same reason. None of these are special-cased; each is just another row along an axis the architecture already treats as first-class.
+We support ten languages because it is easy: a language is a registered entity, not a fork in the control flow. We support several naming conventions for the same reason. None of these are special-cased; each is just another row along an axis the architecture already treats as first-class.
 
 ## Why it looks this way
 

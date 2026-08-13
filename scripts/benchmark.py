@@ -716,7 +716,7 @@ crcglot has **two** performance stories, and the table below shows both in one
 place:
 
 - **Generated source** (the per-language rows): complete, zero-dependency CRC
-  for any of the 100+ catalogue algorithms in nine languages, verified by
+  for any of the 100+ catalogue algorithms in ten languages, verified by
   execution.  Portable source with nothing to link -- fast enough for every
   CRC need short of a heavily CPU-constrained hot path.
 - **The package's own runtime** (the two **Python (runtime)** rows): crcglot

@@ -61,6 +61,7 @@ LANG_ENUM = Literal[
     "typescript",
     "verilog",
     "vhdl",
+    "zig",
 ]
 
 VARIANT_ENUM = Literal["auto", "bitwise", "table", "slice8"]

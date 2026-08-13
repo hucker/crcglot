@@ -92,17 +92,17 @@ class TestLanguageMetadata:
         # Assert
         assert set(LANGUAGES.keys()) == {
             "c", "csharp", "go", "java", "python", "rust",
-            "typescript", "verilog", "vhdl",
+            "typescript", "verilog", "vhdl", "zig",
         }, (
             "expected c / csharp / go / java / python / rust / typescript / "
-            "verilog / vhdl in LANGUAGES"
+            "verilog / vhdl / zig in LANGUAGES"
         )
 
     @pytest.mark.parametrize(
         "code",
         [
             "c", "csharp", "go", "java", "python", "rust",
-            "typescript", "verilog", "vhdl",
+            "typescript", "verilog", "vhdl", "zig",
         ],
     )
     def test_entry_is_languageinfo_with_callables(self, code):
@@ -141,6 +141,7 @@ class TestLanguageMetadata:
             ("typescript", ".ts"),
             ("verilog", ".sv"),
             ("vhdl", ".vhd"),
+            ("zig", ".zig"),
         ],
     )
     def test_extension_per_language(self, code, expected_ext):
@@ -168,10 +169,10 @@ class TestLanguageMetadata:
             code for code, info in LANGUAGES.items() if "slice8" in info.variants
         }
         assert slice8_langs == {
-            "c", "csharp", "go", "java", "rust", "typescript",
+            "c", "csharp", "go", "java", "rust", "typescript", "zig",
         }, (
-            "slice8 is supported on c / csharp / go / java / rust / typescript; "
-            f"got {sorted(slice8_langs)}"
+            "slice8 is supported on c / csharp / go / java / rust / typescript "
+            f"/ zig; got {sorted(slice8_langs)}"
         )
 
     def test_hardware_targets_are_bitwise_only(self):
@@ -211,6 +212,7 @@ class TestLanguageMetadata:
             ("typescript", "TypeScript"),
             ("verilog", "Verilog"),
             ("vhdl", "VHDL"),
+            ("zig", "Zig"),
         ],
     )
     def test_display_name_per_language(self, code, expected_display):
@@ -295,6 +297,7 @@ class TestVariantsForWidth:
             ("python", ("bitwise", "table")),
             ("verilog", ("bitwise",)),
             ("vhdl", ("bitwise",)),
+            ("zig", ("bitwise", "table", "slice8")),
         ],
     )
     def test_full_set_at_width_32(self, code, expected):
@@ -390,6 +393,7 @@ class TestFastestVariant:
             ("rust", 32): "slice8", ("c", 32): "slice8", ("python", 32): "table",
             ("c", 16): "table", ("c", 8): "table", ("c", 5): "bitwise",
             ("verilog", 32): "bitwise", ("vhdl", 64): "bitwise",
+            ("zig", 32): "slice8", ("zig", 5): "bitwise",
         }
         for (code, width), expected in cases.items():
             actual = LANGUAGES[code].fastest_variant_for_width(width)
@@ -785,7 +789,7 @@ class TestGenerators:
         "lang",
         [
             "c", "csharp", "go", "python", "rust",
-            "typescript", "verilog", "vhdl",
+            "typescript", "verilog", "vhdl", "zig",
         ],
     )
     def test_reflected_algorithm(self, lang):
@@ -802,7 +806,7 @@ class TestGenerators:
         "lang",
         [
             "c", "csharp", "go", "python", "rust",
-            "typescript", "verilog", "vhdl",
+            "typescript", "verilog", "vhdl", "zig",
         ],
     )
     def test_normal_algorithm(self, lang):

@@ -758,13 +758,16 @@ class TestCustomParams:
 
 
 class TestCrcGenerate:
-    """`crc_generate` collapses the 8 per-language CLI subcommands into
+    """`crc_generate` collapses the per-language CLI subcommands into
     one MCP tool with a ``language`` enum.
     """
 
     @pytest.mark.parametrize(
         "language",
-        ["c", "csharp", "go", "java", "python", "rust", "typescript", "verilog", "vhdl"],
+        [
+            "c", "csharp", "go", "java", "python", "rust",
+            "typescript", "verilog", "vhdl", "zig",
+        ],
     )
     def test_each_language_emits_files(self, language):
         # Act

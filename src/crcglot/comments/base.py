@@ -49,6 +49,7 @@ _PLAIN_SYNTAX: dict[str, _Syntax] = {
     "typescript": _Syntax("line", prefix="//"),
     "verilog":    _Syntax("line", prefix="//"),
     "vhdl":       _Syntax("line", prefix="--"),
+    "zig":        _Syntax("line", prefix="///", header_prefix="//"),
 }
 
 #: The shared ``/** ... */`` block syntax used by doxygen, javadoc and jsdoc.
