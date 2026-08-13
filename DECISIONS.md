@@ -1,8 +1,10 @@
 # Decision log
 
-A dated record of the design decisions behind crcglot, from the initial extraction on 2026-05-25 through v0.28.0 on 2026-07-07.
+A dated record of the design decisions behind crcglot, from the initial extraction on 2026-05-25 onward.
 
-**How this was assembled.** Reconstructed on 2026-08-12 from four sources already in the repository: the commit bodies (299 commits, ~3,600 lines of prose), the merged branch names, the revision history of `CLAUDE.md`, and `CHANGELOG.md` plus the reports in `docs/verification/`. The conversations that produced these decisions were not retained, so this log carries what the commits recorded: the decision, the reason given for it, and where to read the change. Alternatives that were weighed and dropped before a commit are not here, because git never saw them.
+**How this was assembled.** Everything through v0.28.0 was reconstructed on 2026-08-12 from four sources already in the repository: the commit bodies (299 commits, ~3,600 lines of prose), the merged branch names, the revision history of `CLAUDE.md`, and `CHANGELOG.md` plus the reports in `docs/verification/`. The conversations that produced those decisions were not retained, so the reconstructed entries carry what the commits recorded: the decision, the reason given for it, and where to read the change. Alternatives weighed and dropped before a commit are not there, because git never saw them.
+
+Entries from v0.30.0 onward are written **as the decision is made**, so they can carry what reconstruction cannot: the options that were rejected and why.
 
 Each entry cites its commit. `git show <sha>` has the full reasoning.
 
@@ -157,6 +159,20 @@ Two things hid it. The per-algorithm test that compiles the real default output 
 **Verbs became plain data.** `crcglot.VERBS` carries twelve `VerbSpec` records: summary, guidance prose, parameters with types and defaults and choices and help, mutual-exclusion groups, result fields, and the surface mapping. Registry-backed choices derive from `LANGUAGES` and friends at import time, so a frontend renders typed tools from one source instead of hand-rolling parameter metadata. `0aeb00b`
 
 **Then the implementations moved to match.** The twelve MCP tool bodies lifted verbatim into an SDK-free `crcglot/_invoke.py`, each `@mcp.tool` becoming a one-line delegation, followed by a public `call_verb(name, **params)`. Core and MCP now share one implementation per verb by construction, and a frontend's loop is complete: render from `VerbSpec`, call `call_verb`, return the dict. An equivalence test asserts dict-equality between the two paths for every verb, with a completeness check so a new verb cannot escape it. `047f7bc`, `9f0550d`
+
+## Property-based testing, scoped to the infinite axis (2026-08-13)
+
+**Hypothesis enters as a dev-only dependency, for two properties.** The verification model here is evidence over review, and the method statement in `docs/verification/index.md` decides where a search-based tool belongs: enumerate the countable axis (algorithms x variants x languages) completely, sample the infinite one. Property-based testing is the right instrument only on the second. Both properties chosen sit there: the off-catalogue CRC parameter space in `reverse()`, and the chunkings of a message, which grow exponentially in its length.
+
+**One candidate was rejected on that same rule, and the reasoning is the reusable part.** The `detect` -> `encode_match` hex-text round-trip looked like a natural property, but `HexFormat` is a closed product: separator x prefix x per-byte x case, roughly 96 combinations. That is a countable axis, so the method calls for enumerating it, and a parametrized cross-product beats a search on every axis that matters here: exhaustive rather than sampled, deterministic, and free of a dependency. It landed as a parametrize.
+
+That decision paid immediately. The full cross-product failed on its first run, on all 16 combinations pairing a `0X` prefix with lowercase hex digits: the parser inferred `HexFormat.uppercase` from the prefix's case and let it override the digits' own, so `0X...cbf43926` round-tripped back as `0X...CBF43926`. The seven hand-picked cases it replaced had missed it because the only `0X` case among them also used uppercase digits. Fixed by letting the digits decide whenever they carry any case evidence, keeping the prefix only as the tiebreaker for a packet of digits 0-9 that carries none.
+
+**CI runs a derandomized profile.** A release gate has to mean the same thing on every run, so `HYPOTHESIS_PROFILE=ci` fixes the examples in both workflows; the random `dev` profile is the local default, where discovery is welcome. Anything the dev profile finds gets pinned inline as an explicit example, so the deterministic gate carries it from then on. `deadline=None` in both profiles is not tuning: the suite runs `-n auto` across ~16 workers, where the default 200 ms per-example deadline measures scheduler noise.
+
+**The acceptance test was shrinking, not passing.** A property test that cannot report a minimal counterexample is a slower version of the seeded sweep it replaces, so before keeping the dependency, both invariants were deliberately broken. Injecting a 3-byte-chunk bug into the pure-Python backend shrank a 400-byte message and 24 cut points down to `b'  '` fed as one 3-byte chunk, and correctly reported the algorithm as irrelevant. Corrupting a recovered `init` was caught in 2.7 seconds by the pinned `poly=1` corner rather than by search. Both restored afterward.
+
+**What it replaced.** `TestRandomCustomCrcs::test_no_wrong_answers` (6 parametrized cases, 240 `reverse()` calls over a fixed seed) is gone: the property asserts the identical invariant with draws biased toward the boundary values a uniform sweep never reaches (`poly=1`, whose generator factors as `(x+1)**w` for maximal ambiguity; `init=0`; `xorout=0`). `TestSegmentation` was deliberately **kept**: it is exhaustive over two-way split positions, and a sampled search cannot replace an exhaustive guarantee.
 
 ## Decisions that were reversed
 

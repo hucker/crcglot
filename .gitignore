@@ -29,6 +29,9 @@ coverage.xml
 .pytest_cache/
 .cache/
 
+# hypothesis (example database; local discovery state, not a build input)
+.hypothesis/
+
 # IDE
 .vscode/
 .idea/

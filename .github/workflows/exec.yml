@@ -70,6 +70,8 @@ jobs:
           iverilog -V 2>&1 | head -1 || true
 
       - name: Run full suite (fast tier + execution batches)
+        env:
+          HYPOTHESIS_PROFILE: ci  # see tests.yml
         run: uv run pytest --junit-xml=pytest-results.xml
 
       - name: Fail on any skipped test

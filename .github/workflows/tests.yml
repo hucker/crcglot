@@ -46,6 +46,10 @@ jobs:
         # multi-OS reference box before each release.  The end user's
         # own check remains the embedded `_self_test()`: their
         # compiler, their flags, their target.
+        env:
+          # Derandomized: a release gate must mean the same thing on every
+          # run.  Discovery happens in the default 'dev' profile locally.
+          HYPOTHESIS_PROFILE: ci
         run: uv run --python ${{ matrix.python-version }} pytest -m "not slow"
 
   audit:

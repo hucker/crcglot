@@ -416,8 +416,14 @@ def _looks_like_hex(text: str) -> tuple[bytes, HexFormat] | None:
     n_bytes = len(cleaned) // 2
     prefix_per_byte = bool(prefix) and n_prefix >= n_bytes
 
-    # Case: digits themselves AND/OR a ``0X`` prefix.
-    uppercase = any(c.isupper() for c in cleaned) or prefix == "0X"
+    # Case of the DIGITS (the prefix's own case is already carried by
+    # ``prefix``).  When the digits contain a-f/A-F they settle it outright;
+    # a packet of only 0-9 carries no case evidence at all, and there the
+    # ``0X`` prefix is the one hint available, so it breaks the tie.
+    # Letting the prefix override real digit evidence is what made
+    # ``0X...cbf43926`` round-trip back as ``0X...CBF43926``.
+    letters = [c for c in cleaned if c in "abcdefABCDEF"]
+    uppercase = any(c.isupper() for c in letters) if letters else prefix == "0X"
 
     return bytes.fromhex(cleaned), HexFormat(
         separator=separator,

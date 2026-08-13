@@ -11,6 +11,8 @@ pure-Python).  Mirrors ``tests/test_python_gen.py``'s
 from __future__ import annotations
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from crcglot import (
     ALGORITHMS,
@@ -189,6 +191,62 @@ class TestSegmentation:
                 f"{name} ({backend}) split at {i}: {actual:#x} != "
                 f"one-shot {expected:#x}"
             )
+
+
+# ── chunking invariance over arbitrary n-way splits ───────────────────────
+
+
+@st.composite
+def _message_and_chunking(draw) -> tuple[bytes, list[bytes]]:
+    """Draw a message and an arbitrary segmentation of it.
+
+    Cut points are drawn independently and sorted, so duplicates fall out
+    naturally as **empty chunks in mid-stream** -- a shape the curated
+    framings only cover at the ends.  Messages run to 400 bytes because the
+    C extension's slice-by-8 path consumes 8-byte blocks with a byte-wise
+    tail: a many-chunk feed at that length crosses the block/tail transition
+    dozens of times, where a two-part split of 33 bytes crosses it twice.
+    """
+    message = draw(st.binary(min_size=0, max_size=400))
+    cuts = sorted(
+        draw(st.lists(st.integers(min_value=0, max_value=len(message)), max_size=24))
+    )
+    bounds = [0, *cuts, len(message)]
+    # Pairwise over bounds: N bounds yield N-1 chunks, so no strict= here.
+    chunks = [message[a:b] for a, b in zip(bounds, bounds[1:])]  # noqa: B905
+    return message, chunks
+
+
+class TestChunkingInvarianceProperty:
+    """Any segmentation of any message digests to the one-shot CRC.
+
+    :class:`TestSegmentation` enumerates every *two-part* split of two fixed
+    messages across the whole catalogue -- exhaustive on that axis, and kept
+    for exactly that reason.  This searches the axis it cannot reach: the
+    number of chunkings of an N-byte message grows exponentially in N, so
+    n-way feeds with interspersed empty chunks are sampled, not enumerated.
+    """
+
+    # The ``backend`` fixture is function-scoped, so Hypothesis warns that it
+    # is not re-run per example.  Safe here: it monkeypatches two static
+    # module attributes to force the pure-Python path and holds no per-example
+    # state, so every example in a run sees the same intended backend.
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    @given(case=_message_and_chunking(), name=st.sampled_from(_NAMES))
+    def test_any_chunking_matches_the_one_shot(self, case, name: str, backend: str):
+        # Arrange
+        message, chunks = case
+        expected = generic_crc(message, ALGORITHMS[name])
+
+        # Act
+        actual = _digest(crc_stream(name), chunks)
+
+        # Assert
+        assert actual == expected, (
+            f"{name} ({backend}): {len(chunks)} chunks of sizes "
+            f"{[len(c) for c in chunks]} over a {len(message)}-byte message "
+            f"digested {actual:#x}, one-shot is {expected:#x}"
+        )
 
 
 # ── backend selection ─────────────────────────────────────────────────────

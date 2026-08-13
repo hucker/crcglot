@@ -165,42 +165,93 @@ class TestEncodeMatch:
             encode_match(b"bytes data", text_match)
 
 
+def _hex_text(data: bytes, fmt: HexFormat) -> str:
+    """Render ``data`` as hex text in exactly the surface ``fmt`` describes.
+
+    The inverse of what ``detect`` recovers into a :class:`HexFormat`; used to
+    build every point of the format cross-product below by construction, so
+    the round-trip is exercised on formats nobody had to think of by hand.
+    """
+    digits = [f"{b:02X}" if fmt.uppercase else f"{b:02x}" for b in data]
+    if fmt.prefix and fmt.prefix_per_byte:
+        digits = [fmt.prefix + d for d in digits]
+    body = fmt.separator.join(digits)
+    if fmt.prefix and not fmt.prefix_per_byte:
+        body = fmt.prefix + body
+    return body
+
+
+# The HexFormat surface is a CLOSED product: separator x prefix x
+# per-byte x case.  It is small enough to enumerate completely, which is
+# what the project's method calls for on a countable axis -- so this is a
+# parametrized cross-product, deliberately NOT a property test.  (The
+# property tests in test_reverse.py / test_stream.py cover axes that are
+# genuinely infinite.)
+_SEPARATORS = ("", " ", "  ", "\t", ",", ", ", ":", "\n")
+_PREFIXES = ("", "0x", "0X")
+
+
+def _hex_format_cases() -> list[tuple[HexFormat, str]]:
+    """Every meaningful (separator, prefix, per-byte, case) combination.
+
+    ``prefix_per_byte`` is only meaningful when there is a prefix, so the
+    no-prefix half of that axis is dropped rather than duplicated.
+    """
+    cases = []
+    for sep in _SEPARATORS:
+        for prefix in _PREFIXES:
+            per_byte_options = (False,) if not prefix else (False, True)
+            for per_byte in per_byte_options:
+                for upper in (False, True):
+                    fmt = HexFormat(
+                        separator=sep, prefix=prefix,
+                        prefix_per_byte=per_byte, uppercase=upper,
+                    )
+                    label = (
+                        f"sep={sep!r}-prefix={prefix or 'none'}"
+                        f"-{'per-byte' if per_byte else 'single'}"
+                        f"-{'upper' if upper else 'lower'}"
+                    )
+                    cases.append((fmt, label))
+    return cases
+
+
+_HEX_FORMAT_CASES = _hex_format_cases()
+
+
 class TestRoundTripHexText:
     """Hex-text packets in any supported formatting round-trip
-    byte-for-byte through ``detect -> encode_match``."""
+    byte-for-byte through ``detect -> encode_match``.
+
+    Enumerates the whole ``HexFormat`` cross-product rather than a handful
+    of hand-picked strings, so a formatting the parser or the printer
+    mishandles cannot survive by nobody having written it down.  A
+    combination ``detect`` declines to read as hex is a real finding, not a
+    skip: the assertion says so.
+    """
 
     @pytest.mark.parametrize(
-        "original",
-        [
-            "313233343536373839cbf43926",
-            "31 32 33 34 35 36 37 38 39 cb f4 39 26",
-            "0x31 0x32 0x33 0x34 0x35 0x36 0x37 0x38 0x39 0xcb 0xf4 0x39 0x26",
-            "0x31,0x32,0x33,0x34,0x35,0x36,0x37,0x38,0x39,0xcb,0xf4,0x39,0x26",
-            "31:32:33:34:35:36:37:38:39:CB:F4:39:26",
-            "0X313233343536373839CBF43926",
-            "31\t32\t33\t34\t35\t36\t37\t38\t39\tcb\tf4\t39\t26",
-        ],
-        ids=[
-            "no-separator",
-            "space",
-            "0x-per-byte-space",
-            "0x-per-byte-comma",
-            "colon-upper",
-            "0X-single-prefix",
-            "tab-separated",
-        ],
+        "fmt",
+        [c[0] for c in _HEX_FORMAT_CASES],
+        ids=[c[1] for c in _HEX_FORMAT_CASES],
     )
-    def test_round_trip_byte_for_byte(self, original: str) -> None:
-        # Arrange
-        match = detect(original).candidates[0]
+    def test_round_trip_byte_for_byte(self, fmt: HexFormat) -> None:
+        # Arrange -- build the packet in this exact surface format.
+        packet = _hex_text(CHECK_INPUT_BYTES + b"\xcb\xf4\x39\x26", fmt)
+
         # Act
-        rebuilt = encode_match(CHECK_INPUT_BYTES, match)
-        # Assert
+        result = detect(packet)
+        assert result.candidates, (
+            f"detect found no CRC in a well-formed hex packet: {packet!r}"
+        )
+        rebuilt = encode_match(CHECK_INPUT_BYTES, result.candidates[0])
+
+        # Assert -- the rebuilt packet reproduces the input surface exactly.
         assert isinstance(rebuilt, str), (
             f"hex-text encode_match should return str, got {type(rebuilt).__name__}"
         )
-        assert rebuilt == original, (
-            f"hex-text round-trip mismatch:\n  in:  {original!r}\n  out: {rebuilt!r}"
+        assert rebuilt == packet, (
+            f"hex-text round-trip mismatch:\n  in:  {packet!r}\n  out: {rebuilt!r}"
         )
 
     def test_hex_match_with_str_data_raises(self) -> None:

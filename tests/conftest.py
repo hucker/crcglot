@@ -270,6 +270,53 @@ def pytest_configure(config: pytest.Config) -> None:
     del config  # unused; required by the hook signature
     _fix_msys2_path_on_windows()
     _add_windows_tool_dirs_to_path()
+    _register_hypothesis_profiles()
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis profiles
+# ---------------------------------------------------------------------------
+
+
+def _register_hypothesis_profiles() -> None:
+    """Register the ``ci`` / ``dev`` Hypothesis profiles and load one.
+
+    Property-based tests search the *infinite* axis (message bytes,
+    off-catalogue parameter tuples); the countable axis stays
+    exhaustively enumerated by parametrize.  See
+    ``docs/verification/index.md``.
+
+    Two settings are non-negotiable here:
+
+    * ``deadline=None`` -- the suite runs ``-n auto`` across ~16 xdist
+      workers, where Hypothesis's default 200 ms per-example deadline
+      flakes on scheduler noise rather than on real slowness.
+    * ``derandomize=True`` in the ``ci`` profile -- a release gate must
+      mean the same thing on every run.  Discovery happens in the
+      ``dev`` profile locally; anything it finds gets pinned as an
+      ``@example`` so the ``ci`` profile carries it forever after.
+
+    Selected with ``HYPOTHESIS_PROFILE`` (default ``dev``); CI sets
+    ``ci`` in ``.github/workflows/{tests,exec}.yml``.
+    """
+    from hypothesis import HealthCheck, settings
+
+    # Passed explicitly rather than via a **dict: an untyped dict widens the
+    # values and the checker then matches them against the wrong parameter.
+    settings.register_profile(
+        "ci",
+        derandomize=True,
+        max_examples=100,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+    settings.register_profile(
+        "dev",
+        max_examples=250,
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+    )
+    settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "dev"))
 
 
 # ---------------------------------------------------------------------------

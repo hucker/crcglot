@@ -16,6 +16,8 @@ from __future__ import annotations
 import random
 
 import pytest
+from hypothesis import example, given
+from hypothesis import strategies as st
 
 from crcglot import Crc, ReverseResult, generic_crc, reverse, reverse_packets
 from crcglot.catalogue import ALGORITHMS
@@ -91,33 +93,87 @@ class TestRecoversEveryCatalogueAlgorithm:
 # ---------------------------------------------------------------------------
 
 
-class TestRandomCustomCrcs:
-    """Recover hundreds of random custom CRCs (none in any catalogue) and
-    confirm: every truthy result predicts held-out data, and none is wrong."""
+# The widths the property draws over: sub-byte-adjacent (8), non-byte-aligned
+# (12, 15), byte-aligned (16, 24, 32).  Wider widths cost solver time without
+# reaching new structure -- the ambiguity behaviour is set by the generator's
+# factorization, not by width.
+_PROPERTY_WIDTHS = (8, 12, 15, 16, 24, 32)
 
-    @pytest.mark.parametrize("width", [8, 12, 15, 16, 24, 32])
-    def test_no_wrong_answers(self, width):
-        rng = random.Random(20240608 + width)
-        wrong, no_model, ok = [], 0, 0
-        for _ in range(40):
-            poly = rng.randrange(1, 1 << width) | 1  # generators are odd
-            init = rng.randrange(0, 1 << width)
-            xorout = rng.randrange(0, 1 << width)
-            ri, ro = rng.random() < 0.5, rng.random() < 0.5
-            cws = _codewords(
-                width, poly, init, ri, ro, xorout, seed=rng.randrange(1 << 30)
-            )
-            r = reverse(cws, std_algo_only=False, width=width)
-            if r.info is None:
-                no_model += 1
-                continue
-            if _agree(_info_params(r.info), (width, poly, init, ri, ro, xorout)):
-                ok += 1
-            else:
-                wrong.append((width, poly, init, ri, ro, xorout))
-        # The guarantee: zero wrong answers.  No-model is a possible outcome.
-        assert wrong == [], f"width {width}: {len(wrong)} WRONG recoveries: {wrong[:3]}"
-        assert ok >= 1, f"width {width}: recovered nothing at all"
+
+@st.composite
+def _crc_parameters(draw) -> _Params:
+    """Draw a Rocksoft/Williams parameter set for an off-catalogue CRC.
+
+    ``poly`` is forced odd because a CRC generator always is (an even
+    polynomial has ``x`` as a factor, which ``reverse`` strips).  Everything
+    else is unconstrained over its width, so the draw reaches the boundary
+    values a uniform random sweep effectively never produces: ``poly=1``
+    (whose generator ``x**w + 1`` factors as ``(x+1)**w``, the maximal
+    ``(init, xorout)`` ambiguity), ``init=0``, ``xorout=0``, and the
+    all-ones forms.
+    """
+    width = draw(st.sampled_from(_PROPERTY_WIDTHS))
+    hi = (1 << width) - 1
+    return (
+        width,
+        draw(st.integers(min_value=1, max_value=hi)) | 1,
+        draw(st.integers(min_value=0, max_value=hi)),
+        draw(st.booleans()),
+        draw(st.booleans()),
+        draw(st.integers(min_value=0, max_value=hi)),
+    )
+
+
+class TestNoConfidentlyWrongRecovery:
+    """The standing guarantee, searched rather than sampled.
+
+    ``reverse`` may always answer "no model" or "underdetermined"; what it
+    may never do is return a model that mispredicts data it did not train
+    on.  Hypothesis searches the parameter space for a counterexample and
+    shrinks any it finds to a minimal one, which is the property this
+    replaces a fixed seeded sweep to get: a failure here names a small,
+    reproducible parameter set instead of one arbitrary draw out of 240.
+
+    The guarantee has been broken before (``4cd0842``: an ``(init, xorout)``
+    class enumerated from the observed lengths only, plus a width overfit,
+    together produced confidently-wrong models on ~6% of random trials), so
+    the search is pointed at exactly the surface that failed.
+    """
+
+    @given(params=_crc_parameters(), seed=st.integers(min_value=0, max_value=2**30))
+    # The degenerate corners, pinned so they run in every profile rather than
+    # only when the search happens to reach them.
+    @example(params=(16, 0x0001, 0x0000, False, False, 0x0000), seed=0)
+    @example(params=(16, 0x0001, 0xFFFF, True, True, 0xFFFF), seed=0)
+    @example(params=(8, 0x0001, 0x0000, False, False, 0x0000), seed=0)
+    def test_recovered_model_is_correct_or_absent(self, params, seed):
+        # Arrange -- codewords from a CRC that is (almost surely) in no catalogue.
+        width, poly, init, refin, refout, xorout = params
+        codewords = _codewords(width, poly, init, refin, refout, xorout, seed=seed)
+
+        # Act -- algebraic tier, width supplied (the blind search is pinned
+        # separately by test_full_blind_search_recovers).
+        result = reverse(codewords, std_algo_only=False, width=width)
+
+        # Assert -- no model is always an acceptable answer; a model is not
+        # allowed to be wrong on data it never saw.
+        if result.info is None:
+            return
+        actual = _info_params(result.info)
+        assert _agree(actual, params), (
+            f"confidently WRONG recovery: reverse returned {actual} for a CRC "
+            f"with parameters {params}; the two disagree on held-out messages"
+        )
+
+
+class TestRandomCustomCrcs:
+    """Specific recovery capabilities, pinned with fixed parameters.
+
+    The general guarantee is searched in
+    :class:`TestNoConfidentlyWrongRecovery`; what stays here is the
+    documented full-blind-search capability, which needs a known-good
+    parameter set rather than a drawn one.
+    """
 
     def test_full_blind_search_recovers(self):
         # Arrange -- a custom CRC, recovered with ALL dials searched (no hints).
