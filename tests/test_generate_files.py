@@ -35,6 +35,7 @@ class TestFilenameContract:
         "csharp": ["Crc16Xmodem.cs"],
         "go": ["crc16_xmodem.go"],
         "java": ["Crc16Xmodem.java"],
+        "lua": ["crc16_xmodem.lua"],
         "python": ["crc16_xmodem.py"],
         "rust": ["crc16_xmodem.rs"],
         "typescript": ["crc16_xmodem.ts"],

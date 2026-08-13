@@ -1,7 +1,8 @@
 """Per-language code generators.
 
-One module per target -- ``c``, ``csharp``, ``go``, ``python``, ``rust``,
-``typescript``, ``verilog``, ``vhdl``, ``zig`` -- each exposing a ``generate_<lang>``
+One module per target -- ``c``, ``csharp``, ``go``, ``java``, ``lua``,
+``python``, ``rust``, ``typescript``, ``verilog``, ``vhdl``, ``zig`` --
+each exposing a ``generate_<lang>``
 catalogue-lookup entry point and a ``generate_<lang>_from_entry`` raw-
 parameters entry point.
 

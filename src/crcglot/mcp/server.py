@@ -56,6 +56,7 @@ LANG_ENUM = Literal[
     "csharp",
     "go",
     "java",
+    "lua",
     "python",
     "rust",
     "typescript",

@@ -91,17 +91,17 @@ class TestLanguageMetadata:
     def test_all_languages_present(self):
         # Assert
         assert set(LANGUAGES.keys()) == {
-            "c", "csharp", "go", "java", "python", "rust",
+            "c", "csharp", "go", "java", "lua", "python", "rust",
             "typescript", "verilog", "vhdl", "zig",
         }, (
             "expected c / csharp / go / java / python / rust / typescript / "
-            "verilog / vhdl / zig in LANGUAGES"
+            "verilog / vhdl / zig (and lua) in LANGUAGES"
         )
 
     @pytest.mark.parametrize(
         "code",
         [
-            "c", "csharp", "go", "java", "python", "rust",
+            "c", "csharp", "go", "java", "lua", "python", "rust",
             "typescript", "verilog", "vhdl", "zig",
         ],
     )
@@ -136,6 +136,7 @@ class TestLanguageMetadata:
             ("csharp", ".cs"),
             ("go", ".go"),
             ("java", ".java"),
+            ("lua", ".lua"),
             ("python", ".py"),
             ("rust", ".rs"),
             ("typescript", ".ts"),
@@ -253,6 +254,7 @@ class TestLanguageMetadata:
             ("c", "C / C++"),
             ("csharp", "C#"),
             ("go", "Go"),
+            ("lua", "Lua"),
             ("python", "Python"),
             ("rust", "Rust"),
             ("typescript", "TypeScript"),
@@ -340,6 +342,7 @@ class TestVariantsForWidth:
             ("go", ("bitwise", "table", "slice8")),
             ("rust", ("bitwise", "table", "slice8")),
             ("typescript", ("bitwise", "table", "slice8")),
+            ("lua", ("bitwise", "table")),
             ("python", ("bitwise", "table")),
             ("verilog", ("bitwise",)),
             ("vhdl", ("bitwise",)),
@@ -440,6 +443,7 @@ class TestFastestVariant:
             ("c", 16): "table", ("c", 8): "table", ("c", 5): "bitwise",
             ("verilog", 32): "bitwise", ("vhdl", 64): "bitwise",
             ("zig", 32): "slice8", ("zig", 5): "bitwise",
+            ("lua", 32): "table", ("lua", 3): "bitwise",
         }
         for (code, width), expected in cases.items():
             actual = LANGUAGES[code].fastest_variant_for_width(width)
@@ -834,7 +838,7 @@ class TestGenerators:
     @pytest.mark.parametrize(
         "lang",
         [
-            "c", "csharp", "go", "python", "rust",
+            "c", "csharp", "go", "lua", "python", "rust",
             "typescript", "verilog", "vhdl", "zig",
         ],
     )
@@ -851,7 +855,7 @@ class TestGenerators:
     @pytest.mark.parametrize(
         "lang",
         [
-            "c", "csharp", "go", "python", "rust",
+            "c", "csharp", "go", "lua", "python", "rust",
             "typescript", "verilog", "vhdl", "zig",
         ],
     )

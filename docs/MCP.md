@@ -140,7 +140,7 @@ Prefer this over looping `crc_compute`: it builds the lookup table once for the 
 
 ### `crc_generate(language, algorithm, variant="bitwise", ...)`
 
-Emit verified source code for a (language, variant) cell.  `language` ∈ {`c`, `csharp`, `go`, `java`, `python`, `rust`, `typescript`, `verilog`, `vhdl`, `zig`}.  Variants validated against `LanguageInfo.variants_for_width(width)`; invalid combinations return a structured error listing the valid options.  `custom_params` enables off-catalogue Rocksoft tuples.  Mirrors `crcglot <lang>`.
+Emit verified source code for a (language, variant) cell.  `language` ∈ {`c`, `csharp`, `go`, `java`, `lua`, `python`, `rust`, `typescript`, `verilog`, `vhdl`, `zig`}.  Variants validated against `LanguageInfo.variants_for_width(width)`; invalid combinations return a structured error listing the valid options.  `custom_params` enables off-catalogue Rocksoft tuples.  Mirrors `crcglot <lang>`.
 
 `algorithm` accepts **one name, a list of names, or a space-separated string** (`"crc32 crc16-modbus crc8"`); multiple names bundle into one file with the same rules as the CLI bundle ([cli.md](cli.md)).  The chosen `variant` must be legal for every algorithm's width (`slice8` is width 32/64 only), `symbol` is rejected with more than one algorithm, and the response's `algorithms` field lists what was generated.  Mirrors `crcglot <lang> crc32 crc16-modbus … file=STEM`.
 

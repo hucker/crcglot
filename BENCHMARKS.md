@@ -4,7 +4,7 @@ crcglot has **two** performance stories, and the table below shows both in one
 place:
 
 - **Generated source** (the per-language rows): complete, zero-dependency CRC
-  for any of the 100+ catalogue algorithms in ten languages, verified by
+  for any of the 100+ catalogue algorithms in eleven languages, verified by
   execution.  Portable source with nothing to link -- fast enough for every
   CRC need short of a heavily CPU-constrained hot path.
 - **The package's own runtime** (the two **Python (runtime)** rows): crcglot
@@ -27,33 +27,35 @@ hardware datapaths, not a software runtime.)
 
 | Language          | Variant / engine            |  Tables | 1 KiB (MB/s) | 1 MiB (MB/s) |
 |-------------------|-----------------------------|--------:|-------------:|-------------:|
-| C / C++           | bit-by-bit                  |       — |        151.5 |        165.4 |
-| C / C++           | table-driven                |   1 KiB |        483.3 |        512.6 |
-| C / C++           | slice-by-8                  |   8 KiB |      2,049.9 |      2,149.9 |
-| Rust              | bit-by-bit                  |       — |        497.5 |        514.4 |
-| Rust              | table-driven                |   1 KiB |        500.6 |        509.1 |
-| Rust              | slice-by-8                  |   8 KiB |      1,756.6 |      1,904.8 |
-| Go                | bit-by-bit                  |       — |         57.9 |         30.9 |
-| Go                | table-driven                |   1 KiB |        423.2 |        438.5 |
-| Go                | slice-by-8                  |   8 KiB |      1,607.7 |      1,856.9 |
-| C#                | bit-by-bit                  |       — |         33.2 |         31.9 |
-| C#                | table-driven                |   1 KiB |        422.3 |        430.1 |
-| C#                | slice-by-8                  |   8 KiB |        459.6 |        786.2 |
-| Java              | bit-by-bit                  |       — |         86.4 |         88.3 |
-| Java              | table-driven                |   1 KiB |        423.7 |        440.8 |
-| Java              | slice-by-8                  |   8 KiB |      1,182.2 |      1,037.1 |
-| TypeScript        | bit-by-bit                  |       — |        100.1 |         24.4 |
-| TypeScript        | table-driven                |   1 KiB |        211.3 |         93.1 |
-| TypeScript        | slice-by-8                  |   8 KiB |        453.7 |        328.7 |
-| Zig               | bit-by-bit                  |       — |         86.9 |         86.1 |
-| Zig               | table-driven                |   1 KiB |        462.5 |        450.6 |
-| Zig               | slice-by-8                  |   8 KiB |      1,775.6 |      1,774.1 |
+| C / C++           | bit-by-bit                  |       — |        128.4 |        148.3 |
+| C / C++           | table-driven                |   1 KiB |        403.3 |        461.7 |
+| C / C++           | slice-by-8                  |   8 KiB |      1,612.4 |      1,959.9 |
+| Rust              | bit-by-bit                  |       — |        408.8 |        429.7 |
+| Rust              | table-driven                |   1 KiB |        378.4 |        387.8 |
+| Rust              | slice-by-8                  |   8 KiB |      1,526.5 |      1,085.5 |
+| Go                | bit-by-bit                  |       — |         44.9 |         30.2 |
+| Go                | table-driven                |   1 KiB |        455.2 |        462.1 |
+| Go                | slice-by-8                  |   8 KiB |      1,537.5 |      1,511.0 |
+| C#                | bit-by-bit                  |       — |         28.9 |         28.9 |
+| C#                | table-driven                |   1 KiB |        344.9 |        397.5 |
+| C#                | slice-by-8                  |   8 KiB |        445.8 |        701.7 |
+| Java              | bit-by-bit                  |       — |         77.7 |         83.4 |
+| Java              | table-driven                |   1 KiB |        306.4 |        407.0 |
+| Java              | slice-by-8                  |   8 KiB |      1,153.9 |        925.5 |
+| TypeScript        | bit-by-bit                  |       — |         84.6 |         21.8 |
+| TypeScript        | table-driven                |   1 KiB |        195.1 |         83.6 |
+| TypeScript        | slice-by-8                  |   8 KiB |        416.5 |        275.0 |
+| Zig               | bit-by-bit                  |       — |         87.3 |         86.3 |
+| Zig               | table-driven                |   1 KiB |        431.5 |        399.9 |
+| Zig               | slice-by-8                  |   8 KiB |      1,329.3 |      1,430.1 |
+| Lua               | bit-by-bit                  |       — |          4.1 |          4.6 |
+| Lua               | table-driven                |   1 KiB |         14.4 |         14.4 |
 | Python            | bit-by-bit                  |       — |          0.8 |          0.8 |
-| Python            | table-driven                |   1 KiB |          4.8 |          5.1 |
-| Python (runtime)  | C extension (`crcglot._c`)  |   8 KiB |        304.4 |      1,781.2 |
-| Python (runtime)  | `generic_crc` → `zlib.crc32` |       — |      1,503.0 |     49,261.0 |
+| Python            | table-driven                |   1 KiB |          4.9 |          4.8 |
+| Python (runtime)  | C extension (`crcglot._c`)  |   8 KiB |        191.0 |      1,356.1 |
+| Python (runtime)  | `generic_crc` → `zlib.crc32` |       — |      1,218.8 |     45,005.1 |
 
-The two **Python (runtime)** rows are crcglot's own engines, not generated source: calling `crcglot.generic_crc` from Python uses the **compiled C extension** (`crcglot._c`, slice-by-8 for *every* algorithm), and for crc32 alone delegates to the stdlib's hardware-accelerated `zlib.crc32`.  They put Python squarely in the compiled-language band -- which is the whole reason the package ships C.  The C extension is ~1,697x faster than the pure-Python CRC.
+The two **Python (runtime)** rows are crcglot's own engines, not generated source: calling `crcglot.generic_crc` from Python uses the **compiled C extension** (`crcglot._c`, slice-by-8 for *every* algorithm), and for crc32 alone delegates to the stdlib's hardware-accelerated `zlib.crc32`.  They put Python squarely in the compiled-language band -- which is the whole reason the package ships C.  The C extension is ~1,397x faster than the pure-Python CRC.
 
 The same compiled paths back the **streaming** API: `crcglot.crc_stream(name)` / `CrcStream` feed chunks into the C extension's `CrcStream` (or `zlib.crc32` incrementally for crc32), so chunked data -- large files, sockets, sensor logs -- runs at this same compiled speed, paying the Python/C transition once across the whole message rather than per call.
 

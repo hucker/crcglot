@@ -44,6 +44,7 @@ _PLAIN_SYNTAX: dict[str, _Syntax] = {
     "csharp":     _Syntax("line", prefix="//"),
     "go":         _Syntax("line", prefix="//"),
     "java":       _Syntax("line", prefix="//"),
+    "lua":        _Syntax("line", prefix="--"),
     "python":     _Syntax("docstring"),
     "rust":       _Syntax("line", prefix="///", header_prefix="//"),
     "typescript": _Syntax("line", prefix="//"),

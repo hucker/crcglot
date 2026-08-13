@@ -158,6 +158,10 @@ def _add_windows_tool_dirs_to_path() -> None:
         candidates.append(
             os.path.join(local_appdata, "Microsoft", "WinGet", "Links")
         )
+        # DEVCOM.Lua's MSI installs here without amending PATH.
+        candidates.append(
+            os.path.join(local_appdata, "Programs", "Lua", "bin")
+        )
     if appdata:
         candidates.append(os.path.join(appdata, "npm"))
     jdk_bin = _find_jdk_bin()

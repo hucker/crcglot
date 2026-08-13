@@ -765,7 +765,7 @@ class TestCrcGenerate:
     @pytest.mark.parametrize(
         "language",
         [
-            "c", "csharp", "go", "java", "python", "rust",
+            "c", "csharp", "go", "java", "lua", "python", "rust",
             "typescript", "verilog", "vhdl", "zig",
         ],
     )

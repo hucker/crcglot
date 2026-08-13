@@ -48,6 +48,7 @@ from crcglot.lang.java import (
     generate_java,
     generate_java_from_entry,
 )
+from crcglot.lang.lua import combine_lua, generate_lua, generate_lua_from_entry
 from crcglot.lang.python import generate_python, generate_python_from_entry
 from crcglot.lang.rust import generate_rust, generate_rust_from_entry
 from crcglot.lang.typescript import (
@@ -912,6 +913,7 @@ _ALL_CASES = frozenset({"snake", "camel", "pascal"})
 _PASCAL_CAMEL = frozenset({"pascal", "camel"})
 _CAMEL_PASCAL = frozenset({"camel", "pascal"})
 _CAMEL_SNAKE = frozenset({"camel", "snake"})
+_SNAKE_CAMEL = frozenset({"snake", "camel"})
 
 
 LANGUAGES: dict[str, LanguageInfo] = {
@@ -968,6 +970,20 @@ LANGUAGES: dict[str, LanguageInfo] = {
         display_name="Java",
         stdlib_crc32="`java.util.zip.CRC32`",
         filename_case="pascal",  # file MUST be named after the public class
+    ),
+    "lua": LanguageInfo(
+        code="lua",
+        extensions=(".lua",),
+        variants=_BITWISE_TABLE,  # no slice8: interpreter overhead, like Python
+        naming=_SNAKE_CAMEL,
+        default_naming="snake",  # the stdlib's own style (string.byte, ...)
+        generator=generate_lua,
+        generator_from_entry=generate_lua_from_entry,
+        combiner=combine_lua,
+        emoji="\U0001F319",  # 🌙 crescent moon ("lua" is Portuguese for moon)
+        display_name="Lua",
+        # No stdlib_crc32: Lua ships no CRC in its standard library at all --
+        # that absence is a large part of why this target exists.
     ),
     "python": LanguageInfo(
         code="python",

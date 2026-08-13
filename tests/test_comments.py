@@ -253,7 +253,7 @@ def test_plain_does_not_leak_doxygen_tags() -> None:
 def test_doxygen_rejected_for_non_brace_languages() -> None:
     """doxygen applies to C / C# / Java; other targets are rejected."""
     # Act / Assert -- Rust/Go have their own (reserved) doc styles.
-    for lang in ("rust", "go", "typescript", "python", "verilog", "vhdl", "zig"):
+    for lang in ("rust", "go", "lua", "typescript", "python", "verilog", "vhdl", "zig"):
         with pytest.raises(ValueError, match="not valid for language"):
             comment_style_for(lang, "doxygen")
 

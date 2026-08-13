@@ -17,7 +17,7 @@ One toolkit, three surfaces.  Every capability has the same name and shape on th
 | Batch compute | — | `crc_compute_many` | `generic_crc_many()` |
 | Build a packet | [`encode`](#crcglot-encode-algorithm-data) | `crc_encode` | `encode()` |
 | Stream chunked data | — | — | `crc_stream()` |
-| Generate verified code | [`c`](#crcglot-c--csharp--go--java--python--rust--typescript--verilog--vhdl--zig-algorithm-algorithm-options-tokens) / `rust` / … | `crc_generate` | `generate_c()` … / `LANGUAGES` |
+| Generate verified code | [`c`](#crcglot-c--csharp--go--java--lua--python--rust--typescript--verilog--vhdl--zig-algorithm-algorithm-options-tokens) / `rust` / … | `crc_generate` | `generate_c()` … / `LANGUAGES` |
 | Custom polynomial | `--custom` tokens | `custom_params` | `custom_algorithm()` |
 | Credits | [`credits`](#crcglot-credits) | `crc_credits` | `ATTRIBUTION` |
 
@@ -203,7 +203,7 @@ Print the installed crcglot version (also exported as `crcglot.__version__`).  I
 crcglot version        # e.g. 0.21.0
 ```
 
-## `crcglot {c | csharp | go | java | python | rust | typescript | verilog | vhdl | zig} <algorithm> [<algorithm>...] [options...] [tokens...]`
+## `crcglot {c | csharp | go | java | lua | python | rust | typescript | verilog | vhdl | zig} <algorithm> [<algorithm>...] [options...] [tokens...]`
 
 Generate source code for the chosen target language.  Pick your intent; crcglot picks the implementation:
 
@@ -218,7 +218,7 @@ Generate source code for the chosen target language.  Pick your intent; crcglot 
 | `name=NAME`           | Rename the CRC: replaces the algorithm name as the base for the functions / class / filename, **cased per language** (`name=my-widget` → `my_widget.rs`, `MyWidget.java`, `MyWidget.cs`).  Single algorithm only. |
 | `symbol=NAME`         | Escape hatch: emit this exact identifier **verbatim**, bypassing `--naming`.  Single algorithm; not for Java.  Prefer `name=` for the usual "call it X" case.                                                     |
 
-File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; Java `.java`; TypeScript `.ts`; Zig `.zig`.  For Java and C# the file is named after the public class (PascalCase of `name=` / the algorithm, or of `STEM`), so the stem must yield a legal class identifier; `STEM` is otherwise sanitized to a valid identifier (`file=my-crc` → `my_crc.rs`).
+File extensions per language: C emits `STEM.h` + `STEM.c`; Python `.py`; Rust `.rs`; VHDL `.vhd`; Verilog `.sv` (SystemVerilog 2012); Go `.go`; C# `.cs`; Java `.java`; TypeScript `.ts`; Zig `.zig`; Lua `.lua`.  For Java and C# the file is named after the public class (PascalCase of `name=` / the algorithm, or of `STEM`), so the stem must yield a legal class identifier; `STEM` is otherwise sanitized to a valid identifier (`file=my-crc` → `my_crc.rs`).
 
 **Bundle several algorithms into one file** by naming more than one: `crcglot c crc32 crc16-modbus crc8 file=mycrcs` writes a single `mycrcs.h` / `mycrcs.c` containing all three (one `.go` / `.rs` / `.cs` / … for the other languages).  Each algorithm keeps its own catalogue-derived function names (`crc32`, `crc16_modbus`, …) and the tables are namespaced per symbol, so they never collide.  `name=` and `symbol=` rename a single CRC, so both are rejected with more than one algorithm; duplicates are de-duplicated; an unknown name aborts the whole bundle.
 

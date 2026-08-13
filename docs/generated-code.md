@@ -16,6 +16,7 @@ Every file gets a header (algorithm parameters, a copy-paste streaming example, 
 | Go 🚦               | `plain`, `godoc`                                      |
 | TypeScript 🔷       | `plain`, `jsdoc` (TSDoc)                              |
 | Zig ⚡              | `plain` (`///` doc comments)                          |
+| Lua 🌙              | `plain` (requires Lua 5.3+)                           |
 | Verilog 🔧 / VHDL 🔌 | `plain`                                               |
 
 ```bash
@@ -68,6 +69,7 @@ The generated public functions read like hand-written code in each target: Go an
 | Java ☕             | `camel`  | `camel`, `pascal`          |
 | TypeScript 🔷       | `camel`  | `camel`, `pascal`          |
 | Zig ⚡              | `camel`  | `camel`, `snake`           |
+| Lua 🌙              | `snake`  | `snake`, `camel`           |
 | Rust 🦀             | `snake`  | `snake`                    |
 | Python 🐍           | `snake`  | `snake`                    |
 | Verilog 🔧 / VHDL 🔌 | `snake`  | `snake`                    |

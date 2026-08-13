@@ -1,6 +1,6 @@
 # Programmatic API
 
-Everything the CLI does is reachable from Python.  `import crcglot` loads only the compute core (the engine, the catalogue, and the streaming API: 4 modules in ~30 ms); detection, reverse-engineering, trailer identification, and the nine generators load on first use.  The public surface is identical either way, and the package root is the only import surface you need: `from crcglot import ...` covers all of it.
+Everything the CLI does is reachable from Python.  `import crcglot` loads only the compute core (the engine, the catalogue, and the streaming API: 4 modules in ~30 ms); detection, reverse-engineering, trailer identification, and the generators load on first use.  The public surface is identical either way, and the package root is the only import surface you need: `from crcglot import ...` covers all of it.
 
 One toolkit, three surfaces.  Every capability has the same name and shape on the CLI, over MCP, and in Python; the same table opens [docs/cli.md](cli.md), [docs/MCP.md](MCP.md), and [docs/api.md](api.md).
 
@@ -45,6 +45,7 @@ for code, info in LANGUAGES.items():
     # → 🔧 Verilog       ('.sv',)      ['bitwise']
     # → 🔌 VHDL          ('.vhd',)     ['bitwise']
     # → ⚡ Zig           ('.zig',)     ['bitwise', 'slice8', 'table']
+    # → 🌙 Lua           ('.lua',)     ['bitwise', 'table']
 ```
 
 Each entry is a frozen `LanguageInfo` dataclass with:

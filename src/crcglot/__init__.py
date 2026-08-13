@@ -32,6 +32,7 @@ Public API:
         - generate_csharp / generate_csharp_from_entry
         - generate_go / generate_go_from_entry
         - generate_java / generate_java_from_entry
+        - generate_lua / generate_lua_from_entry
         - generate_python / generate_python_from_entry
         - generate_rust / generate_rust_from_entry
         - generate_typescript / generate_typescript_from_entry
@@ -140,6 +141,7 @@ if TYPE_CHECKING:
     from crcglot.lang.csharp import generate_csharp, generate_csharp_from_entry
     from crcglot.lang.go import generate_go, generate_go_from_entry
     from crcglot.lang.java import generate_java, generate_java_from_entry
+    from crcglot.lang.lua import generate_lua, generate_lua_from_entry
     from crcglot.lang.python import generate_python, generate_python_from_entry
     from crcglot.lang.rust import generate_rust, generate_rust_from_entry
     from crcglot.lang.typescript import (
@@ -224,6 +226,7 @@ def _lazy_map() -> dict[str, str]:
         "crcglot.lang.csharp": ("generate_csharp", "generate_csharp_from_entry"),
         "crcglot.lang.go": ("generate_go", "generate_go_from_entry"),
         "crcglot.lang.java": ("generate_java", "generate_java_from_entry"),
+        "crcglot.lang.lua": ("generate_lua", "generate_lua_from_entry"),
         "crcglot.lang.python": ("generate_python", "generate_python_from_entry"),
         "crcglot.lang.rust": ("generate_rust", "generate_rust_from_entry"),
         "crcglot.lang.typescript": (
@@ -383,6 +386,8 @@ __all__ = [
     "generate_go_from_entry",
     "generate_java",
     "generate_java_from_entry",
+    "generate_lua",
+    "generate_lua_from_entry",
     "generate_python",
     "generate_python_from_entry",
     "generate_rust",

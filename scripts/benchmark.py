@@ -116,6 +116,7 @@ def _fix_windows_path() -> None:
         appended.append(
             os.path.join(local_appdata, "Microsoft", "WinGet", "Links")
         )
+        appended.append(os.path.join(local_appdata, "Programs", "Lua", "bin"))
     if appdata:
         appended.append(os.path.join(appdata, "npm"))
     for c in appended:
@@ -147,6 +148,7 @@ _MATRIX: dict[str, list[str]] = {
     "java":       ["bitwise", "table", "slice8"],
     "typescript": ["bitwise", "table", "slice8"],
     "zig":        ["bitwise", "table", "slice8"],
+    "lua":        ["bitwise", "table"],
     "python":     ["bitwise", "table"],
 }
 
@@ -168,6 +170,7 @@ _TOOL_BINS = {
         or shutil.which("tsx.CMD")
     ),
     "zig":     shutil.which("zig"),
+    "lua":     shutil.which("lua"),
 }
 
 _BENCH_ROOT = Path(__file__).parent.parent / "benchmarks"
@@ -461,6 +464,36 @@ pub fn main() void {{
     (cell_dir / "bench.zig").write_text(code + bench_main)
 
 
+def _emit_lua(cell_dir: Path, variant: str, size: int) -> None:
+    # Interpreter cell like Python: no compile step.  The generated file
+    # is a module returning M; the bench driver dofiles it and times the
+    # snake-default one-shot (``crc32``).
+    code = LANGUAGES["lua"].generator(_ALGORITHM, **_gen_kwargs(variant))
+    (cell_dir / "crc32.lua").write_text(code, encoding="utf-8")
+    bench_main = f"""
+local M = dofile("crc32.lua")
+local SIZE = {size}
+local parts = {{}}
+for i = 0, SIZE - 1 do parts[i + 1] = string.char(i & 0xFF) end
+local buf = table.concat(parts)
+local crc = 0
+for _ = 1, 5 do crc = crc ~ M.crc32(buf) end
+local start = os.clock()
+local iters = 0
+while true do
+    crc = crc ~ M.crc32(buf)
+    iters = iters + 1
+    if iters >= 3 and (os.clock() - start) * 1000 > {_INNER_LOOP_TARGET_MS} then
+        break
+    end
+end
+local ns = math.floor((os.clock() - start) * 1e9)
+local mbps = (iters * SIZE) / (ns / 1e9) / 1e6
+print(string.format("lua,{variant},%d,%.3f,%d,%d,0x%08X", SIZE, mbps, iters, ns, crc))
+"""
+    (cell_dir / "bench.lua").write_text(bench_main, encoding="utf-8")
+
+
 def _emit_python(cell_dir: Path, variant: str, size: int) -> None:
     code = LANGUAGES["python"].generator(_ALGORITHM, **_gen_kwargs(variant))
     bench_main = f"""
@@ -523,6 +556,7 @@ _EMITTERS = {
     "python":     _emit_python,
     "typescript": _emit_typescript,
     "zig":        _emit_zig,
+    "lua":        _emit_lua,
 }
 
 
@@ -690,6 +724,8 @@ def _exec_args(lang: str, cell_dir: Path, exe: Path | None) -> list[str] | None:
         if not _TOOL_BINS["tsx"]:
             return None
         return [_tool("tsx"), "bench.ts"]
+    if lang == "lua":
+        return [_tool("lua"), "bench.lua"]
     if lang == "java":
         return [_tool("java"), "-cp", str(cell_dir), "CrcGlot"]
     if exe is None:
@@ -718,6 +754,8 @@ def _can_run(lang: str) -> str | None:
         return "tsx not on PATH (npm i -g tsx)"
     if lang == "zig" and not _TOOL_BINS["zig"]:
         return "zig not on PATH"
+    if lang == "lua" and not _TOOL_BINS["lua"]:
+        return "lua not on PATH"
     if lang == "csharp" and _TOOL_BINS["dotnet"]:
         # Probe for SDK -- runtime alone can't `publish -c Release`.
         probe = subprocess.run(
@@ -806,7 +844,7 @@ crcglot has **two** performance stories, and the table below shows both in one
 place:
 
 - **Generated source** (the per-language rows): complete, zero-dependency CRC
-  for any of the 100+ catalogue algorithms in ten languages, verified by
+  for any of the 100+ catalogue algorithms in eleven languages, verified by
   execution.  Portable source with nothing to link -- fast enough for every
   CRC need short of a heavily CPU-constrained hot path.
 - **The package's own runtime** (the two **Python (runtime)** rows): crcglot

@@ -30,6 +30,7 @@ _EXPECTED = {
     "csharp": ("pascal", {"pascal", "camel"}),
     "go": ("pascal", {"pascal", "camel"}),
     "java": ("camel", {"camel", "pascal"}),
+    "lua": ("snake", {"snake", "camel"}),
     "python": ("snake", {"snake"}),
     "rust": ("snake", {"snake"}),
     "typescript": ("camel", {"camel", "pascal"}),
