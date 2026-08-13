@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.30.0 — 2026-08-13
+
+The MCP server moves to **mcp 2.0**, which is a breaking change to the `crcglot[mcp]` extra and the reason for the version bump. Its tool schemas are now synthesized from the verb manifest instead of hand-written, so the wire surface cannot drift from `crcglot.VERBS`. Property-based tests join the suite on the two axes that are genuinely infinite, and one of them found a real round-trip bug on its first run.
+
+### Changed: `crcglot[mcp]` requires mcp 2.x (breaking)
+
+mcp 2.0 removed the `FastMCP` class the server was written against (it moved to a separate `fastmcp` package), so a fresh install that resolved mcp 2.0 got a `crcglot-mcp` that crashed on startup. v0.29.0 pinned `<2` as a stopgap; this release ports to 2.0's `MCPServer` and requires `mcp>=2,<3`.
+
+**If your environment cannot take mcp 2.x, pin `crcglot<0.30`** — 0.29.x remains the mcp 1.x line.
+
+Nothing changes for an agent connecting to the server. All twelve tool schemas are byte-identical to what 1.x shipped, verified field-for-field against a snapshot captured from the last 1.x build before the port began (`tests/goldens/mcp_wire.json`), and the server still accepts an older protocol revision rather than forcing its own. What does change is the Python import surface of `crcglot.mcp.server`: `build_server()` returns an `MCPServer`, and the module-level `LANG_ENUM` / `VARIANT_ENUM` / ... aliases are gone. Those were undocumented internals.
+
+The twelve tool wrappers went with them. Each tool's callable is now built from its `VerbSpec` at server construction (`crcglot/mcp/_synth.py`), so a new verb or a new enum value reaches the MCP wire with no server edit, the same way the CLI has always worked. `server.py` went from 672 lines to 362.
+
+### Added: property-based tests on the infinite axes
+
+Two invariants are now searched rather than sampled, using Hypothesis (a dev-only dependency; the runtime core stays zero-dependency):
+
+- **`reverse()` is never confidently wrong.** The recovered model must predict held-out data or report no model. The search reaches boundary values a uniform random sweep effectively never draws, such as a polynomial whose generator factors as `(x+1)**w`, giving maximal `(init, xorout)` ambiguity.
+- **Chunking invariance.** Any segmentation of any message digests to the one-shot CRC, including mid-stream empty chunks, on both engine backends.
+
+Scoping is deliberate: countable axes stay exhaustively enumerated. A third candidate was rejected on that rule and became a parametrized cross-product instead, which is what found the bug below. CI runs a derandomized profile so a release gate means the same thing on every run. See `docs/verification/index.md` and `DECISIONS.md`.
+
+### Fixed
+
+- **`detect` inferred hex-digit case from the `0x` prefix.** A packet written with a `0X` prefix and lowercase digits round-tripped back with uppercase digits: `0X...cbf43926` became `0X...CBF43926`. The prefix's own case is already carried separately, so it now breaks the tie only for an all-digits packet that carries no case evidence of its own. Found by enumerating the full formatting cross-product, which the seven hand-picked cases it replaced had missed because the only `0X` case among them also used uppercase digits.
+- **The release gate accepted skipped tests.** `release_prep.py` parsed the passed count and never looked at skips, so it could report "full suite green" while an entire target sat out for want of a toolchain on PATH. It now aborts on any non-zero skip count, matching the gate the CI execution tier has had since v0.29.0.
+
+### Changed: the test suite no longer hunts for toolchains
+
+`tests/conftest.py` used to append a hardcoded list of Windows install directories to PATH so a freshly installed tool would be found without restarting the shell. Every one of the eleven toolchains resolves from a normal PATH, so the list is gone along with its helpers. It was a maintenance tax (each new target meant another entry) and it masked a stale shell rather than surfacing it. A newly installed tool is invisible to an already-open shell; restart it, and until then that target's tests skip, which is now a release-blocking condition rather than a silent one.
+
+The msys2 ordering fix stays: it corrects a DLL-load order that PATH alone cannot express.
+
 ## v0.29.0 — 2026-08-13
 
 Two new target languages (Zig and Lua, bringing the count to eleven), and the execution tier now runs in CI: every push compiles and runs the whole catalogue through every target toolchain on Linux, closing the gap where that verification lived only on the maintainer's machine.  The new CI job caught a live packaging bug in its first run.
