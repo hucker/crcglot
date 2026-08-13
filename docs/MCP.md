@@ -4,7 +4,9 @@
 
 [mcp]: https://modelcontextprotocol.io
 
-The tools are not a reimplementation: each wraps an already-public Python function whose correctness the test suite asserts, so generated source is identical byte-for-byte to what `crcglot <subcommand>` would emit, and the detector returns the same `(algorithm, byte order)` pairs the CLI does.
+The tools are not a reimplementation: each wraps an already-public Python function whose correctness the test suite asserts, so generated source is identical byte-for-byte to what `crcglot <subcommand>` would emit, and the detector returns the same `(algorithm, byte order)` pairs the CLI does.  The tool schemas are synthesized from the [verb manifest](api.md#verbs-the-verb-manifest) at server construction, so the wire surface cannot drift from `crcglot.VERBS`.
+
+SDK versions: the extra requires **mcp 2.x** (`mcp>=2,<3`).  crcglot 0.29.x is the last release line that runs on mcp 1.x; pin `crcglot<0.30` if your environment cannot take mcp 2.
 
 ## Install
 

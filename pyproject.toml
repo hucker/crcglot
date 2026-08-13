@@ -39,9 +39,11 @@ dependencies = [] # pure stdlib
 # server so LLM clients (Claude Desktop, Cursor, mcp-cli, etc.) can call
 # detect / encode / generate as named tools.  Optional; base install
 # stays pure-stdlib.  See docs/MCP.md.
-# <2: mcp 2.0 removed FastMCP (split out to the separate fastmcp
-# package); the server is written against the 1.x FastMCP API.
-mcp = ["mcp>=1.2,<2"]
+# >=2: the server is written against mcp 2.0's MCPServer API (2.0
+# removed the 1.x FastMCP class).  crcglot 0.29.x is the last line that
+# supports mcp 1.x.  <3 caps the next major before it can break a fresh
+# install the way 2.0 did.
+mcp = ["mcp>=2,<3"]
 
 [project.scripts]
 crcglot = "crcglot.cli:main"
@@ -155,7 +157,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=7.0",
     "pytest-xdist>=3.8",
-    "mcp>=1.2,<2",  # keep in lockstep with the [mcp] extra above
+    "mcp>=2,<3",  # keep in lockstep with the [mcp] extra above
     "anycrc>=2.0.0",
     "crccheck>=1.3.1",
 ]

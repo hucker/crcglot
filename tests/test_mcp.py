@@ -1,6 +1,6 @@
-"""Tests for the FastMCP server in :mod:`crcglot.mcp`.
+"""Tests for the MCP server in :mod:`crcglot.mcp` (mcp 2.0 MCPServer).
 
-In-process via ``FastMCP.call_tool`` / ``read_resource`` -- no
+In-process via ``MCPServer.call_tool`` / ``read_resource`` -- no
 subprocess, no stdio loop, mirrors how :mod:`tests.test_cli` exercises
 the CLI by calling ``main(argv=...)`` in-process.
 
@@ -32,7 +32,7 @@ def _run(coro):
     """Run an async function on a fresh event loop.
 
     Avoids requiring ``pytest-asyncio`` (one fewer dev dep) by giving
-    each test its own loop -- FastMCP's tool dispatch is fully async.
+    each test its own loop -- the server's tool dispatch is fully async.
     """
     return asyncio.new_event_loop().run_until_complete(coro)
 
@@ -40,12 +40,12 @@ def _run(coro):
 def _call(tool: str, args: dict) -> dict:
     """Dispatch ``tool`` with ``args`` and return the structured payload.
 
-    ``FastMCP.call_tool`` returns ``(content_blocks, structured_dict)``
-    -- the dict is what every caller actually wants.
+    ``MCPServer.call_tool`` returns a ``CallToolResult``; its
+    ``structured_content`` dict is what every caller actually wants.
     """
     mcp = build_server()
-    _, payload = _run(mcp.call_tool(tool, args))
-    return payload
+    result = _run(mcp.call_tool(tool, args))
+    return result.structured_content
 
 
 def _lrc_frames_hex() -> list[str]:
@@ -1017,10 +1017,10 @@ class TestToolAnnotations:
         for t in tools:
             a = t.annotations
             assert a is not None, f"{t.name}: missing annotations"
-            assert a.readOnlyHint is True, f"{t.name}: not readOnlyHint"
-            assert a.idempotentHint is True, f"{t.name}: not idempotentHint"
-            assert a.destructiveHint is False, f"{t.name}: destructiveHint set"
-            assert a.openWorldHint is False, f"{t.name}: openWorldHint set"
+            assert a.read_only_hint is True, f"{t.name}: not readOnlyHint"
+            assert a.idempotent_hint is True, f"{t.name}: not idempotentHint"
+            assert a.destructive_hint is False, f"{t.name}: destructiveHint set"
+            assert a.open_world_hint is False, f"{t.name}: openWorldHint set"
 
 
 class TestSteering:
@@ -1397,22 +1397,22 @@ class TestResources:
             )
 
     def test_comment_style_enum_matches_registry(self):
-        """The MCP param enum must stay in sync with the style registry.
+        """The live crc_generate schema enum must match the style registry.
 
-        ``COMMENT_STYLE_ENUM`` is a typing ``Literal`` (can't be derived at
-        runtime), so guard it against drift instead.
+        The schema is synthesized from the verb manifest, so this holds the
+        whole chain (registry -> manifest -> wire schema) together.
         """
         # Arrange
-        from typing import get_args
-
         from crcglot.comments import COMMENT_STYLES
-        from crcglot.mcp.server import COMMENT_STYLE_ENUM
+
+        tools = {t.name: t for t in _run(build_server().list_tools())}
+        prop = tools["crc_generate"].input_schema["properties"]["comment_style"]
 
         # Act / Assert
-        actual = set(get_args(COMMENT_STYLE_ENUM))
+        actual = set(prop["enum"])
         expected = set(COMMENT_STYLES)
         assert actual == expected, (
-            f"COMMENT_STYLE_ENUM {actual} drifted from registry {expected}"
+            f"wire comment_style enum {actual} drifted from registry {expected}"
         )
 
     def test_variants_resource_excludes_slice8_appropriately(self):
@@ -1472,7 +1472,7 @@ class TestLazyImport:
     def test_crcglot_mcp_init_has_no_eager_server_import(self):
         # Arrange / Assert -- mirrors the above for crcglot/mcp/__init__.py:
         # the subpackage __init__ must lazily import server (which has
-        # the actual ``from mcp.server import FastMCP``) so that
+        # the actual ``from mcp.server import MCPServer``) so that
         # ``import crcglot.mcp`` itself doesn't hit the SDK.
         from pathlib import Path
         import crcglot.mcp
@@ -1536,7 +1536,7 @@ class TestLazyImport:
 # The verb manifest is the schema contract
 # ---------------------------------------------------------------------------
 
-# ParamSpec.type -> the JSON Schema type names FastMCP/pydantic may emit for it.
+# ParamSpec.type -> the JSON Schema type names the SDK/pydantic may emit for it.
 _MANIFEST_JSON_TYPES = {
     "string": {"string"},
     "integer": {"integer"},
@@ -1598,7 +1598,7 @@ class TestVerbManifestDrift:
         # Arrange
         spec = VERBS[verb]
         tool = self._tools()[spec.mcp_tool]
-        props = tool.inputSchema.get("properties", {})
+        props = tool.input_schema.get("properties", {})
 
         # Assert -- parameter-name set.
         actual_names = set(props)
@@ -1608,7 +1608,7 @@ class TestVerbManifestDrift:
             f"manifest {sorted(expected_names)}"
         )
         # Assert -- required set.
-        actual_required = set(tool.inputSchema.get("required", []))
+        actual_required = set(tool.input_schema.get("required", []))
         expected_required = {p.name for p in spec.params if p.required}
         assert actual_required == expected_required, (
             f"{verb}: schema required {sorted(actual_required)} != "
@@ -1651,41 +1651,77 @@ class TestVerbManifestDrift:
                 f"Parameters block"
             )
 
-    def test_literal_enums_match_manifest_choices(self):
-        """The module-level Literal aliases can't be derived at runtime
-        (typing limitation), so pin each to the manifest choices that
-        describe the same parameter."""
+    def test_wire_surface_matches_the_1x_golden(self):
+        """The 2.0 port must not move the wire: every tool schema,
+        description, and annotation byte-matches the snapshot captured
+        from the last mcp 1.x build (tests/goldens/mcp_wire.json).
+
+        Two deliberate deltas are asserted explicitly instead of loosely:
+        the instructions gained Zig and Lua (a v0.29 sweep miss), and mcp
+        2.0's PromptArgument model added an optional ``title`` field
+        (additive; compared on the golden's own keys).
+        """
         # Arrange
-        from typing import get_args
+        import json as _json
+        from pathlib import Path as _Path
 
-        from crcglot.mcp import server as srv
+        golden = _json.loads(
+            (_Path(__file__).parent / "goldens" / "mcp_wire.json")
+            .read_text(encoding="utf-8")
+        )
+        mcp = build_server()
+        tools = {t.name: t for t in _run(mcp.list_tools())}
+        prompts = {p.name: p for p in _run(mcp.list_prompts())}
+        resources = {str(r.uri): r for r in _run(mcp.list_resources())}
 
-        def choices(verb: str, param: str) -> tuple[str, ...]:
-            p = next(p for p in VERBS[verb].params if p.name == param)
-            return tuple(c.name for c in p.choices)
-
-        # Act / Assert -- one pin per Literal alias.
-        pins = [
-            ("LANG_ENUM", get_args(srv.LANG_ENUM), choices("generate", "language")),
-            ("VARIANT_ENUM", get_args(srv.VARIANT_ENUM), choices("generate", "variant")),
-            ("NAMING_ENUM", get_args(srv.NAMING_ENUM), choices("generate", "naming")),
-            ("ENDIAN_ENUM", get_args(srv.ENDIAN_ENUM), choices("detect", "endian")),
-            ("MATCH_ENUM", get_args(srv.MATCH_ENUM), choices("detect", "match")),
-            (
-                "CRC_BYTE_ORDER_ENUM",
-                get_args(srv.CRC_BYTE_ORDER_ENUM),
-                choices("verify", "crc_byte_order"),
-            ),
-            (
-                "PACKET_FORMAT_ENUM",
-                get_args(srv.PACKET_FORMAT_ENUM),
-                choices("reverse", "packet_format"),
-            ),
-        ]
-        for label, actual, expected in pins:
-            assert actual == expected, (
-                f"{label} {actual} drifted from manifest choices {expected}"
+        # Assert -- tools: exact match, field for field.
+        assert set(tools) == set(golden["tools"]), (
+            f"tool set changed: {sorted(set(tools) ^ set(golden['tools']))}"
+        )
+        for name, g in golden["tools"].items():
+            t = tools[name]
+            assert t.input_schema == g["inputSchema"], (
+                f"{name}: inputSchema drifted from the 1.x golden"
             )
+            assert t.description == g["description"], (
+                f"{name}: description drifted from the 1.x golden"
+            )
+            actual_ann = t.annotations.model_dump(mode="json", by_alias=True)
+            assert actual_ann == g["annotations"], (
+                f"{name}: annotations drifted from the 1.x golden"
+            )
+
+        # Assert -- prompts: names, descriptions, and the golden's own
+        # argument keys (2.0 added an optional 'title' field; additive).
+        assert set(prompts) == set(golden["prompts"]), "prompt set changed"
+        for name, g in golden["prompts"].items():
+            p = prompts[name]
+            assert p.description == g["description"], f"{name}: description drifted"
+            actual_args = [a.model_dump(mode="json") for a in (p.arguments or [])]
+            for got, want in zip(actual_args, g["arguments"], strict=True):
+                for key, val in want.items():
+                    assert got.get(key) == val, (
+                        f"{name}: prompt argument field {key!r} drifted "
+                        f"({got.get(key)!r} != {val!r})"
+                    )
+
+        # Assert -- resources: URI set and metadata.
+        assert set(resources) == set(golden["resources"]), "resource set changed"
+        for uri, g in golden["resources"].items():
+            r = resources[uri]
+            assert r.name == g["name"], f"{uri}: name drifted"
+            assert r.mime_type == g["mimeType"], f"{uri}: mimeType drifted"
+            assert r.description == g["description"], f"{uri}: description drifted"
+
+        # Assert -- instructions: the one deliberate change is the language
+        # list gaining Lua and Zig; everything after that clause is intact.
+        assert mcp.instructions is not None, "server must ship instructions"
+        assert "Lua" in mcp.instructions and "Zig" in mcp.instructions, (
+            "instructions must list the v0.29 targets"
+        )
+        assert "CHOOSING vs MATCHING" in mcp.instructions, (
+            "the choose-vs-match steering must survive the port"
+        )
 
     def test_verbs_resource_serves_the_manifest(self):
         # Act

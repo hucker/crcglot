@@ -1,4 +1,4 @@
-"""FastMCP server for crcglot.
+"""MCP server for crcglot (mcp 2.0 ``MCPServer``).
 
 Exposes the existing CLI surface as MCP tools + resources so an LLM
 client (Claude Desktop, Cursor, mcp-cli, etc.) can call into crcglot
@@ -22,27 +22,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from typing import Any, Literal
 
-from mcp.server import FastMCP
+from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from crcglot import ALGORITHMS, LANGUAGES, variant_info
-from crcglot._invoke import (
-    _verb_compute,
-    _verb_compute_many,
-    _verb_credits,
-    _verb_detect,
-    _verb_encode,
-    _verb_generate,
-    _verb_identify_trailer,
-    _verb_info,
-    _verb_list,
-    _verb_reverse,
-    _verb_vectors,
-    _verb_verify,
-)
 from crcglot._wire import algorithm_to_dict, language_to_dict
+from crcglot.mcp._synth import synthesize_tool
 from crcglot.verbs import VERBS
 
 
@@ -50,58 +36,15 @@ from crcglot.verbs import VERBS
 # resource cross-product (one variants-by-language map per width).
 _CATALOGUE_WIDTHS = (8, 16, 32, 64)
 
-# Language enum -- single source of truth for ``crc_generate``.
-LANG_ENUM = Literal[
-    "c",
-    "csharp",
-    "go",
-    "java",
-    "lua",
-    "python",
-    "rust",
-    "typescript",
-    "verilog",
-    "vhdl",
-    "zig",
-]
-
-VARIANT_ENUM = Literal["auto", "bitwise", "table", "slice8"]
-# Naming convention for the generated public function / method names.
-# Which conventions a language offers (and its default) lives on
-# ``LanguageInfo.naming`` / ``.default_naming``; the schema accepts all three
-# and the tool rejects a pair the language doesn't offer.
-NAMING_ENUM = Literal["snake", "camel", "pascal"]
-# Comment / documentation style.  ``plain`` plus the per-language doc-tool
-# styles (doxygen, google, numpy, rest, rustdoc, godoc, docfx, javadoc,
-# jsdoc) are all implemented; the generator rejects a style a given
-# language doesn't offer (see crcglot.comments).
-COMMENT_STYLE_ENUM = Literal[
-    "plain",
-    "doxygen",
-    "google",
-    "numpy",
-    "rest",
-    "rustdoc",
-    "godoc",
-    "docfx",
-    "javadoc",
-    "jsdoc",
-]
-ENDIAN_ENUM = Literal["big", "little", "both"]
-MATCH_ENUM = Literal["first", "all", "set"]
-CRC_BYTE_ORDER_ENUM = Literal["big", "little"]
-# How the per-packet strings in crc_reverse are encoded.
-PACKET_FORMAT_ENUM = Literal["hex", "base64", "text"]
-
 # Every crcglot tool is a pure, deterministic, offline read: it lists /
 # computes / generates and never mutates external state or touches the
 # network (crc_generate only *returns* source).  These hints let a client
 # auto-approve the calls instead of prompting per invocation.
 _READONLY = ToolAnnotations(
-    readOnlyHint=True,
-    idempotentHint=True,
-    destructiveHint=False,
-    openWorldHint=False,
+    read_only_hint=True,
+    idempotent_hint=True,
+    destructive_hint=False,
+    open_world_hint=False,
 )
 
 
@@ -131,19 +74,19 @@ def _tool_description(verb: str) -> str:
     return spec.description + "\n\nParameters:\n" + "\n".join(lines)
 
 
-def build_server() -> FastMCP:
+def build_server() -> MCPServer:
     """Construct the configured FastMCP server.
 
     Factored out of ``main`` so tests can instantiate the server in-process
     and call ``server.call_tool(name, args)`` / ``server.read_resource(uri)``
     without spawning the stdio loop.
     """
-    mcp = FastMCP(
+    mcp = MCPServer(
         "crcglot",
         instructions=(
             "crcglot exposes the reveng CRC catalogue (more than 100 algorithms), "
-            "a multi-language code generator (C / C# / Go / Java / Python / Rust "
-            "/ TypeScript / Verilog / VHDL), and a runtime CRC engine.  "
+            "a multi-language code generator (C / C# / Go / Java / Lua / Python / "
+            "Rust / TypeScript / Zig / Verilog / VHDL), and a runtime CRC engine.  "
             "Use crc_list / crc_info to browse.  The packet tools all take the "
             "same shape -- whole frames with the CRC as the trailing field: "
             "crc_detect identifies a KNOWN CRC, crc_reverse recovers an UNKNOWN "
@@ -177,274 +120,21 @@ def build_server() -> FastMCP:
         ),
     )
 
-    # ----- crc_list -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_list",
-        description=_tool_description("list"),
-    )
-    def crc_list(glob: str | None = None) -> dict[str, Any]:
-        return _verb_list(glob=glob)
-
-    # ----- crc_info -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_info",
-        description=_tool_description("info"),
-    )
-    def crc_info(name: str) -> dict[str, Any]:
-        return _verb_info(name, surface="mcp")
-
-    # ----- crc_self_test_vectors -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_self_test_vectors",
-        description=_tool_description("vectors"),
-    )
-    def crc_self_test_vectors(algorithm: str) -> dict[str, Any]:
-        return _verb_vectors(algorithm, surface="mcp")
-
-    # ----- crc_detect -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_detect",
-        description=_tool_description("detect"),
-    )
-    def crc_detect(
-        packet_hex: str | None = None,
-        packet_text: str | None = None,
-        packet_b64: str | None = None,
-        target_crc: int | None = None,
-        target_crc_hex: str | None = None,
-        endian: ENDIAN_ENUM = "both",
-        algorithms: str | None = None,
-        width: int | None = None,
-        match: MATCH_ENUM = "first",
-        encoding: str = "utf-8",
-        form: str | None = None,
-    ) -> dict[str, Any]:
-        return _verb_detect(
-            packet_hex=packet_hex,
-            packet_text=packet_text,
-            packet_b64=packet_b64,
-            target_crc=target_crc,
-            target_crc_hex=target_crc_hex,
-            endian=endian,
-            algorithms=algorithms,
-            width=width,
-            match=match,
-            encoding=encoding,
-            form=form,
+    # ----- Tools: registered from the verb manifest -----
+    #
+    # Each callable is synthesized from crcglot.VERBS (see _synth.py), so
+    # the wire schema is derived from the manifest by construction -- a new
+    # verb or a new enum value reaches the MCP surface with no server edit.
+    # tests/goldens/mcp_wire.json pins the derived schemas to the shapes the
+    # last mcp 1.x build shipped.
+    for verb, spec in VERBS.items():
+        mcp.add_tool(
+            synthesize_tool(verb),
+            name=spec.mcp_tool,
+            description=_tool_description(verb),
+            annotations=_READONLY,
+            structured_output=True,
         )
-
-    # ----- crc_identify_trailer -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_identify_trailer",
-        description=_tool_description("identify_trailer"),
-    )
-    def crc_identify_trailer(
-        packets: list[str],
-        packet_format: PACKET_FORMAT_ENUM = "hex",
-        endian: ENDIAN_ENUM = "both",
-        trailers: str | None = None,
-        encoding: str = "utf-8",
-    ) -> dict[str, Any]:
-        return _verb_identify_trailer(
-            packets=packets,
-            packet_format=packet_format,
-            endian=endian,
-            trailers=trailers,
-            encoding=encoding,
-        )
-
-    # ----- crc_encode -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_encode",
-        description=_tool_description("encode"),
-    )
-    def crc_encode(
-        algorithm: str | None = None,
-        custom_params: dict[str, Any] | None = None,
-        data_text: str | None = None,
-        data_b64: str | None = None,
-        crc_byte_order: CRC_BYTE_ORDER_ENUM = "big",
-        sep: str = " ",
-        leader: str = "",
-        uppercase: bool = False,
-        fmt: str = "{data}{sep}{leader}{crc}",
-        encoding: str = "utf-8",
-    ) -> dict[str, Any]:
-        return _verb_encode(
-            algorithm=algorithm,
-            custom_params=custom_params,
-            data_text=data_text,
-            data_b64=data_b64,
-            crc_byte_order=crc_byte_order,
-            sep=sep,
-            leader=leader,
-            uppercase=uppercase,
-            fmt=fmt,
-            encoding=encoding,
-            surface="mcp",
-        )
-
-    # ----- crc_compute -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_compute",
-        description=_tool_description("compute"),
-    )
-    def crc_compute(
-        algorithm: str | None = None,
-        custom_params: dict[str, Any] | None = None,
-        data_text: str | None = None,
-        data_b64: str | None = None,
-        encoding: str = "utf-8",
-    ) -> dict[str, Any]:
-        return _verb_compute(
-            algorithm=algorithm,
-            custom_params=custom_params,
-            data_text=data_text,
-            data_b64=data_b64,
-            encoding=encoding,
-            surface="mcp",
-        )
-
-    # ----- crc_compute_many -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_compute_many",
-        description=_tool_description("compute_many"),
-    )
-    def crc_compute_many(
-        algorithm: str | None = None,
-        custom_params: dict[str, Any] | None = None,
-        data_texts: list[str] | None = None,
-        data_b64s: list[str] | None = None,
-        encoding: str = "utf-8",
-    ) -> dict[str, Any]:
-        return _verb_compute_many(
-            algorithm=algorithm,
-            custom_params=custom_params,
-            data_texts=data_texts,
-            data_b64s=data_b64s,
-            encoding=encoding,
-            surface="mcp",
-        )
-
-    # ----- crc_reverse -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_reverse",
-        description=_tool_description("reverse"),
-    )
-    def crc_reverse(
-        packets: list[str],
-        crc_bytes: int | None = None,
-        crc_byte_order: ENDIAN_ENUM = "big",
-        packet_format: PACKET_FORMAT_ENUM = "hex",
-        encoding: str = "utf-8",
-        std_algo_only: bool = False,
-        width: int | None = None,
-        refin: bool | None = None,
-        refout: bool | None = None,
-        poly: int | None = None,
-        init: int | None = None,
-        xorout: int | None = None,
-        validate: bool = True,
-    ) -> dict[str, Any]:
-        return _verb_reverse(
-            packets=packets,
-            crc_bytes=crc_bytes,
-            crc_byte_order=crc_byte_order,
-            packet_format=packet_format,
-            encoding=encoding,
-            std_algo_only=std_algo_only,
-            width=width,
-            refin=refin,
-            refout=refout,
-            poly=poly,
-            init=init,
-            xorout=xorout,
-            validate=validate,
-        )
-
-    # ----- crc_verify -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_verify",
-        description=_tool_description("verify"),
-    )
-    def crc_verify(
-        algorithm: str | None = None,
-        custom_params: dict[str, Any] | None = None,
-        packet_hex: str | None = None,
-        packet_text: str | None = None,
-        packet_b64: str | None = None,
-        crc_byte_order: CRC_BYTE_ORDER_ENUM = "big",
-        encoding: str = "utf-8",
-    ) -> dict[str, Any]:
-        return _verb_verify(
-            algorithm=algorithm,
-            custom_params=custom_params,
-            packet_hex=packet_hex,
-            packet_text=packet_text,
-            packet_b64=packet_b64,
-            crc_byte_order=crc_byte_order,
-            encoding=encoding,
-            surface="mcp",
-        )
-
-    # ----- crc_generate -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_generate",
-        description=_tool_description("generate"),
-    )
-    def crc_generate(
-        language: LANG_ENUM,
-        algorithm: str | list[str] | None = None,
-        variant: VARIANT_ENUM = "auto",
-        symbol: str | None = None,
-        name: str | None = None,
-        custom_params: dict[str, Any] | None = None,
-        comment_style: COMMENT_STYLE_ENUM = "plain",
-        naming: NAMING_ENUM | None = None,
-    ) -> dict[str, Any]:
-        return _verb_generate(
-            language=language,
-            algorithm=algorithm,
-            variant=variant,
-            symbol=symbol,
-            name=name,
-            custom_params=custom_params,
-            comment_style=comment_style,
-            naming=naming,
-            surface="mcp",
-        )
-
-    # ----- crc_credits -----
-
-    @mcp.tool(
-        annotations=_READONLY,
-        name="crc_credits",
-        description=_tool_description("credits"),
-    )
-    def crc_credits() -> dict[str, str]:
-        return _verb_credits()
 
     # ----- Prompts -----
 
@@ -663,10 +353,10 @@ def build_server() -> FastMCP:
 def main() -> None:
     """Entry point for the ``crcglot-mcp`` script.
 
-    Runs the FastMCP stdio loop forever -- the process is owned by the
+    Runs the MCP stdio loop forever -- the process is owned by the
     MCP client (Claude Desktop, mcp-cli, etc.), which manages
     lifecycle.  Exiting cleanly when the client closes stdin / stdout
-    is FastMCP's responsibility.
+    is the SDK's responsibility.
     """
     server = build_server()
     server.run()
