@@ -66,6 +66,14 @@ def run(
         check=check,
         cwd=cwd,
         text=True,
+        # git (and every tool this script drives) emits UTF-8; without an
+        # explicit encoding, Windows decodes captured output as cp1252 and
+        # the reader thread dies on any byte cp1252 leaves undefined --
+        # stdout silently comes back None.  First hit: a commit subject
+        # containing an emoji.  errors="replace" keeps one stray byte from
+        # ever taking the release tooling down.
+        encoding="utf-8",
+        errors="replace",
         capture_output=capture,
     )
 
