@@ -64,6 +64,7 @@ from crcglot import ALGORITHMS, LANGUAGES, generic_crc  # noqa: E402
 # is the C function when the extension is built, else None.  We read
 # it straight from there rather than re-doing the optional import.
 from crcglot.catalogue import (  # noqa: E402
+    Crc,
     _c_generic_crc,
     _generic_crc_python,
 )
@@ -145,6 +146,7 @@ _MATRIX: dict[str, list[str]] = {
     "csharp":     ["bitwise", "table", "slice8"],
     "java":       ["bitwise", "table", "slice8"],
     "typescript": ["bitwise", "table", "slice8"],
+    "zig":        ["bitwise", "table", "slice8"],
     "python":     ["bitwise", "table"],
 }
 
@@ -165,6 +167,7 @@ _TOOL_BINS = {
         or shutil.which("tsx.cmd")
         or shutil.which("tsx.CMD")
     ),
+    "zig":     shutil.which("zig"),
 }
 
 _BENCH_ROOT = Path(__file__).parent.parent / "benchmarks"
@@ -291,11 +294,11 @@ func main() {{
     buf := make([]byte, SIZE)
     for i := 0; i < SIZE; i++ {{ buf[i] = byte(i & 0xFF) }}
     var crc uint32
-    for w := 0; w < 5; w++ {{ crc ^= crc32(buf) }}
+    for w := 0; w < 5; w++ {{ crc ^= Crc32(buf) }}
     start := time.Now()
     var iters uint64
     for {{
-        crc ^= crc32(buf)
+        crc ^= Crc32(buf)
         iters++
         if iters >= 3 && time.Since(start).Milliseconds() > {_INNER_LOOP_TARGET_MS} {{
             break
@@ -330,11 +333,11 @@ public static class Program {{
         byte[] buf = new byte[SIZE];
         for (int i = 0; i < SIZE; i++) buf[i] = (byte)(i & 0xFF);
         uint crc = 0;
-        for (int w = 0; w < 5; w++) crc ^= Crc32.crc32(buf);
+        for (int w = 0; w < 5; w++) crc ^= Crc32.Compute(buf);
         var sw = Stopwatch.StartNew();
         long iters = 0;
         while (true) {{
-            crc ^= Crc32.crc32(buf);
+            crc ^= Crc32.Compute(buf);
             iters++;
             if (iters >= 3 && sw.ElapsedMilliseconds > {_INNER_LOOP_TARGET_MS})
                 break;
@@ -389,6 +392,73 @@ def _emit_java(cell_dir: Path, variant: str, size: int) -> None:
     assert src.endswith("}"), "expected generated Java to end with the class brace"
     src = src[:-1].rstrip() + "\n" + bench_main + "}\n"
     (cell_dir / "CrcGlot.java").write_text(src)
+
+
+def _emit_zig(cell_dir: Path, variant: str, size: int) -> None:
+    code = LANGUAGES["zig"].generator(_ALGORITHM, **_gen_kwargs(variant))
+    # The buffer lives at container scope (static), not on main's stack:
+    # the 1 MiB cell would risk a stack overflow.  Timing calls the OS
+    # counter directly (QPC / clock_gettime): std.time.Timer was removed
+    # in Zig 0.16 and its replacement lives behind the std.Io plumbing,
+    # so the direct call keeps this harness off std's fastest-churning
+    # surface.  The CSV line goes out via std.debug.print (stderr) for
+    # the same reason -- _run_binary scans stderr as well as stdout.
+    bench_main = f"""
+
+const std = @import("std");
+const builtin = @import("builtin");
+
+var buf: [{size}]u8 = undefined;
+
+fn counterNow() i64 {{
+    if (builtin.os.tag == .windows) {{
+        var v: std.os.windows.LARGE_INTEGER = undefined;
+        _ = std.os.windows.ntdll.RtlQueryPerformanceCounter(&v);
+        return v;
+    }} else {{
+        var ts: std.c.timespec = undefined;
+        _ = std.c.clock_gettime(.MONOTONIC, &ts);
+        return @as(i64, ts.sec) * 1_000_000_000 + @as(i64, ts.nsec);
+    }}
+}}
+
+fn counterFreq() i64 {{
+    if (builtin.os.tag == .windows) {{
+        var f: std.os.windows.LARGE_INTEGER = undefined;
+        _ = std.os.windows.ntdll.RtlQueryPerformanceFrequency(&f);
+        return f;
+    }}
+    return 1_000_000_000; // clock_gettime already reports ns
+}}
+
+pub fn main() void {{
+    const SIZE: usize = {size};
+    var i: usize = 0;
+    while (i < SIZE) : (i += 1) buf[i] = @truncate(i);
+    var crc: u32 = 0;
+    var w: u32 = 0;
+    while (w < 5) : (w += 1) crc ^= crc32(&buf);
+    const freq = counterFreq();
+    const c0 = counterNow();
+    var iters: u64 = 0;
+    while (true) {{
+        crc ^= crc32(&buf);
+        iters += 1;
+        const ms = @divTrunc((counterNow() - c0) * 1000, freq);
+        if (iters >= 3 and ms > {_INNER_LOOP_TARGET_MS}) break;
+    }}
+    const ns: i64 = @intCast(@divTrunc(
+        @as(i128, counterNow() - c0) * 1_000_000_000, @as(i128, freq)));
+    const bytes = @as(f64, @floatFromInt(iters)) * @as(f64, @floatFromInt(SIZE));
+    const mbps = bytes / (@as(f64, @floatFromInt(ns)) / 1e9) / 1e6;
+    var pbuf: [256]u8 = undefined;
+    const line = std.fmt.bufPrint(
+        &pbuf, "zig,{variant},{{d}},{{d:.3}},{{d}},{{d}},0x{{X:0>8}}\\n",
+        .{{ SIZE, mbps, iters, ns, crc }}) catch return;
+    std.debug.print("{{s}}", .{{line}});
+}}
+"""
+    (cell_dir / "bench.zig").write_text(code + bench_main)
 
 
 def _emit_python(cell_dir: Path, variant: str, size: int) -> None:
@@ -452,6 +522,7 @@ _EMITTERS = {
     "java":       _emit_java,
     "python":     _emit_python,
     "typescript": _emit_typescript,
+    "zig":        _emit_zig,
 }
 
 
@@ -515,6 +586,19 @@ def _compile_go(cell_dir: Path) -> Path | None:
     return out
 
 
+def _compile_zig(cell_dir: Path) -> Path | None:
+    out = cell_dir / "bench.exe"
+    r = subprocess.run(
+        [_tool("zig"), "build-exe", "-O", "ReleaseFast",
+         "-femit-bin=" + str(out), "bench.zig"],
+        capture_output=True, cwd=cell_dir,
+    )
+    if r.returncode != 0:
+        print(f"  ! zig build-exe failed:\n{r.stderr.decode(errors='replace')}", file=sys.stderr)
+        return None
+    return out
+
+
 def _compile_csharp(cell_dir: Path) -> Path | None:
     publish_dir = cell_dir / "publish"
     r = subprocess.run(
@@ -554,6 +638,7 @@ _COMPILERS = {
     "go":     _compile_go,
     "csharp": _compile_csharp,
     "java":   _compile_java,
+    "zig":    _compile_zig,
 }
 
 
@@ -584,13 +669,16 @@ def _run_binary(args: list[str], cwd: Path) -> float | None:
         )
         return None
     out = r.stdout.decode(errors="replace")
+    err = r.stderr.decode(errors="replace")
     # Pick the line that starts with a known lang code -- noise-tolerant
-    # in case the toolchain writes a banner.
-    for line in out.splitlines():
+    # in case the toolchain writes a banner.  stderr is scanned too: the
+    # Zig harness prints its CSV via std.debug.print (stderr), the one
+    # printing API that has survived Zig std's churn.
+    for line in out.splitlines() + err.splitlines():
         mbps = _parse_csv(line)
         if mbps is not None:
             return mbps
-    print(f"  ! no parseable line in stdout: {out!r}", file=sys.stderr)
+    print(f"  ! no parseable line in stdout/stderr: {out!r} {err!r}", file=sys.stderr)
     return None
 
 
@@ -628,6 +716,8 @@ def _can_run(lang: str) -> str | None:
         return "javac/java not on PATH"
     if lang == "typescript" and not _TOOL_BINS["tsx"]:
         return "tsx not on PATH (npm i -g tsx)"
+    if lang == "zig" and not _TOOL_BINS["zig"]:
+        return "zig not on PATH"
     if lang == "csharp" and _TOOL_BINS["dotnet"]:
         # Probe for SDK -- runtime alone can't `publish -c Release`.
         probe = subprocess.run(
@@ -1044,18 +1134,24 @@ def _run_runtime_engines() -> list[CellResult]:
     algo = ALGORITHMS[_ALGORITHM]
     tail = (algo.width, algo.poly, algo.init,
             algo.refin, algo.refout, algo.xorout)
-    engines: list[tuple[str, object]] = [("python-runtime", _generic_crc_python)]
+    # The raw engines take the parameter tail; the public dispatcher takes
+    # a Crc value object (the boundary-validation refactor, v0.26.0).
+    crc_obj = Crc(algo.width, algo.poly, algo.init,
+                  algo.refin, algo.refout, algo.xorout)
+    engines: list[tuple[str, object, tuple]] = [
+        ("python-runtime", _generic_crc_python, tail),
+    ]
     if _c_generic_crc is not None:
-        engines.append(("cpython-ext", _c_generic_crc))
-    engines.append(("dispatch", generic_crc))
+        engines.append(("cpython-ext", _c_generic_crc, tail))
+    engines.append(("dispatch", generic_crc, (crc_obj,)))
 
     results: list[CellResult] = []
-    for lang, fn in engines:
+    for lang, fn, fn_args in engines:
         for size in _SIZES:
             buf = _make_buffer(size)
             print(f"  runtime/{lang}/{size} ...", end="", flush=True,
                   file=sys.stderr)
-            runs = [_time_inproc(fn, buf, tail) for _ in range(_REPEATS)]
+            runs = [_time_inproc(fn, buf, fn_args) for _ in range(_REPEATS)]
             r = CellResult(lang, "runtime", size, runs)
             print(f" {r.median_mbps:,.1f} MB/s", file=sys.stderr)
             results.append(r)
