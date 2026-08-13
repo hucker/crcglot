@@ -28,7 +28,7 @@ Example:
 from __future__ import annotations
 
 import zlib
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from crcglot.catalogue import (
     ALGORITHMS,
@@ -43,10 +43,16 @@ from crcglot.catalogue import (
 # Optional C-extension streaming backend.  Guarded exactly like
 # ``catalogue._c_generic_crc`` so lint / typecheck / a source checkout all
 # work before the extension is built.
-try:
+# TYPE_CHECKING sees the class unconditionally, so the fallback None
+# never poisons the type to `type | None` (every use is behind an
+# ``is None`` guard at runtime).
+if TYPE_CHECKING:
     from crcglot._c import CrcStream as _CCrcStream
-except ImportError:  # pragma: no cover - exercised only without the extension
-    _CCrcStream = None  # type: ignore[assignment,misc]  # ty: ignore[invalid-assignment]
+else:
+    try:
+        from crcglot._c import CrcStream as _CCrcStream
+    except ImportError:  # pragma: no cover - exercised only without the extension
+        _CCrcStream = None
 
 _BytesLike = bytes | bytearray | memoryview
 

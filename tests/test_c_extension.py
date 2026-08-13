@@ -24,18 +24,27 @@ Two layers:
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING
 
 import pytest
 
 from crcglot import ALGORITHMS
 from crcglot.catalogue import _generic_crc_python
 
-try:
+# TYPE_CHECKING sees the module unconditionally: every use below is
+# behind the module-level skipif, so `_c` is never None when a test
+# body runs, and typing it as maybe-None would flag all ~37 uses.
+if TYPE_CHECKING:
     from crcglot import _c
+
     HAS_C_EXTENSION = True
-except ImportError:
-    _c = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-    HAS_C_EXTENSION = False
+else:
+    try:
+        from crcglot import _c
+        HAS_C_EXTENSION = True
+    except ImportError:
+        _c = None
+        HAS_C_EXTENSION = False
 
 
 pytestmark = pytest.mark.skipif(

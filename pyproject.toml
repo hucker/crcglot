@@ -138,6 +138,16 @@ source = ["src/crcglot"]
 exclude_lines = ["if __name__", "pragma: no cover", "if TYPE_CHECKING:"]
 show_missing = true
 
+[tool.ruff.lint]
+# Pin the rule set the quality gate has always been held to (ruff's
+# classic defaults).  Without this, `uvx ruff check` floats on whatever
+# the latest ruff enables by default -- ruff 0.16 expanded its defaults
+# and retroactively flagged ~350 deliberate idioms (the generators'
+# adjacent-string emit style, tests inspecting subprocess returncodes,
+# tests exec()ing generated Python).  Adopting new rule families is a
+# deliberate decision to make here, not upstream's release schedule.
+select = ["E4", "E7", "E9", "F"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

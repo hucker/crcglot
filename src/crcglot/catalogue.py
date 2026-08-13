@@ -33,7 +33,7 @@ try:
     from crcglot._c import c_crc_many as _c_crc_many
     from crcglot._c import c_generic_crc as _c_generic_crc
 except ImportError:
-    _c_generic_crc = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    _c_generic_crc = None  # type: ignore[assignment]
     _c_crc_many = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
