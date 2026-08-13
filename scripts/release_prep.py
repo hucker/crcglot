@@ -135,6 +135,24 @@ def run_full_suite_and_measure() -> tuple[int, int]:
         die("could not parse passed-test count from pytest output")
     passed = int(m_pass.group(1))
 
+    # A skipped test is NOT a passing test (CLAUDE.md, "Skipped tests are not
+    # 'passed'").  pytest exits 0 when tests skip, so without this check the
+    # release gate reports "full suite green" while a whole target sits out --
+    # which is exactly what happened cutting v0.30.0: the shell running prep
+    # predated a toolchain install, had no `lua` on PATH, and 213 Lua tests
+    # skipped silently behind a green line.
+    m_skip = re.search(r"(\d+) skipped", out)
+    skipped = int(m_skip.group(1)) if m_skip else 0
+    if skipped:
+        print(out)
+        die(
+            f"{skipped} test(s) SKIPPED -- a release must run the whole suite. "
+            "The usual cause is a per-target toolchain missing from PATH (a "
+            "fresh install is invisible to an already-open shell; see the "
+            "toolchain list in CLAUDE.md). List them with: "
+            "uv run pytest -rs"
+        )
+
     # Coverage terminal report ends with e.g. ``TOTAL   4210   84   98%``.
     m_cov = re.search(r"^TOTAL\s+\d+\s+\d+\s+(\d+)%", out, re.MULTILINE)
     if not m_cov:
