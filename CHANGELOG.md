@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.29.0 — 2026-08-13
+
+Two new target languages (Zig and Lua, bringing the count to eleven), and the execution tier now runs in CI: every push compiles and runs the whole catalogue through every target toolchain on Linux, closing the gap where that verification lived only on the maintainer's machine.  The new CI job caught a live packaging bug in its first run.
+
+### Added: Zig target
+
+`crcglot zig crc32` emits a `.zig` file of `pub fn`s (camelCase by default, per the Zig style guide; `--naming snake` available) with all three variants.  The emitted code imports nothing, not even `std`, which keeps it clear of Zig's fastest-moving API surface and makes the functions pure, so they also run at `comptime`.  Every file ships the runtime-callable `SelfTest()` plus a Zig-native `test` declaration: `zig test <file>.zig` verifies the module with no harness, and normal builds strip it.  In the regenerated benchmark gallery Zig's slice-by-8 is the fastest software cell (~1.78 GB/s at both buffer sizes on the reference box).
+
+Zig was a target once before (removed in v0.7.0 when a toolchain upgrade broke tests).  Before readmitting it, all twelve v0.6.0-era generated samples were compiled and self-tested unmodified on Zig 0.16: the generated subset uses two builtins and no imports, and sits on the part of the language that has not moved.
+
+### Added: Lua target
+
+`crcglot lua crc32` emits a standard `local M = {} ... return M` module for `dofile`/`require`, with `bitwise` and `table` variants (slice-by-8 is excluded for the same measured reason as Python: interpreter overhead absorbs the win).  Snake_case by default, camelCase available.  The audience is protocol tooling: Wireshark dissectors, OpenWRT, embedded interpreters, places where Lua has no stdlib CRC and a dependency is not an option.
+
+Scoped to **Lua 5.3+**, and the generated header says so: 5.1 / 5.2 / LuaJIT have no bitwise operators, and their doubles cannot represent a CRC-64.
+
+### Added: CI execution tier
+
+A new `exec.yml` workflow runs the full suite, including every generated-code execution batch, on `ubuntu-latest` for every push and PR, with a gate that fails the build on any skipped test so a missing toolchain can never pass silently.  Previously the execution tier ran only on the maintainer's Windows box, and two doc sentences wrongly said otherwise; the docs now describe exactly what runs where.  The maiden run caught the mcp 2.0 break below in its first 104 seconds.
+
+### Fixed
+
+- **`crcglot[mcp]` now pins `mcp>=1.2,<2`.**  mcp 2.0 removed `FastMCP` (split out to the separate `fastmcp` package), so a fresh install whose resolver picked 2.0 got a `crcglot-mcp` that crashed on startup.  Porting to the 2.0 API is future work.
+- The benchmark harness had been unable to reproduce the committed BENCHMARKS.md since June: three call-site breaks from API changes (the C# role-only method rename, Go's PascalCase default, the `Crc` value-object signature).  All repaired; the regenerated gallery covers all eleven languages with zero skipped cells.
+- The release scripts now decode captured subprocess output as UTF-8 on Windows (a commit subject containing an emoji previously killed the CHANGELOG step).
+
+### Changed
+
+- C#'s emoji is now the keycap number sign (previously a blue diamond, near-indistinguishable from TypeScript's at terminal size).  The ten `LanguageInfo.emoji` declarations share one style: escape as the value, rendered glyph in the comment, with a fast test pinning comment to value.
+- The ruff rule set is pinned in `pyproject.toml` to the classic defaults the gate has always effectively enforced, so upstream default changes no longer move the quality bar unreviewed.
+
 ## v0.28.0 — 2026-07-07
 
 One addition: `crcglot.call_verb`, the execution half of the 0.27.0 verb manifest, so a frontend that renders typed tools from `VERBS` can also run them through crcglot without writing per-verb handler code.
