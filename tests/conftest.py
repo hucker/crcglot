@@ -3,13 +3,23 @@
 Two phases, two mechanisms -- correctly this time:
 
 * ``pytest_configure`` (a pytest hook, runs **before** test collection)
-  does the PATH fixups.  Anything that controls test discovery -- in
-  particular ``HAS_<tool> = shutil.which("<tool>") is not None`` flags
-  that test modules evaluate at *import* time -- must see the corrected
-  PATH, and pytest's collection phase imports those modules.  Earlier
-  this lived in a ``@pytest.fixture(scope="session", autouse=True)``,
-  which fires *after* collection and so was too late: 383 Go-toolchain
-  tests silently skipped with ``HAS_GO`` frozen at ``False``.
+  fixes the msys2 / Git-Bash gcc ordering.  Anything that controls test
+  discovery -- in particular ``HAS_<tool> = shutil.which("<tool>") is
+  not None`` flags that test modules evaluate at *import* time -- must
+  see the corrected PATH, and pytest's collection phase imports those
+  modules.  Earlier this lived in a ``@pytest.fixture(scope="session",
+  autouse=True)``, which fires *after* collection and so was too late:
+  383 Go-toolchain tests silently skipped with ``HAS_GO`` frozen at
+  ``False``.
+
+  This hook does **not** hunt for toolchain install dirs.  It used to
+  append a hardcoded list of them (Go, Node, iverilog, a globbed JDK,
+  the winget shim dir, ...), which was a maintenance tax -- every new
+  target meant another entry -- and it masked a stale shell rather
+  than surfacing it.  The toolchains belong on PATH; a fresh install
+  needs a new shell before pytest sees it, and until then the affected
+  tests SKIP, which this project already treats as amber and
+  investigates (see "Skipped tests are not 'passed'").
 * A session-scope autouse **fixture** does the Go ``build std``
   warm-up.  That step is purely about throughput (a cold ``GOCACHE``
   on Windows makes the per-test 30 s timeout flake under xdist) and
@@ -22,7 +32,6 @@ file is preventing future regressions of.
 
 from __future__ import annotations
 
-import glob
 import os
 import subprocess
 import sys
@@ -37,22 +46,6 @@ from crcglot.catalogue import AlgorithmInfo
 # PATH-setup helpers (plain functions; called from ``pytest_configure``
 # below so the corrected PATH is in place before any test module imports.)
 # ---------------------------------------------------------------------------
-
-
-def _append_to_path_if_present(candidate: str) -> None:
-    """Append ``candidate`` to PATH if it exists and isn't already there.
-
-    No-op when the directory doesn't exist (cross-platform / not-installed
-    cases) or when it's already on PATH at any position.
-    """
-    if not os.path.isdir(candidate):
-        return
-    path = os.environ.get("PATH", "")
-    parts = path.split(os.pathsep)
-    norm = [os.path.normcase(p) for p in parts]
-    if os.path.normcase(candidate) in norm:
-        return
-    os.environ["PATH"] = os.pathsep.join(parts + [candidate])
 
 
 def _fix_msys2_path_on_windows() -> None:
@@ -115,95 +108,6 @@ def _fix_msys2_path_on_windows() -> None:
     # every test session if conftest reloads).
     parts = [p for p, n in zip(parts, norm) if n != norm_msys2]
     os.environ["PATH"] = os.pathsep.join([msys2_bin] + parts)
-
-
-def _add_windows_tool_dirs_to_path() -> None:
-    """Add tool dirs to PATH for Windows installers that don't update it.
-
-    Each entry is a directory that some standard Windows installer of a
-    test-time tool drops binaries into without amending PATH, or where
-    a winget-installed shim lives that an already-open shell hasn't yet
-    refreshed PATH to see:
-
-    - ``C:\\iverilog\\bin``: Icarus Verilog winget / official installer.
-    - ``C:\\Program Files\\nodejs``: Node.js LTS winget / MSI.
-    - ``C:\\Program Files\\Go\\bin``: Go via winget / official MSI.
-    - ``%LOCALAPPDATA%\\Microsoft\\WinGet\\Links``: winget's shim
-      directory (archive-distributed tools without their own
-      installer land here -- safe to include even if no current
-      target depends on it).
-    - ``%APPDATA%\\npm``: where ``npm install -g <pkg>`` drops shims
-      (tsx, etc.).
-    - A JDK ``bin`` (``javac`` / ``java``): version-stamped install dirs
-      (``...\\jdk-21.0.x\\bin``) can't be hardcoded, so :func:`_find_jdk_bin`
-      checks ``%JAVA_HOME%`` and globs the common vendor roots.
-
-    All entries are checked for existence first, so this no-ops on
-    Linux/macOS and on Windows shells without the tools installed.
-    Without this fixup, the slow-tier tests for any of these tools
-    would skip after a fresh install -- pytest's subprocess inherits
-    the parent shell's pre-install PATH and can't see the binaries
-    that the install just added.
-    """
-    if sys.platform != "win32":
-        return
-    appdata = os.environ.get("APPDATA", "")
-    local_appdata = os.environ.get("LOCALAPPDATA", "")
-    candidates = [
-        r"C:\iverilog\bin",
-        r"C:\Program Files\nodejs",
-        r"C:\Program Files\Go\bin",
-    ]
-    if local_appdata:
-        candidates.append(
-            os.path.join(local_appdata, "Microsoft", "WinGet", "Links")
-        )
-        # DEVCOM.Lua's MSI installs here without amending PATH.
-        candidates.append(
-            os.path.join(local_appdata, "Programs", "Lua", "bin")
-        )
-    if appdata:
-        candidates.append(os.path.join(appdata, "npm"))
-    jdk_bin = _find_jdk_bin()
-    if jdk_bin:
-        candidates.append(jdk_bin)
-    for c in candidates:
-        _append_to_path_if_present(c)
-
-
-def _find_jdk_bin() -> str | None:
-    """Locate a JDK ``bin`` directory containing ``javac``.
-
-    JDK install paths are version-stamped, so they can't be hardcoded like
-    the other tool dirs.  Prefer ``%JAVA_HOME%``; otherwise glob the common
-    Windows vendor roots (Microsoft OpenJDK, Adoptium/Temurin, Corretto,
-    Zulu, Oracle).  Returns the first ``bin`` holding ``javac.exe``, or
-    ``None``.  No-op on non-Windows.
-    """
-    if sys.platform != "win32":
-        return None
-    java_home = os.environ.get("JAVA_HOME")
-    if java_home:
-        cand = os.path.join(java_home, "bin")
-        if os.path.isfile(os.path.join(cand, "javac.exe")):
-            return cand
-    patterns = [
-        r"C:\Program Files\Microsoft\jdk-*\bin",
-        r"C:\Program Files\Eclipse Adoptium\jdk-*\bin",
-        r"C:\Program Files\Amazon Corretto\jdk*\bin",
-        r"C:\Program Files\Zulu\zulu-*\bin",
-        r"C:\Program Files\Java\jdk*\bin",
-    ]
-    for pat in patterns:
-        for cand in sorted(glob.glob(pat), reverse=True):  # newest first
-            if os.path.isfile(os.path.join(cand, "javac.exe")):
-                return cand
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Pytest hooks
-# ---------------------------------------------------------------------------
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -269,7 +173,6 @@ def pytest_configure(config: pytest.Config) -> None:
     """
     del config  # unused; required by the hook signature
     _fix_msys2_path_on_windows()
-    _add_windows_tool_dirs_to_path()
     _register_hypothesis_profiles()
 
 
