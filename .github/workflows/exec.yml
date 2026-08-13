@@ -1,0 +1,93 @@
+name: Execution tier
+
+# The full suite: fast tier PLUS the execution batches that generate,
+# compile, and run the whole catalogue through every target toolchain.
+# One OS (Linux) -- the version x OS matrix is tests.yml's job, and the
+# multi-OS reference run happens on the maintainer's box before each
+# release.  This job exists so the "generated code is execution-verified"
+# claim holds on neutral, reproducible infrastructure for every change,
+# not only on one developer machine.
+#
+# Kept affordable by the batch architecture (one build per language per
+# run, ~2 minutes of compiles total); before the batch refactor this
+# would have been ~300 compiler spawns per language and CI was rightly
+# out of the question.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: exec-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exec:
+    name: Full suite, all toolchains (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # Same rationale as tests.yml: the shared cache key races
+          # across concurrent jobs and saves little here.
+          enable-cache: false
+
+      # gcc, rustc, go, dotnet SDK, a JDK, and node are preinstalled on
+      # ubuntu-latest.  The rest:
+      - name: Install HDL simulators and Lua (apt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ghdl iverilog lua5.4
+          # apt installs the binary as lua5.4; the suite invokes `lua`.
+          sudo ln -sf /usr/bin/lua5.4 /usr/local/bin/lua
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - name: Install tsx (TypeScript runner)
+        run: npm install -g tsx
+      - name: Warm the Go build cache
+        # First `go run` on a cold cache compiles the stdlib inside a
+        # test timeout; warming it here keeps the Go batch fast.
+        run: go build std
+
+      - name: Toolchain inventory
+        # A visible manifest of what actually ran, so a green run is
+        # auditable and a version drift is diagnosable from the log.
+        run: |
+          gcc --version | head -1
+          rustc --version
+          go version
+          dotnet --version
+          javac --version
+          tsx --version
+          zig version
+          lua -v
+          ghdl --version | head -1
+          iverilog -V 2>&1 | head -1 || true
+
+      - name: Run full suite (fast tier + execution batches)
+        run: uv run pytest --junit-xml=pytest-results.xml
+
+      - name: Fail on any skipped test
+        # House rule: skips are amber, not green.  Historically a
+        # toolchain-detection regression turned hundreds of execution
+        # tests into silent skips while the run stayed green; this gate
+        # makes that class of failure fail the build instead.
+        run: |
+          uv run python - <<'EOF'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("pytest-results.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else list(root)
+          tests = sum(int(s.get("tests", 0)) for s in suites)
+          skipped = sum(int(s.get("skipped", 0)) for s in suites)
+          print(f"{tests} tests, {skipped} skipped")
+          if skipped:
+              raise SystemExit(
+                  f"{skipped} skipped tests: a toolchain is missing or a "
+                  f"skipif froze false -- skips are amber, not green"
+              )
+          EOF

@@ -49,15 +49,17 @@ Rows 4 and 8 of the matrix are carried by a fully crossed structure: every catal
 | C# | ✓ | ✓ | ✓ | `dotnet` |
 | Java | ✓ | ✓ | ✓ | `javac` + `java` |
 | TypeScript | ✓ | ✓ | ✓ | `tsx` (Node) |
+| Zig | ✓ | ✓ | ✓ | `zig` |
+| Lua | ✓ | ✓ | — | `lua` (5.3+) |
 | Python | ✓ | ✓ | — | CPython |
 | Verilog | ✓ | — | — | `iverilog` |
 | VHDL | ✓ | — | — | `ghdl` |
 
-Every ✓ is the whole catalogue generated, compiled, and executed through that real toolchain in CI, with outputs checked against the reference vectors.  The em-dash cells are variants the target deliberately does not offer, not gaps in coverage.
+Every ✓ is the whole catalogue generated, compiled, and executed through that real toolchain, with outputs checked against the reference vectors.  It runs in two places: Linux CI (the `exec.yml` workflow, on every change) and the maintainer's Windows reference box before each release.  The em-dash cells are variants the target deliberately does not offer, not gaps in coverage.
 
 The cross is also why crcglot's test count runs into the thousands.  The count is not coverage chasing: it is a small set of assertions parametrized over algorithms × languages × variants × reference inputs, because CRC correctness is a finite, enumerable space and covering an enumerable space exhaustively is cheap (the whole cross runs in about a minute).  The number measures the size of the matrix, not the size of the test code.
 
-CI runs the Python-level suite on every push: every algorithm in the reveng catalogue is checked against four independent reference vectors (the empty input, the canonical `"123456789"` check string, all 256 byte values, and a 1 KiB pseudo-random pattern), computed by two independent engines that had to agree, so the null, the trivial, and the complex cases are all covered and a silent regression in crcglot's own engine can't hide.  The Python generator is run end-to-end (generated, exec'd, and exercised) against those same vectors.  The slow tier on top of that compiles and executes the generated source for every algorithm in the eight compiled/simulated targets and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain.
+CI runs two workflows on every push.  The fast tier (`tests.yml`, across the Python version and OS matrix) checks every algorithm in the reveng catalogue against four independent reference vectors (the empty input, the canonical `"123456789"` check string, all 256 byte values, and a 1 KiB pseudo-random pattern), computed by two independent engines that had to agree, so the null, the trivial, and the complex cases are all covered and a silent regression in crcglot's own engine can't hide; the Python generator is run end-to-end (generated, exec'd, and exercised) against those same vectors.  The execution tier (`exec.yml`, Linux) then compiles and executes the generated source for every algorithm in the ten compiled/simulated targets and re-checks the runtime result: the same algorithm coverage, exercised through each real toolchain, with a gate that fails the build on any skipped test so a missing toolchain can never pass silently.
 
 ## The series
 

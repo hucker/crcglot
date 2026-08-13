@@ -65,7 +65,7 @@ project stays clean across all checkers:
 - `uv run pytest` — full suite (~3 min); use this before commit/merge
 - `uv run pytest -m "not slow"` — fast suite (~3 s) for tight iteration.  Skips ~750 subprocess-spawning tests (gcc / rustc / ghdl invocations that compile and run generated code).  Use during dev; ALWAYS run the full suite before pushing.
 - `uv run pytest -m slow` — only the slow tests (useful when debugging a specific subprocess test)
-- Full suite needs `gcc`, `rustc`, and `ghdl` on PATH.  Rust install is rustup-managed under `%USERPROFILE%\.cargo\bin`; VSCode-spawned shells inherit PATH at editor startup, so a fresh `rustup` install needs a VSCode restart before pytest sees it.
+- Full suite needs the per-target toolchains on PATH: `gcc`, `rustc`, `go`, `dotnet` (SDK), `javac`/`java`, `tsx` (Node), `zig`, `lua` (5.3+), `iverilog`, `ghdl`.  conftest's `pytest_configure` PATH fixup knows the standard Windows install dirs.  Rust install is rustup-managed under `%USERPROFILE%\.cargo\bin`; VSCode-spawned shells inherit PATH at editor startup, so a fresh `rustup` install needs a VSCode restart before pytest sees it.  CI runs the same full suite on Linux via `.github/workflows/exec.yml` (with a fail-on-skip gate).
 - Tests organized by target language: `test_python_gen.py`, `test_c_gen.py`, `test_rust_gen.py`, `test_vhdl_gen.py`, plus `test_catalogue.py` (cross-cutting) and `test_cli.py`.
 - Run tests before commit; full suite before merging to main
 - AAA comments (`# Arrange`, `# Act`, `# Assert`) for non-trivial tests

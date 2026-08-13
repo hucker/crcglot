@@ -39,16 +39,13 @@ jobs:
           # Disabling sidesteps the race with no measurable cost.
           enable-cache: false
       - name: Run fast suite
-        # crcglot's verification model: CI runs the structural (fast)
-        # tests, which exercise the generator code itself.  The slow
-        # tests shell out to gcc / rustc / go / dotnet / tsx / iverilog
-        # / ghdl to compile-and-run the *generated* code -- those run
-        # on a developer machine that already has the toolchains, NOT
-        # in CI.  The shipped value is the embedded `_self_test()`
-        # function the end user calls on THEIR toolchain, with THEIR
-        # version, against THEIR target.  CI installing seven compilers
-        # just to compile catalogue check vectors is the wrong axis
-        # of confidence -- the customer's compiler is what matters.
+        # This workflow carries the version x OS matrix on the fast
+        # (structural) tier only.  The execution tier -- generated code
+        # compiled and run through every target toolchain -- runs in
+        # exec.yml on Linux for every change, and on the maintainer's
+        # multi-OS reference box before each release.  The end user's
+        # own check remains the embedded `_self_test()`: their
+        # compiler, their flags, their target.
         run: uv run --python ${{ matrix.python-version }} pytest -m "not slow"
 
   audit:
