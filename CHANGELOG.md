@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Changed: the EXAMPLES.md gallery is three tours instead of a grid
+
+The gallery used to cross language against variant and render every cell for `crc32`: 27 blocks, plus 18 more crossing language against comment style. Most of that repeated itself. Seeing the same algorithm table-driven in eleven languages answers the language question eleven times and the variant question once, and Doxygen appeared three times in three languages saying nothing the first block did not.
+
+It is now three sections, each varying one thing:
+
+- **Every language**, one block per target, same algorithm and no flags.
+- **Implementation variants**, `--small` / `--table` / `--slice8` in one language.
+- **Documentation styles**, one block per style in a language that uses it. Which language that is gets derived rather than tabulated, so a target that gains a style needs no script edit.
+
+24 blocks instead of 45, and the file drops from 415 KB to 171 KB.
+
+The showcase algorithm is now `crc16-ibm-sdlc` (IBM SDLC / ISO HDLC / X.25 FCS) rather than `crc32`. Matching a 16-bit CRC that some existing wire format already fixed is the case crcglot is for; `crc32` is the one algorithm crcglot's own advisory tells you not to generate, since every target's standard library has it and runs it roughly 30x faster on CPU CRC instructions. Its `init` and `xorout` are both `0xFFFF`, so the emitted `finalize` shows real work instead of `return state`. The variant tour keeps a 32-bit algorithm (`crc32-bzip2`) because slice-by-8 exists only at width 32 and 64.
+
+### Fixed: the commands printed in EXAMPLES.md now reproduce their blocks
+
+Two of them did not, and both were invisible because nothing checked.
+
+Bit-by-bit blocks were labelled `crcglot c crc32` with no flag. No flag means `--fast`, so that command emits slice-by-8; reproducing the block needs `--small`. Every bitwise cell in the gallery, and every comment-style cell, carried a command that produced different code than the block above it.
+
+The script also called `LanguageInfo.generator` directly instead of `generate_files()`, the front door the CLI uses. That path skips crcglot's file and class naming, so the Java blocks showed `public final class CrcGlot` while the command shown produces `public final class Crc16IbmSdlc`. Blocks now render through `generate_files()` and show the real filename crcglot picks for each file.
+
+All 24 blocks were re-checked against the output of their own printed command.
+
 ## v0.30.0 — 2026-08-13
 
 The MCP server moves to **mcp 2.0**, which is a breaking change to the `crcglot[mcp]` extra and the reason for the version bump. Its tool schemas are now synthesized from the verb manifest instead of hand-written, so the wire surface cannot drift from `crcglot.VERBS`. Property-based tests join the suite on the two axes that are genuinely infinite, and one of them found a real round-trip bug on its first run.
@@ -63,7 +89,7 @@ A new `exec.yml` workflow runs the full suite, including every generated-code ex
 ### Changed
 
 - C#'s emoji is now the keycap number sign (previously a blue diamond, near-indistinguishable from TypeScript's at terminal size).  The ten `LanguageInfo.emoji` declarations share one style: escape as the value, rendered glyph in the comment, with a fast test pinning comment to value.
-- The ruff rule set is pinned in `pyproject.toml` to the classic defaults the gate has always effectively enforced, so upstream default changes no longer move the quality bar unreviewed.
+- The ruff rule set is pinned in `pyproject.toml` to the classic defaults the gate has always effectively enforced, so upstream default changes no longer move the quality bar un-reviewed.
 
 ## v0.28.0 — 2026-07-07
 
@@ -77,7 +103,7 @@ Errors follow the house rules: an unknown verb raises `UnknownVerbError` with a 
 
 ## v0.27.0 — 2026-07-06
 
-Two headline items: a new public **verb manifest** (`crcglot.VERBS`) so frontends render typed crcglot tools from crcglot's own metadata, and the verification story restated as an explicit **ten-category matrix**, with new tests filling the four categories that were only partial.  The README and docs also lost about half their words: one home per fact, links everywhere else, real CLI output in every transcript.
+Two headline items: a new public **verb manifest** (`crcglot.VERBS`) so front-ends render typed crcglot tools from crcglot's own metadata, and the verification story restated as an explicit **ten-category matrix**, with new tests filling the four categories that were only partial.  The README and docs also lost about half their words: one home per fact, links everywhere else, real CLI output in every transcript.
 
 ### Added: the verb manifest (`crcglot.VERBS`)
 
@@ -123,9 +149,9 @@ Running `crcglot-mcp` without the MCP SDK now exits with the install instruction
 
 `crcglot c --custom width=5 poly=0x05 ...` works now.  The CLI rejected sub-byte and non-byte custom widths ("must be 8, 16, 32, or 64") that the Python API and MCP `custom_params` generated fine.  It accepts the full 1..64 range and reports the same messages as the Python API.
 
-### Fixed: exotic memoryviews behave identically on every engine
+### Fixed: exotic memory views behave identically on every engine
 
-A contiguous memoryview with non-byte items (for example over an `array("H", ...)`) is re-cast to its raw bytes on every path; the pure-Python engine used to iterate the 16-bit items as if they were bytes and return a silently wrong value, while the C engine hashed the raw buffer.  A non-contiguous view is rejected with one clear `ValueError` everywhere; it used to raise a raw `BufferError` with the C extension installed but be silently accepted without it.
+A contiguous memory view with non-byte items (for example over an `array("H", ...)`) is re-cast to its raw bytes on every path; the pure-Python engine used to iterate the 16-bit items as if they were bytes and return a silently wrong value, while the C engine hashed the raw buffer.  A non-contiguous view is rejected with one clear `ValueError` everywhere; it used to raise a raw `BufferError` with the C extension installed but be silently accepted without it.
 
 ### Fixed: custom-polynomial comments no longer overclaim
 
@@ -211,7 +237,7 @@ The certification page is reframed: crcglot is not certified software and not a 
 
 ## v0.23.0 — 2026-06-17
 
-### Added: `detect` recognises CRC-bearing payload forms (crclink JSON frames)
+### Added: `detect` recognizes CRC-bearing payload forms (crclink JSON frames)
 
 `detect` now sees a CRC wrapped in a named text/JSON form, not just a bare tail.  The first form is crclink (PyPI), which frames a JSON object with a trailing CRC-16/XMODEM field: `{"t":1234,"v":42,"crc":"1352"}`, where the `"crc"` value covers the text up to that key.  `detect('{"t":1234,"v":42,"crc":"1352"}')` returns `crc16-xmodem` with `form=crclink`, reusing the same matcher that names every other CRC; the form only strips the wrapper.
 
@@ -219,7 +245,7 @@ Forms ship as a registry mirroring the catalogue: `FORMATS` (the dict), `FormatI
 
 ### Fixed: `file=` / `name=` no longer relabels the algorithm
 
-Generating with a file stem that differs from the catalogue name, for example `crcglot c crc16-xmodem file=mycrc`, wrongly recorded the stem as the algorithm: the `Reproduce with crcglot` block and the C `crcglot_provenance_t` record showed `algorithm: mycrc`, and the header cited `reveng/mycrc`, instead of `crc16-xmodem`.  The stem now only retargets the in-code identifier and the filename; the algorithm label is the catalogue name, and the `symbol` field records the identifier.  This affected every target that emits the block, on `file=` and `name=` alike, and predates the version stamp added in 0.22.0.
+Generating with a file stem that differs from the catalogue name, for example `crcglot c crc16-xmodem file=mycrc`, wrongly recorded the stem as the algorithm: the `Reproduce with crcglot` block and the C `crcglot_provenance_t` record showed `algorithm: mycrc`, and the header cited `reveng/mycrc`, instead of `crc16-xmodem`.  The stem now only re-targets the in-code identifier and the filename; the algorithm label is the catalogue name, and the `symbol` field records the identifier.  This affected every target that emits the block, on `file=` and `name=` alike, and predates the version stamp added in 0.22.0.
 
 ### Fixed: `file=` output ends with a trailing newline
 
@@ -274,11 +300,11 @@ The toolkit grows in capability and discipline at once.  The non-CRC identifier 
 
 ### Changed: generated Verilog uses lint-discipline conditionals
 
-The Verilog emitters now produce `begin`/`end` on every conditional branch and loop body, and bit tests compare explicitly (`if (crc[15] == 1'b1)` instead of `if (crc[15])`), matching the VHDL emitter's existing `= '1'` style and the C emitter's MISRA posture.  Sized literals, explicit zero-extension, `function automatic`, and `byte unsigned` were already in place.  Behavior is unchanged; the Verilog matrix recompiles and re-executes green under iverilog.  VHDL needed nothing: the language mandates `end if`, and the emission already used `numeric_std` with explicit comparisons (ghdl `-Wall` analyzes the whole matrix clean).
+The Verilog emitters now produce `begin`/`end` on every conditional branch and loop body, and bit tests compare explicitly (`if (crc[15] == 1'b1)` instead of `if (crc[15])`), matching the VHDL emitter's existing `= '1'` style and the C emitter's MISRA posture.  Sized literals, explicit zero-extension, `function automatic`, and `byte unsigned` were already in place.  Behavior is unchanged; the Verilog matrix re-compiles and re-executes green under iverilog.  VHDL needed nothing: the language mandates `end if`, and the emission already used `numeric_std` with explicit comparisons (ghdl `-Wall` analyzes the whole matrix clean).
 
 ### Changed: generated C uses MISRA-leaning constructions
 
-The C emitters now produce braced `if`/`else`/`for` bodies (MISRA C:2012 rule 15.6), explicit boolean comparisons for bitwise tests (`(crc & 1U) != 0U`, rule 14.4), `U`/`ULL` suffixes on every unsigned constant including all table entries (rule 7.2), single-exit self-tests (rule 15.5), and counted tail loops with no `++` inside expressions (replacing `while (len--)` and `*data++`).  Behavior is unchanged; the whole algorithm x variant matrix recompiles and re-executes green under `-Wall -Wextra -Werror`.  This is emission style, not a conformance claim: no MISRA checker run has been recorded (see docs/certification.md).
+The C emitters now produce braced `if`/`else`/`for` bodies (MISRA C:2012 rule 15.6), explicit boolean comparisons for bitwise tests (`(crc & 1U) != 0U`, rule 14.4), `U`/`ULL` suffixes on every unsigned constant including all table entries (rule 7.2), single-exit self-tests (rule 15.5), and counted tail loops with no `++` inside expressions (replacing `while (len--)` and `*data++`).  Behavior is unchanged; the whole algorithm x variant matrix re-compiles and re-executes green under `-Wall -Wextra -Werror`.  This is emission style, not a conformance claim: no MISRA checker run has been recorded (see docs/certification.md).
 
 ### Docs: the certification story, stated without overselling
 
@@ -299,7 +325,7 @@ README.md drops from ~510 lines to ~175: the quick start now opens with the dete
 
 ### Added: digest identification; `identify_checksum` becomes `identify_trailer`
 
-The non-CRC identifier now recognizes **cryptographic digests** alongside checksums: MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2s/2b, and double SHA-256 — at full length or the common 4/8-byte leading truncations (base58check's `sha256d[:4]`).  Everything comes from stdlib `hashlib`; the zero-dependency footprint is unchanged.  Keyed MACs (HMAC / CMAC) are undetectable without the key, and the result says so: an unmatched digest-sized field gets a `note` like *"found a 32-byte trailing field matching no unkeyed digest; could be a MAC"*.  The purpose of the search is information for whoever decides next, human or LLM — it ends the CRC parameter hunt, names the likely protocol family, and says whether verification is even possible without a key.
+The non-CRC identifier now recognizes **cryptographic digests** alongside checksums: MD5, SHA-1, the SHA-2 and SHA-3 families, BLAKE2s/2b, and double SHA-256 — at full length or the common 4/8-byte leading truncations (base58check's `sha256d[:4]`).  Everything comes from stdlib `hashlib`; the zero-dependency footprint is unchanged.  Keyed MACs (HMAC / CMAC) are undetectable without the key, and the result says so: an unmatched digest-sized field gets a `note` like *"found a 32-byte trailing field matching no un-keyed digest; could be a MAC"*.  The purpose of the search is information for whoever decides next, human or LLM — it ends the CRC parameter hunt, names the likely protocol family, and says whether verification is even possible without a key.
 
 Since the surface now covers more than checksums, it is renamed (breaking, no deprecation cycle — crcglot has a single consumer):
 
@@ -339,7 +365,7 @@ generic_crc(b"123456789", Crc(width=16, poly=0x8005, init=0xFFFF,
                               refin=True, refout=True, xorout=0))  # custom
 ```
 
-`generic_crc_many` changes the same way.  The compute functions that took `str | AlgorithmInfo` (`encode_int`, `encode`, `verify`) now take `str | Crc` (an `AlgorithmInfo` still works), and `CrcStream.from_crc(crc)` builds a stream from any `Crc`.  Constructing `Crc` by keyword removes the six-positional-int footgun, where the two adjacent bools were easy to transpose.
+`generic_crc_many` changes the same way.  The compute functions that took `str | AlgorithmInfo` (`encode_int`, `encode`, `verify`) now take `str | Crc` (an `AlgorithmInfo` still works), and `CrcStream.from_crc(crc)` builds a stream from any `Crc`.  Constructing `Crc` by keyword removes the six-positional-int foot-gun, where the two adjacent bools were easy to transpose.
 
 ### Breaking: one naming knob
 

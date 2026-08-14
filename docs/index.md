@@ -13,7 +13,7 @@ The [README](../README.md) is the overview; the reference lives here, one sectio
 Also in the repository root:
 
 - **[llms.txt](../llms.txt)**: a concise, linked map of crcglot for an LLM or agent to load first, instead of crawling the source.
-- **[EXAMPLES.md](../EXAMPLES.md)**: generated source for `crc32` in every language × variant combination (auto-generated gallery).
+- **[EXAMPLES.md](../EXAMPLES.md)**: generated source in three tours, one per axis: every language, every implementation variant, every documentation style (auto-generated gallery).
 - **[BENCHMARKS.md](../BENCHMARKS.md)**: measured throughput per language × variant, plus the runtime engine's paths.
 - **[CHANGELOG.md](../CHANGELOG.md)**: release history.
 - **[DECISIONS.md](../DECISIONS.md)**: the design decisions behind the releases and the reasoning recorded for each, reconstructed from the commit history.

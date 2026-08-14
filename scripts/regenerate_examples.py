@@ -1,10 +1,15 @@
 """Regenerate EXAMPLES.md from the current state of the generators.
 
-Run this script before tagging a release.  It walks ``LANGUAGES`` x
-each variant the language supports, calls the generator for ``crc32``,
-and emits a self-contained ``EXAMPLES.md`` with one collapsible
-``<details>`` block per (language x variant) cell -- collapsed by
-default so the page is scannable, expandable to read the code.
+Run this script before tagging a release.  It emits a self-contained
+``EXAMPLES.md`` built from three tours, each varying exactly one axis:
+
+* every language, same algorithm and same defaults;
+* every implementation variant, in one language;
+* every documentation style, in the language that owns it.
+
+Crossing those axes (the old language x variant grid) mostly repeated
+itself: seeing the same algorithm table-driven in eleven languages
+answers the language question eleven times and the variant question once.
 
 Usage:
     uv run python scripts/regenerate_examples.py
@@ -28,37 +33,44 @@ from pathlib import Path
 
 # Lazy-load to be runnable as a script from anywhere in the repo.
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from crcglot import LANGUAGES  # noqa: E402  (sys.path adjusted above)
+from crcglot import (  # noqa: E402  (sys.path adjusted above)
+    ALGORITHMS,
+    LANGUAGES,
+    VARIANT_ORDER,
+    generate_files,
+    variant_info,
+)
 from crcglot.comments import (  # noqa: E402  (sys.path adjusted above)
     style_info,
     styles_for_language,
 )
 
 
-_ALGORITHM = "crc32"
+# The language tour.  A 16-bit CRC over a framed serial protocol is the
+# case crcglot exists for: the polynomial is fixed by someone else's wire
+# format and has to be matched exactly.  Deliberately not crc32, which is
+# the one algorithm crcglot itself advises against generating (every
+# target's standard library already has it, running ~30x faster on CPU CRC
+# instructions).  init and xorout are both 0xFFFF, so the emitted
+# ``finalize`` shows real work rather than ``return state``.
+_ALGORITHM = "crc16-ibm-sdlc"
 
-# The comment-styles section renders one short algorithm in every doc
-# style a language supports, so the cell-to-cell difference is the *style*,
-# not the algorithm or the variant.
-_STYLE_ALGORITHM = "crc32"
+# The variant tour.  Slice-by-8 exists only at width 32 / 64, so the one
+# section that compares variants needs a wider algorithm than the rest of
+# the gallery.  crc32-bzip2 is also non-reflected, making its inner loop
+# the other of the two shapes the generators emit.
+_VARIANT_ALGORITHM = "crc32-bzip2"
+_VARIANT_LANGUAGE = "c"
+
+# The comment-styles tour renders the short bit-by-bit form, so each block
+# is mostly the comments being compared rather than a 256-entry table.
 _STYLE_VARIANT = "bitwise"
 
 
-# Order languages by code; readers expect a stable layout.  Within
-# each language, order variants from simplest (bitwise) to fastest
-# (slice8 if supported).
-_VARIANT_ORDER = ["bitwise", "table", "slice8"]
-
-# Human-readable label per variant code.
-_VARIANT_LABEL = {
-    "bitwise": "bit-by-bit",
-    "table": "table-driven",
-    "slice8": "slice-by-8",
-}
-
-# CLI flag per variant ("" = no flag for default bit-by-bit).
+# CLI flag per variant.  No flag means ``--fast``, so bit-by-bit needs
+# ``--small`` spelled out: ``crcglot c crc32`` emits slice-by-8.
 _VARIANT_FLAG = {
-    "bitwise": "",
+    "bitwise": "--small",
     "table": "--table",
     "slice8": "--slice8",
 }
@@ -76,92 +88,108 @@ def _fence_for(code: str) -> str:
     return _FENCE_OVERRIDES.get(code, code)
 
 
-_HEADER = """# crcglot generated code gallery
+def _algorithm_summary(name: str) -> str:
+    """One-line parameter summary, read from the catalogue entry."""
+    a = ALGORITHMS[name]
+    return (
+        f"width={a.width}, poly=0x{a.poly:0{a.width // 4}X}, "
+        f"init=0x{a.init:0{a.width // 4}X}, "
+        f"refin={str(a.refin).lower()}, refout={str(a.refout).lower()}, "
+        f"xorout=0x{a.xorout:0{a.width // 4}X}"
+    )
 
-Every block below is the actual output of `crcglot` for the `crc32` \
-algorithm under different language / implementation choices.  Reproduce any \
-of them with the listed command.  Each file embeds a `_self_test()` that \
-asserts against the reveng catalogue's canonical check value \
-(`crc("123456789") == 0xCBF43926` for crc32).
 
-Want a different algorithm?  Substitute the name (`crcglot list` for the \
-full catalogue) and re-run the command.
+def _header() -> str:
+    algo = ALGORITHMS[_ALGORITHM]
+    return f"""# crcglot generated code gallery
 
-All examples here use `crc32` (reflected; refin=true, refout=true, \
-xorout=0xFFFFFFFF, ISO 3309 / Ethernet / PKZIP).  Non-reflected algorithms \
-(e.g. `crc32-bzip2`) emit structurally different inner loops; see the \
-source generators for the four shapes.
+Every block below is real `crcglot` output.  Reproduce any of it with the command shown above the code.
 
-Every block is collapsed by default.  Click a heading to expand.  The \
-Quick links section is a flat TOC of every (language x variant) cell -- \
-useful for jumping straight to a single example.
+Three tours, each varying one thing:
 
-Past the variant gallery, a [Comment styles](#comment-styles) section shows \
-the same algorithm rendered in every documentation style each language \
-supports (`--comment`), so you can match the doc convention your codebase \
-already uses.
+- [Every language](#every-language): what crcglot emits for each of the {len(LANGUAGES)} targets, same algorithm and same defaults, so the only difference between blocks is the language.
+- [Implementation variants](#implementation-variants): what `--small`, `--table`, and `--slice8` change, all in one language.
+- [Documentation styles](#documentation-styles): what `--comment` changes, one block per style.
 
-This file is auto-generated by `scripts/regenerate_examples.py`.  Do not \
-hand-edit; re-run the script instead.
+The language tour uses `{_ALGORITHM}` ({algo.desc}; {_algorithm_summary(_ALGORITHM)}).  \
+Matching a 16-bit CRC that some existing wire format already fixed is the job crcglot is for.  \
+Every generated file embeds a `_self_test()` that checks itself against the catalogue's canonical value, `crc("123456789") == 0x{algo.check:0{algo.width // 4}X}`.
+
+The variant tour uses `{_VARIANT_ALGORITHM}` instead, because slice-by-8 exists only at width 32 and 64.  \
+It is also non-reflected, so its inner loop is the other of the two shapes the generators emit.
+
+Want a different algorithm?  Substitute the name (`crcglot list` for the full catalogue) and re-run the command.
+
+Every block is collapsed by default.  Click a heading to expand.
+
+This file is auto-generated by `scripts/regenerate_examples.py`.  Do not hand-edit; re-run the script instead.
 """
 
 
-_COMMENT_STYLES_INTRO = """## Comment styles
+_LANGUAGE_INTRO = f"""## Every language
 
-The `--comment` flag picks the documentation style of the generated code; \
-the algorithm and inner loop are identical.  Each block below is `crc32` \
-(bit-by-bit) in one style, so you can match the convention your codebase \
-already uses (Doxygen, JavaDoc, rustdoc, Google/NumPy/reST docstrings, ...).  \
-`plain` -- professional comments in the language's native syntax -- is the \
-default and is shown alongside each language's specialized styles for \
-comparison.  Verilog and VHDL support only `plain` and are omitted here."""
+The same algorithm (`{_ALGORITHM}`), generated with no flags, for every target.  \
+No flags means `--fast`, so each block is the fastest implementation that target supports at width 16.  \
+Verilog and VHDL are bit-by-bit because that is the only form that makes sense in hardware."""
 
 
-def _anchor_for(code: str, variant: str) -> str:
-    """Stable anchor for (language, variant).  We emit explicit
-    ``<a id="...">`` tags rather than relying on GitHub's auto-anchor
-    from the rendered heading -- ``C`` and ``C#`` would collide
-    (``#`` is stripped from auto-anchors) and ``—`` (em-dash)
-    rendering is inconsistent across markdown parsers.
+_VARIANT_INTRO = f"""## Implementation variants
+
+`{_VARIANT_ALGORITHM}` in {LANGUAGES[_VARIANT_LANGUAGE].display_name} three times, so the only difference between blocks is the implementation strategy.  \
+Slice-by-8 is why this tour uses a 32-bit algorithm: it exists only at width 32 and 64.  \
+`--fast` is the default, and picks the last variant the target supports at the algorithm's width."""
+
+
+_COMMENT_STYLES_INTRO = f"""## Documentation styles
+
+The `--comment` flag picks the documentation style of the generated code; the algorithm and inner loop are identical.  \
+Each style appears once, in a language that uses it, because seeing Doxygen three times says nothing the first block did not.  \
+`plain`, professional comments in the language's native syntax, is the default and every target supports it.  \
+Blocks below are `{_ALGORITHM}` bit-by-bit so you are reading comments rather than a lookup table."""
+
+
+def _lang_anchor(code: str) -> str:
+    """Stable anchor for a language-tour cell.
+
+    We emit explicit ``<a id="...">`` tags rather than relying on GitHub's
+    auto-anchor from the rendered heading -- ``C`` and ``C#`` would collide
+    (``#`` is stripped from auto-anchors).
     """
-    return f"example-{code}-{variant}"
+    return f"lang-{code}"
 
 
-def _quick_links() -> str:
-    """Build the Quick links TOC -- one bullet per language, with
-    inline links to each variant of that language.  Anchors are the
-    explicit ids emitted before each ``<details>`` block.
-    """
-    lines = ["## Quick links", ""]
-    for code in sorted(LANGUAGES.keys()):
-        info = LANGUAGES[code]
-        lang_label = LANGUAGES[code].display_name
-        variants = [v for v in _VARIANT_ORDER if v in info.variants]
-        links = [
-            f"[{_VARIANT_LABEL[v]}](#{_anchor_for(code, v)})"
-            for v in variants
-        ]
-        lines.append(f"- **{lang_label}**: " + " · ".join(links))
-    lines.append("")
-    return "\n".join(lines)
+def _variant_anchor(variant: str) -> str:
+    return f"variant-{variant}"
+
+
+def _style_anchor(code: str, style: str) -> str:
+    return f"style-{code}-{style}"
 
 
 def _details_block(
     anchor: str,
     heading: str,
     cmd: str,
-    result: str | tuple[str, str],
-    fence: str,
+    lang: str,
+    algorithm: str,
     *,
     subtitle: str | None = None,
+    variant: str = "auto",
+    comment_style: str = "plain",
 ) -> str:
     """Render one collapsible ``<details>`` block.
 
-    Shared by the variant gallery and the comment-styles section.  C is
-    special because it emits a (header, source) pair; every other language
-    emits a single string.  ``subtitle`` is an optional italic line under the
-    heading (the comment-styles section uses it for the style description).
+    Generation goes through :func:`crcglot.generate_files`, the same front
+    door the CLI uses, so the code shown is what the displayed command
+    actually produces -- filenames and in-code class names included.  C emits
+    a (header, source) pair; every other target emits one file.  ``subtitle``
+    is an optional italic line under the heading.
     """
+    files = generate_files(
+        lang, algorithm, variant=variant, comment_style=comment_style
+    )
+    fence = _fence_for(lang)
+
     parts: list[str] = [
         f'<a id="{anchor}"></a>',
         "",
@@ -176,104 +204,139 @@ def _details_block(
     if subtitle:
         parts += [f"_{subtitle}_", ""]
     parts += ["```bash", cmd, "```", ""]
-    if isinstance(result, tuple):
-        # C: (header, source) pair.
-        header, source = result
-        parts += [
-            "**Header (`.h`)**", "", f"```{fence}", header, "```", "",
-            "**Source (`.c`)**", "", f"```{fence}", source, "```",
-        ]
-    else:
-        parts += [f"```{fence}", result, "```"]
-    parts += ["", "</details>", ""]
+    for f in files:
+        # Label only when there is more than one file to tell apart.
+        if len(files) > 1:
+            parts += [f"**`{f.filename}`**", ""]
+        parts += [f"```{fence}", f.content, "```", ""]
+    parts += ["</details>", ""]
     return "\n".join(parts)
 
 
-def _render_one(code: str, variant: str) -> str:
-    """Render the (language, variant) gallery cell for ``crc32``."""
-    info = LANGUAGES[code]
-    flag = _VARIANT_FLAG[variant]
-    cmd = f"crcglot {code} {_ALGORITHM}" + (f" {flag}" if flag else "")
+def _render_language(code: str) -> str:
+    """Render one language-tour cell: ``_ALGORITHM`` with no flags.
 
-    result = info.generator(_ALGORITHM, variant=variant)
-    assert result is not None, f"generator({code}, {_ALGORITHM}) returned None"
+    The command carries no variant flag, so generation asks for ``"auto"``
+    too; the subtitle names what crcglot resolves that to rather than
+    restating the rule.
+    """
+    info = LANGUAGES[code]
+    vi = variant_info(info.fastest_variant_for_width(ALGORITHMS[_ALGORITHM].width))
 
     return _details_block(
-        _anchor_for(code, variant),
-        f"{info.display_name} — {_VARIANT_LABEL[variant]}",
-        cmd,
-        result,
-        _fence_for(code),
+        _lang_anchor(code),
+        info.display_name,
+        f"crcglot {code} {_ALGORITHM}",
+        code,
+        _ALGORITHM,
+        subtitle=f"{vi.label}: {vi.description}",
     )
 
 
-def _style_anchor(code: str, style: str) -> str:
-    """Stable anchor for a (language, comment-style) cell.
+def _render_variant(variant: str) -> str:
+    """Render one variant-tour cell: ``_VARIANT_ALGORITHM`` in one language."""
+    vi = variant_info(variant)
 
-    Kept distinct from :func:`_anchor_for` (``example-…``) so the styles
-    section never collides with the variant gallery.
-    """
-    return f"style-{code}-{style}"
+    return _details_block(
+        _variant_anchor(variant),
+        vi.label,
+        f"crcglot {_VARIANT_LANGUAGE} {_VARIANT_ALGORITHM} "
+        f"{_VARIANT_FLAG[variant]}",
+        _VARIANT_LANGUAGE,
+        _VARIANT_ALGORITHM,
+        subtitle=vi.description,
+        variant=variant,
+    )
 
 
-def _render_style_one(code: str, style: str) -> str:
-    """Render one (language, comment-style) cell for ``crc32`` bit-by-bit."""
-    info = LANGUAGES[code]
+def _render_style(code: str, style: str) -> str:
+    """Render one style-tour cell: ``_ALGORITHM`` bit-by-bit in one style."""
     si = style_info(style)
-    cmd = f"crcglot {code} {_STYLE_ALGORITHM} --comment {style}"
-
-    result = info.generator(
-        _STYLE_ALGORITHM, variant=_STYLE_VARIANT, comment_style=style
-    )
-    assert result is not None, f"generator({code}, {style}) returned None"
 
     return _details_block(
         _style_anchor(code, style),
-        f"{info.display_name} — {si.label}",
-        cmd,
-        result,
-        _fence_for(code),
+        f"{si.label} ({LANGUAGES[code].display_name})",
+        f"crcglot {code} {_ALGORITHM} "
+        f"{_VARIANT_FLAG[_STYLE_VARIANT]} --comment {style}",
+        code,
+        _ALGORITHM,
         subtitle=si.description,
+        variant=_STYLE_VARIANT,
+        comment_style=style,
     )
 
 
-def _comment_styles_section() -> str:
-    """Build the "Comment styles" section.
+def _style_owners() -> dict[str, list[str]]:
+    """Map each language to the styles it is the showcase for.
 
-    One sub-block per (language, style) for every language that supports
-    more than the universal ``plain`` style -- so a reader can pick the doc
-    convention matching their codebase.  Plain-only targets (Verilog, VHDL)
-    are omitted: there is nothing to compare.
+    Ownership is derived rather than tabulated: the first language (by code)
+    that supports a style owns it.  That lands every single-language style on
+    its own language (rustdoc on Rust, godoc on Go, docfx on C#) and the
+    shared ones (`plain`, `doxygen`) on C, with no map to maintain when a
+    target gains a style.
     """
-    multi = [c for c in sorted(LANGUAGES) if len(styles_for_language(c)) > 1]
-
-    lines = [_COMMENT_STYLES_INTRO, ""]
-    # Mini-TOC: one bullet per language, a link per style.
-    for code in multi:
-        links = " · ".join(
-            f"[{style_info(s).label}](#{_style_anchor(code, s)})"
-            for s in styles_for_language(code)
-        )
-        lines.append(f"- **{LANGUAGES[code].display_name}**: {links}")
-    lines.append("")
-
-    for code in multi:
+    owner: dict[str, list[str]] = {c: [] for c in LANGUAGES}
+    claimed: set[str] = set()
+    for code in sorted(LANGUAGES):
         for style in styles_for_language(code):
-            lines.append(_render_style_one(code, style))
-    return "\n".join(lines)
+            if style not in claimed:
+                claimed.add(style)
+                owner[code].append(style)
+    return owner
+
+
+def _quick_links(owners: dict[str, list[str]]) -> str:
+    """Build the Quick links TOC: one line per tour."""
+    langs = " · ".join(
+        f"[{LANGUAGES[c].display_name}](#{_lang_anchor(c)})"
+        for c in sorted(LANGUAGES)
+    )
+    variants = " · ".join(
+        f"[{variant_info(v).label}](#{_variant_anchor(v)})"
+        for v in VARIANT_ORDER
+    )
+    styles = " · ".join(
+        f"[{style_info(s).label}](#{_style_anchor(c, s)})"
+        for c in sorted(owners)
+        for s in owners[c]
+    )
+    return "\n".join([
+        "## Quick links", "",
+        f"- **Every language**: {langs}",
+        f"- **Implementation variants**: {variants}",
+        f"- **Documentation styles**: {styles}",
+        "",
+    ])
+
+
+def render() -> str:
+    """Build the whole of EXAMPLES.md as a string.
+
+    Separate from :func:`main` so a test can compare the committed file
+    against a fresh render without writing to the repo.
+    """
+    owners = _style_owners()
+    out: list[str] = [_header(), _quick_links(owners)]
+
+    out.append(_LANGUAGE_INTRO + "\n")
+    for code in sorted(LANGUAGES):
+        out.append(_render_language(code))
+
+    out.append(_VARIANT_INTRO + "\n")
+    for variant in VARIANT_ORDER:
+        out.append(_render_variant(variant))
+
+    out.append(_COMMENT_STYLES_INTRO + "\n")
+    for code in sorted(owners):
+        for style in owners[code]:
+            out.append(_render_style(code, style))
+
+    return "\n".join(out)
 
 
 def main() -> None:
-    out: list[str] = [_HEADER, _quick_links()]
-    for code in sorted(LANGUAGES.keys()):
-        info = LANGUAGES[code]
-        for variant in _VARIANT_ORDER:
-            if variant not in info.variants:
-                continue
-            out.append(_render_one(code, variant))
-    out.append(_comment_styles_section())
     target = Path(__file__).parent.parent / "EXAMPLES.md"
-    target.write_text("\n".join(out), encoding="utf-8")
+    target.write_text(render(), encoding="utf-8")
     print(f"Wrote {target} ({target.stat().st_size:,} bytes)")
 
 

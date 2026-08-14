@@ -134,7 +134,7 @@ Beyond *generating* code, crcglot *computes* CRCs at runtime.  With the bundled 
 
 ## Example output and benchmarks
 
-- **[EXAMPLES.md](EXAMPLES.md):** the actual generated source for `crc32` across every language × variant combination; every block reproducible with one CLI command.
+- **[EXAMPLES.md](EXAMPLES.md):** the actual generated source, in three tours: every language, every implementation variant, every documentation style.  Each block is reproducible with the one CLI command shown above it.
 - **[BENCHMARKS.md](BENCHMARKS.md):** measured throughput for every (language × variant) cell, plus the runtime engine's paths.
 
 ## When to reach for something else
