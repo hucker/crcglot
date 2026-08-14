@@ -9,7 +9,7 @@ Example:
 
     >>> from crcglot import LANGUAGES, ALGORITHMS
     >>> sorted(LANGUAGES.keys())
-    ['c', 'csharp', 'go', 'java', 'python', 'rust', 'typescript', 'verilog', 'vhdl', 'zig']
+    ['c', 'csharp', 'go', 'java', 'lua', 'python', 'rust', 'typescript', 'verilog', 'vhdl', 'zig']
     >>> LANGUAGES["c"].extensions
     ('.h', '.c')
     >>> "slice8" in LANGUAGES["vhdl"].variants
