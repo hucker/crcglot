@@ -97,12 +97,24 @@ py-limited-api = "cp311"
 # per-version builds.  cibuildwheel auto-detects the abi3 tag and
 # won't rebuild for cp312+.
 build = "cp311-*"
-# Stays "build" (pip-backed).  build-frontend = "build[uv]" was tried and
-# fails on Windows + macOS with cibuildwheel 2.21.3: `uv venv` can't create
-# an env from cibuildwheel's bundled (nuget / framework) Python.  uv still
-# builds the sdist (see wheels.yml) and runs every other CI step; revisit
-# build[uv] on a future cibuildwheel bump.
+# Stays "build".  build-frontend = "build[uv]" was tried and failed on
+# Windows + macOS with cibuildwheel 2.21.3: `uv venv` could not create an env
+# from cibuildwheel's bundled (nuget / framework) Python.  Left alone at the
+# 4.2.0 bump on purpose -- that bump crosses two majors and changes the
+# Windows repair step, so adding a second variable to the same change would
+# make a failure ambiguous.  uv still builds the sdist (see wheels.yml) and
+# runs every other CI step.
 build-frontend = "build"
+# Pin the manylinux images to what crcglot already publishes.  cibuildwheel
+# 3.0 changed the DEFAULT from manylinux2014 to manylinux_2_28, which would
+# raise the glibc floor from 2.17 to 2.28 and stop older long-term-support
+# distributions from installing a wheel.  That is a real change to who can
+# use the package, so it is a deliberate decision rather than a side effect
+# of a version bump; pinning keeps the reach the 0.31.0 wheels have.  Revisit
+# on its own, weighing the frozen CentOS 7 base of manylinux2014 against the
+# users it still serves.
+manylinux-x86_64-image = "manylinux2014"
+manylinux-aarch64-image = "manylinux2014"
 # Production coverage: build glibc (manylinux) AND musl (musllinux)
 # Linux wheels so Alpine / minimal-Docker users get a binary too.
 # Only 32-bit targets are skipped -- i686 (32-bit x86) and win32 are

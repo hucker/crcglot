@@ -82,10 +82,15 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Build + test wheels
-        uses: pypa/cibuildwheel@v2.21.3
+        uses: pypa/cibuildwheel@v4.2.0
         # All build/test/skip config lives in [tool.cibuildwheel] in
         # pyproject.toml -- keeps this workflow thin and lets you
         # reproduce locally with ``uvx cibuildwheel``.
+        #
+        # v4 (not v3) is the floor for a reason: 2.x and 3.x both pin
+        # actions/setup-python@v5 internally, which GitHub now force-runs on
+        # Node 24 with a deprecation annotation on every wheel job.  v4.0
+        # moved to setup-python@v6 and v4.2 to v7.
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
