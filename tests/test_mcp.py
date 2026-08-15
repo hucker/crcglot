@@ -1666,6 +1666,13 @@ Deliberate deltas are asserted explicitly instead of loosely, so the
         - ``crc_detect`` gained ``packets`` / ``packet_format``, checked as a
           strict superset below: every 1.x property byte-identical, the
           required set untouched, and exactly those two names added.
+
+        Before adding a fourth entry to that list, read the "Frames off a live
+        link" section of ``DECISIONS.md``.  It records what asserting a delta
+        buys over recapturing the snapshot, what it costs (the added
+        parameters have no independent pin, only manifest-to-schema
+        agreement), and the intended exit: a second golden captured at the
+        current version, with this one frozen as a compatibility floor.
         """
         # Arrange
         import json as _json
