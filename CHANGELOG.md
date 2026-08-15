@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.31.0 — 2026-08-14
+
+Frames captured off a serial link no longer defeat CRC identification.  A line-oriented transport appends its delimiter after the CRC field, which moved the field `detect()` and `reverse_packets()` look for, so both returned nothing on frames that were otherwise ordinary and printed advice that pointed away from the cause.
+
+`crc_detect` also takes several packets now.  A single frame frequently fits more than one catalogue algorithm, and which one got reported was arbitrary: six Modbus frames identify as `crc16-modbus`, but any one of them alone also fits `crc6-cdma2000-a`.
+
+The generated-code gallery was rebuilt in the same release, and two of the commands it printed turned out not to reproduce their own blocks.
 
 ### Fixed: a delimiter after the CRC no longer defeats detection
 
@@ -32,10 +38,6 @@ A whole frame as a hex string detected fine but raised `ValueError` from `revers
 
 The match still stands, but a new `mixed` field names the fields that varied, and `encode_match()` raises `MixedFormatError` rather than invent a frame. `uppercase` is excluded from the comparison on purpose: it is inferred from the digits present, so a CRC value of `0x1234` is indistinguishable from a lower-case producer while `0xAB12` from the same producer reads as upper-case, and comparing it would flag nearly every real capture.
 
-### Added
-
-`BinaryFormat` (a `padding` record carrying a binary frame's trailing delimiter), `TERMINATORS` / `TerminatorInfo` / `terminator_info()`, `MixedFormatError`, and `UnknownTerminatorError`. All additive.
-
 ### Changed: the EXAMPLES.md gallery is three tours instead of a grid
 
 The gallery used to cross language against variant and render every cell for `crc32`: 27 blocks, plus 18 more crossing language against comment style. Most of that repeated itself. Seeing the same algorithm table-driven in eleven languages answers the language question eleven times and the variant question once, and Doxygen appeared three times in three languages saying nothing the first block did not.
@@ -59,6 +61,12 @@ Bit-by-bit blocks were labelled `crcglot c crc32` with no flag. No flag means `-
 The script also called `LanguageInfo.generator` directly instead of `generate_files()`, the front door the CLI uses. That path skips crcglot's file and class naming, so the Java blocks showed `public final class CrcGlot` while the command shown produces `public final class Crc16IbmSdlc`. Blocks now render through `generate_files()` and show the real filename crcglot picks for each file.
 
 All 24 blocks were re-checked against the output of their own printed command.
+
+### Added
+
+`BinaryFormat` (a `padding` record carrying a binary frame's trailing delimiter), `TERMINATORS` / `TerminatorInfo` / `terminator_info()`, `MixedFormatError`, `UnknownTerminatorError`, and the `trail` / `mixed` fields on `TextFormat` and `HexFormat`.
+
+One of those is worth a look before upgrading if you consume `DetectMatch` directly. `padding` can now be a `BinaryFormat`, a fourth type alongside `TextFormat`, `HexFormat`, `FormatMatch`, and `None`. Code that exhaustively `isinstance`-checks the previous set will hit an unhandled case on a frame whose CRC is followed by a delimiter. `DetectMatch.form` still reports `"binary"` for it, so anything keyed on `form` rather than on the padding type is unaffected. Everything else here is strictly additive.
 
 ## v0.30.0 — 2026-08-13
 
