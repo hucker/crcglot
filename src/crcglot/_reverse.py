@@ -53,13 +53,18 @@ don't know it).
 from __future__ import annotations
 
 import itertools
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal, cast
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, Crc, _reflect, generic_crc
 from crcglot._trailers import TrailerResult, _identify_trailer_pairs
-from crcglot._detect import _parse_text, _read_hex_crc
+from crcglot._detect import _looks_like_hex, _parse_text, _read_hex_crc
+from crcglot._terminators import (
+    MIN_TRAIL_FRAMES,
+    TerminatorInfo,
+    common_terminators,
+)
 
 Codeword = tuple[bytes, int]
 Status = Literal["catalogue", "unique", "equivalent", "underdetermined", "none"]
@@ -772,6 +777,220 @@ _CRC_FIELD_SIZES: tuple[int, ...] = (1, 2, 3, 4, 6, 8)
 _CONFIDENT_RANK = {"catalogue": 0, "unique": 1, "equivalent": 2}
 
 
+def _reverse_binary_frames(
+    pkts: Sequence[bytes],
+    *,
+    crc_bytes: int | None,
+    orders: Sequence[Literal["big", "little"]],
+    searching: bool,
+    solve: "Callable[[Sequence[Codeword]], ReverseResult]",
+) -> ReverseResult:
+    """Split a trailing CRC field off binary frames and recover the model.
+
+    Args:
+        pkts: The frames, CRC last.
+        crc_bytes: Field size in bytes, or ``None`` to search ``1..8``.
+        orders: CRC field byte orders to try.
+        searching: Whether to annotate the result with what the search settled
+            on (suppressed when the caller pinned both size and order).
+        solve: Runs :func:`reverse` with the caller's constraints.
+
+    Returns:
+        The best result found, or a ``"none"`` result naming what to supply.
+
+    Raises:
+        ValueError: ``crc_bytes`` was given and a frame is too short for it.
+    """
+    sizes = (crc_bytes,) if crc_bytes is not None else _CRC_FIELD_SIZES
+    byte_fallback: ReverseResult | None = None
+    # Largest field first: CRC register feedback can make a *smaller* cut look
+    # consistent too (a 16-bit reflected CRC's low byte algebraically predicts
+    # its high byte), so the true field is the largest cut that still fits.
+    for n in sorted(sizes, reverse=True):
+        short = next((p for p in pkts if len(p) <= n), None)
+        if short is not None:
+            if crc_bytes is not None:
+                raise ValueError(
+                    f"packet of length {len(short)} is too short for a {n}-byte "
+                    f"CRC plus a message"
+                )
+            continue  # this size can't apply to every packet; skip in a search
+        hits: list[tuple[Literal["big", "little"], ReverseResult]] = []
+        for order in orders:
+            byte_frames = [(p[:-n], int.from_bytes(p[-n:], order)) for p in pkts]
+            res = solve(byte_frames)
+            if res.status in _CONFIDENT_RANK:
+                hits.append((order, res))
+            else:
+                byte_fallback = byte_fallback or res
+        if hits:
+            order, res = min(hits, key=lambda h: _CONFIDENT_RANK[h[1].status])
+            if searching:
+                res = replace(
+                    res, note=f"{res.note}  [CRC field: {n} byte(s), {order}-endian]"
+                )
+            return res
+    if byte_fallback is not None:
+        return byte_fallback
+    return ReverseResult(
+        status="none",
+        note="no CRC field size in 1..8 bytes yielded a consistent model; "
+        "specify crc_bytes / crc_byte_order, or supply more varied frames.",
+    )
+
+
+def _reverse_with_trail(
+    pkts: Sequence[bytes],
+    *,
+    crc_bytes: int | None,
+    orders: Sequence[Literal["big", "little"]],
+    searching: bool,
+    solve: "Callable[[Sequence[Codeword]], ReverseResult]",
+) -> ReverseResult:
+    """Recover from binary frames, reconsidering trailing delimiter bytes.
+
+    The frames are tried **exactly as given** first, and that reading wins
+    whenever it holds.  This is not only cheaper: frames-as-given *is* the
+    hypothesis that any delimiter sits inside the CRC span (the ``STX payload
+    ETX BCC`` framings), which is the reading that must not be broken by
+    guessing.
+
+    Only when that fails are delimiter bytes reconsidered as sitting *after*
+    the CRC, and only sequences that end every frame and appear in
+    :data:`~crcglot._terminators.TERMINATORS` are tried.  See
+    :func:`~crcglot._terminators.common_terminators` for why that intersection
+    cannot strip back into the message.
+
+    Args:
+        pkts: The frames, as raw bytes.
+        crc_bytes: Forwarded to :func:`_reverse_binary_frames`.
+        orders: Forwarded.
+        searching: Forwarded.
+        solve: Forwarded.
+
+    Returns:
+        The as-given result when it is confident; else the first confident
+        reading found by setting a terminator aside, with the terminator named
+        in the note; else the as-given result unchanged.
+    """
+    as_given = _reverse_binary_frames(
+        pkts, crc_bytes=crc_bytes, orders=orders, searching=searching, solve=solve
+    )
+    if as_given.status in _CONFIDENT_RANK:
+        return as_given
+    if len(pkts) < MIN_TRAIL_FRAMES:
+        return replace(as_given, note=as_given.note + _too_few_frames_note(pkts))
+
+    for term in common_terminators(pkts):
+        stripped = [p[: -len(term.value)] for p in pkts]
+        res = _reverse_binary_frames(
+            stripped,
+            crc_bytes=crc_bytes,
+            orders=orders,
+            searching=searching,
+            solve=solve,
+        )
+        if res.status in _CONFIDENT_RANK:
+            return replace(res, note=f"{res.note}{_trail_note(term)}")
+    return as_given
+
+
+def _reverse_text_frames(
+    strs: Sequence[str],
+    *,
+    encoding: str,
+    orders: Sequence[Literal["big", "little"]],
+    searching_order: bool,
+    solve: "Callable[[Sequence[Codeword]], ReverseResult]",
+) -> ReverseResult | None:
+    """Recover from ``"data <sep> hexcrc"`` frames, where the field is delimited.
+
+    Args:
+        strs: The frames.
+        encoding: How to bytes-encode the data portion.
+        orders: CRC field byte orders to try.
+        searching_order: Whether to name the order that won in the note.
+        solve: Runs :func:`reverse` with the caller's constraints.
+
+    Returns:
+        ``None`` when any frame is not of this shape, so the caller can try
+        another reading; otherwise the best result found.
+    """
+    parsed: list[tuple[bytes, str]] = []
+    for text in strs:
+        pr = _parse_text(text, encoding)
+        if pr is None:
+            return None
+        data, _tf, _hex_len, hex_str = pr
+        parsed.append((data, hex_str))
+
+    fallback: ReverseResult | None = None
+    for order in orders:
+        frames: list[Codeword] = []
+        applies = True
+        for data, hex_str in parsed:
+            crc = _read_hex_crc(hex_str, order)
+            if crc is None:  # little-endian asked of an odd-nibble field
+                applies = False
+                break
+            frames.append((data, crc))
+        if not applies:
+            continue
+        res = solve(frames)
+        if res.status in _CONFIDENT_RANK:
+            if searching_order:
+                res = replace(
+                    res, note=f"{res.note}  [CRC field: {order}-endian text hex]"
+                )
+            return res
+        fallback = fallback or res
+    if fallback is not None:
+        return fallback
+    return ReverseResult(
+        status="none",
+        note="no consistent model for these text frames; try crc_byte_order, "
+        "or supply more varied frames.",
+    )
+
+
+def _too_few_frames_note(pkts: Sequence[bytes]) -> str:
+    """Say what more frames would buy, when there are too few to spend them on.
+
+    Only fires when the frames actually share a known delimiter, so it names a
+    concrete thing that could not be tested rather than asking for more data on
+    principle.  Phrased as an instruction because the caller driving a live
+    link can execute it: send another command, capture the reply, re-run.
+
+    "Different payloads" is not padding.  Identical frames are one observation
+    repeated, so capturing the same reply three times buys nothing.
+    """
+    candidates = common_terminators(pkts)
+    if not candidates:
+        return ""
+    longest = candidates[-1]
+    shown = " ".join(f"{b:02X}" for b in longest.value)
+    return (
+        f"  [all {len(pkts)} frames end {longest.label} ({shown}), which may be a "
+        f"terminator sitting after the CRC rather than data; that needs "
+        f"{MIN_TRAIL_FRAMES} or more frames with DIFFERENT payloads to test, so "
+        f"capture {MIN_TRAIL_FRAMES - len(pkts)} more and re-run]"
+    )
+
+
+def _trail_note(term: TerminatorInfo) -> str:
+    """Describe a terminator that had to be set aside for the model to fit.
+
+    Phrased as a fact about the frame layout rather than as a diagnostic: the
+    caller needs to know the CRC is followed by these bytes in order to write
+    the other end of the protocol.
+    """
+    shown = " ".join(f"{b:02X}" for b in term.value)
+    return (
+        f"  [frame terminator: {term.label} ({shown}) follows the CRC on every "
+        f"frame and is not covered by it]"
+    )
+
+
 def reverse_packets(
     packets: Sequence[bytes | str | Codeword],
     *,
@@ -904,85 +1123,55 @@ def reverse_packets(
             pairs.append((bytes(p[0]), int(p[1])))
         return solve(pairs)
 
-    # ----- text frames: the hex field is already delimited (no size search) -----
+    # ----- str frames: two readings, tried in this order -----
+    #
+    # A str frame is either ``"data <sep> hexcrc"`` (the hex field is already
+    # delimited, so no size search) or a hex byte string for the whole frame.
+    # ``detect`` accepts both, and reverse is exactly where a caller lands when
+    # detect misses, so rejecting the hex form here threw an exception at the
+    # step the workflow moves to next.  Text is tried first so no input that
+    # resolves today resolves differently; the hex reading only picks up cases
+    # that previously raised or came back empty.
     if any(isinstance(p, str) for p in items):
         if not all(isinstance(p, str) for p in items):
             raise ValueError("packets must be all text or all binary frames, not a mix")
-        parsed: list[tuple[bytes, str]] = []
-        for i, text in enumerate(cast("list[str]", items)):
-            pr = _parse_text(text, encoding)
-            if pr is None:
-                raise ValueError(
-                    f"packets[{i}] is not a text frame ('data <sep> hexcrc'): {text!r}"
-                )
-            data, _tf, _hex_len, hex_str = pr
-            parsed.append((data, hex_str))
+        strs = cast("list[str]", items)
 
-        fallback: ReverseResult | None = None
-        for order in orders:
-            frames: list[Codeword] = []
-            applies = True
-            for data, hex_str in parsed:
-                crc = _read_hex_crc(hex_str, order)
-                if crc is None:  # little-endian asked of an odd-nibble field
-                    applies = False
-                    break
-                frames.append((data, crc))
-            if not applies:
-                continue
-            res = solve(frames)
-            if res.status in _CONFIDENT_RANK:
-                if searching_order:
-                    res = replace(
-                        res, note=f"{res.note}  [CRC field: {order}-endian text hex]"
-                    )
-                return res
-            fallback = fallback or res
-        if fallback is not None:
-            return fallback
-        return ReverseResult(
-            status="none",
-            note="no consistent model for these text frames; try crc_byte_order, "
-            "or supply more varied frames.",
+        text_result = _reverse_text_frames(
+            strs, encoding=encoding, orders=orders,
+            searching_order=searching_order, solve=solve,
+        )
+        if text_result is not None and text_result.status in _CONFIDENT_RANK:
+            return text_result
+
+        decoded = [_looks_like_hex(s) for s in strs]
+        if all(d is not None for d in decoded):
+            hex_result = _reverse_with_trail(
+                [d[0] for d in decoded if d is not None],
+                crc_bytes=crc_bytes,
+                orders=orders,
+                searching=(crc_bytes is None or searching_order),
+                solve=solve,
+            )
+            if hex_result.status in _CONFIDENT_RANK or text_result is None:
+                return hex_result
+
+        if text_result is not None:
+            return text_result
+        bad = next(
+            i for i, d in enumerate(decoded)
+            if d is None and _parse_text(strs[i], encoding) is None
+        )
+        raise ValueError(
+            f"packets[{bad}] is neither a text frame ('data <sep> hexcrc') nor a "
+            f"hex byte string: {strs[bad]!r}"
         )
 
     # ----- binary frames: split the trailing CRC field off (size search) -----
-    pkts = [bytes(p) for p in cast("list[bytes]", items)]
-    sizes = (crc_bytes,) if crc_bytes is not None else _CRC_FIELD_SIZES
-    searching = crc_bytes is None or searching_order
-
-    byte_fallback: ReverseResult | None = None
-    # Largest field first: CRC register feedback can make a *smaller* cut look
-    # consistent too (a 16-bit reflected CRC's low byte algebraically predicts
-    # its high byte), so the true field is the largest cut that still fits.
-    for n in sorted(sizes, reverse=True):
-        short = next((p for p in pkts if len(p) <= n), None)
-        if short is not None:
-            if crc_bytes is not None:
-                raise ValueError(
-                    f"packet of length {len(short)} is too short for a {n}-byte "
-                    f"CRC plus a message"
-                )
-            continue  # this size can't apply to every packet; skip in a search
-        hits: list[tuple[Literal["big", "little"], ReverseResult]] = []
-        for order in orders:
-            byte_frames = [(p[:-n], int.from_bytes(p[-n:], order)) for p in pkts]
-            res = solve(byte_frames)
-            if res.status in _CONFIDENT_RANK:
-                hits.append((order, res))
-            else:
-                byte_fallback = byte_fallback or res
-        if hits:
-            order, res = min(hits, key=lambda h: _CONFIDENT_RANK[h[1].status])
-            if searching:
-                res = replace(
-                    res, note=f"{res.note}  [CRC field: {n} byte(s), {order}-endian]"
-                )
-            return res
-    if byte_fallback is not None:
-        return byte_fallback
-    return ReverseResult(
-        status="none",
-        note="no CRC field size in 1..8 bytes yielded a consistent model; "
-        "specify crc_bytes / crc_byte_order, or supply more varied frames.",
+    return _reverse_with_trail(
+        [bytes(p) for p in cast("list[bytes]", items)],
+        crc_bytes=crc_bytes,
+        orders=orders,
+        searching=(crc_bytes is None or searching_order),
+        solve=solve,
     )

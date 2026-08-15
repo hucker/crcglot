@@ -239,7 +239,7 @@ def detect_match_to_dict(match: Any) -> dict[str, Any]:
     message; the form's protocol name is deliberately not surfaced (``form``,
     its category, is the representation).
     """
-    from crcglot import FormatMatch
+    from crcglot import BinaryFormat, FormatMatch
 
     out: dict[str, Any] = {
         "algorithm": match.algorithm,
@@ -250,14 +250,39 @@ def detect_match_to_dict(match: Any) -> dict[str, Any]:
     pad = match.padding
     if pad is None:
         out["padding_kind"] = "binary"
+    elif isinstance(pad, BinaryFormat):
+        # A binary frame that carried a trailing delimiter.  Same kind as a
+        # plain binary frame -- the representation did not change, only what
+        # was found in it -- so an existing consumer keying on padding_kind
+        # keeps working and simply gains a padding dict.
+        out["padding_kind"] = "binary"
+        out["padding"] = {"trail": pad.trail.hex()}
     elif isinstance(pad, FormatMatch):
         out["padding_kind"] = "form"
         out["form_detail"] = {"crc": pad.crc_text, "message": pad.message}
     else:
         # TextFormat or HexFormat: surface every attr as a dict.
         out["padding_kind"] = type(pad).__name__
-        out["padding"] = {k: v for k, v in vars(pad).items() if not k.startswith("_")}
+        out["padding"] = {
+            k: _wire_value(v)
+            for k, v in vars(pad).items()
+            if not k.startswith("_")
+        }
     return out
+
+
+def _wire_value(value: Any) -> Any:
+    """Render one format-record field as JSON.
+
+    ``bytes`` become hex, matching how every other byte string crosses this
+    boundary (``packet_hex`` and friends), and ``frozenset`` becomes a sorted
+    list so the field is both serializable and stable between runs.
+    """
+    if isinstance(value, bytes):
+        return value.hex()
+    if isinstance(value, frozenset):
+        return sorted(value)
+    return value
 
 
 def trailer_match_to_dict(match: Any) -> dict[str, Any]:

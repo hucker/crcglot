@@ -25,6 +25,18 @@ Every `DetectMatch` carries `.form` -- the input representation the CRC was foun
 
 `detect()` also recognises a CRC wrapped in a named **payload form**: a text/JSON envelope such as `{"t":1234,"v":42,"crc":"1352"}` (CRC-16/XMODEM over the JSON prefix), where the CRC is not a bare tail.  Such a match reports `form="json"` (the protocol name stays on `padding.info`).  Pass `form=` (an fnmatch glob) to narrow or disable the form pass; a matched form is a `FormatMatch` on the candidate's `padding`, carrying the `FormatInfo`.  The forms ship as a registry mirroring the catalogue: `FORMATS` (the dict), `FormatInfo` (the record), and `format_info(name)` (the lookup).
 
+## Frames captured off a line-oriented transport
+
+A frame read from a serial link usually keeps the transport's delimiter, and those bytes sit **after** the CRC rather than inside it, which moves the field the matcher is looking for.  `detect()` and `reverse_packets()` handle that without being told: the frames are tried exactly as given first, and only if that finds nothing is a trailing delimiter reconsidered.  Trying as-given first is what keeps the opposite layout working, the `STX payload ETX BCC` framings where the delimiter *is* covered by the CRC.  Those need no special handling at all, since everything before the CRC field is treated as message.
+
+A delimiter is only considered when it appears in the `TERMINATORS` registry **and** ends every frame, and only from three frames up.  Both limits are about accuracy rather than speed: each extra candidate is another hypothesis, and the catalogue's narrow entries are cheap to match by accident (a 3-bit CRC fits random data one time in eight).  When it fires, the delimiter is reported as `padding.trail` and named in `reverse`'s note, because the layout is something the caller has to reproduce to build the other end of the protocol.  Below three frames, a `reverse_packets()` note says which delimiter it saw and how many more frames (with different payloads) would let it test.  The registry follows the same shape as the others: `TERMINATORS`, `TerminatorInfo`, `terminator_info(name)`.
+
+One case is deliberately left alone: leading junk.  A shared *prefix* is often real payload, an address or a function code, so stripping it would fail plausibly rather than obviously.
+
+## When packets disagree about their shape
+
+`separator` and `prefix` on `TextFormat` / `HexFormat` describe the first packet.  When the packets do not all agree, the match still stands but `mixed` names the fields that varied, so the record does not claim a uniformity the input lacked.  `encode_match()` raises `MixedFormatError` rather than rebuild from such a record, since the frame it produced would be in a shape part of the input never had.  (`uppercase` is excluded from this comparison: it is inferred from the digits present, so a CRC of `0x1234` is indistinguishable from a lower-case producer.)
+
 Three registries: languages and algorithms keyed by short code, verbs by verb name.
 
 ## `LANGUAGES`: supported target languages

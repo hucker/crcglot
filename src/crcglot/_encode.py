@@ -10,9 +10,11 @@ the shape inference can have.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from crcglot.catalogue import ALGORITHMS, Crc, generic_crc, unknown_algorithm_error
 from crcglot._detect import (
+    BinaryFormat,
     DetectMatch,
     Endianness,
     HexFormat,
@@ -20,6 +22,10 @@ from crcglot._detect import (
     _parse_text,
     _read_hex_crc,
 )
+from crcglot.exceptions import MixedFormatError
+
+if TYPE_CHECKING:  # avoids a cycle: _formats imports _detect, which _encode uses
+    from crcglot._formats import FormatMatch
 
 
 def _format_bytes_as_hex_text(packet: bytes, fmt: HexFormat) -> str:
@@ -198,6 +204,7 @@ def encode_match(
         >>> encode_match("123456789", m)
         '123456789 cbf43926'
     """
+    _reject_mixed(match.padding)
     if match.padding is None:
         if not isinstance(data, (bytes, bytearray)):
             raise TypeError(
@@ -205,6 +212,16 @@ def encode_match(
                 f"got {type(data).__name__}"
             )
         return encode(data, match.algorithm, endianness=match.endianness)
+    if isinstance(match.padding, BinaryFormat):
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError(
+                "binary match (padding=BinaryFormat) requires bytes/bytearray "
+                f"data; got {type(data).__name__}"
+            )
+        return (
+            encode(data, match.algorithm, endianness=match.endianness)
+            + match.padding.trail
+        )
     if isinstance(match.padding, HexFormat):
         if not isinstance(data, (bytes, bytearray)):
             raise TypeError(
@@ -212,7 +229,9 @@ def encode_match(
                 f"got {type(data).__name__}"
             )
         full = encode(data, match.algorithm, endianness=match.endianness)
-        return _format_bytes_as_hex_text(full, match.padding)
+        # The terminator was inside the hex string on the way in, so it goes
+        # back inside it on the way out.
+        return _format_bytes_as_hex_text(full + match.padding.trail, match.padding)
     from crcglot._formats import FormatMatch
 
     if isinstance(match.padding, FormatMatch):
@@ -238,6 +257,30 @@ def encode_match(
         uppercase=tf.uppercase,
         endianness=match.endianness,
     )
+
+
+def _reject_mixed(
+    padding: TextFormat | HexFormat | BinaryFormat | FormatMatch | None,
+) -> None:
+    """Refuse to rebuild from a record whose packets disagreed on their shape.
+
+    ``detect`` reports the first packet's ``separator`` / ``prefix`` when the
+    packets differ, and names the differing fields in ``mixed``.  That is
+    useful as a description, but rebuilding from it would produce a frame in a
+    shape part of the input never had, so this is where that stops.
+
+    Raises:
+        MixedFormatError: ``padding`` carries a non-empty ``mixed``.
+    """
+    mixed = getattr(padding, "mixed", frozenset())
+    if mixed:
+        fields = ", ".join(sorted(mixed))
+        raise MixedFormatError(
+            f"cannot rebuild a packet from a {type(padding).__name__} whose "
+            f"packets disagreed on {fields}; the record holds the first "
+            "packet's value, which is not every packet's.  Build the frame "
+            "yourself, or re-run detect() on packets of a single shape"
+        )
 
 
 def encode_int(

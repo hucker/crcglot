@@ -16,7 +16,7 @@ from __future__ import annotations
 import difflib
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Literal
 
 from crcglot import (
     ALGORITHMS,
@@ -171,10 +171,52 @@ def _verb_vectors(algorithm: str, *, surface: str = "python") -> dict[str, Any]:
     return vectors_to_dict(algorithm, algo)
 
 
+def _decode_detect_packets(
+    packets: list[str], packet_format: str
+) -> tuple[list[bytes | str], Literal["auto", "hex"]]:
+    """Turn a ``packets`` list into what :func:`crcglot.detect` wants.
+
+    Mirrors the singular forms so ``form`` means the same thing either way:
+    hex frames stay strings under ``mode="hex"`` (so a match reports
+    ``form="hex"`` rather than ``"binary"``), text frames stay strings, and
+    base64 is a transport encoding so it decodes to bytes.
+
+    Args:
+        packets: The frames, each encoded per ``packet_format``.
+        packet_format: ``"hex"``, ``"base64"``, or ``"text"``.
+
+    Returns:
+        ``(frames, mode)`` for :func:`crcglot.detect`.
+
+    Raises:
+        ValueError: ``packets`` is empty, or a frame does not decode.
+    """
+    if not packets:
+        raise ValueError(
+            "packets must be a non-empty list of frames (message followed by "
+            "the CRC), each a hex string (or base64 / text per packet_format)"
+        )
+    if packet_format == "text":
+        return list(packets), "auto"
+    if packet_format == "hex":
+        return list(packets), "hex"
+    decoded: list[bytes | str] = []
+    for i, p in enumerate(packets):
+        try:
+            raw = parse_packet(None, None, p)
+        except ValueError as e:
+            raise ValueError(f"packets[{i}]: {e}") from e
+        assert isinstance(raw, bytes)  # base64 always decodes to bytes
+        decoded.append(raw)
+    return decoded, "auto"
+
+
 def _verb_detect(
     packet_hex: str | None = None,
     packet_text: str | None = None,
     packet_b64: str | None = None,
+    packets: list[str] | None = None,
+    packet_format: str = "hex",
     target_crc: int | None = None,
     target_crc_hex: str | None = None,
     endian: str = "both",
@@ -185,11 +227,19 @@ def _verb_detect(
     form: str | None = None,
 ) -> dict[str, Any]:
     target = parse_target_crc(target_crc, target_crc_hex)
+    packet: bytes | str | list[bytes | str]
+    if packets is not None:
+        if packet_hex or packet_text or packet_b64:
+            raise ValueError(
+                "supply either 'packets' or one of packet_hex / packet_text / "
+                "packet_b64, not both"
+            )
+        packet, detect_mode = _decode_detect_packets(packets, packet_format)
     # A hex packet keeps its representation (mode="hex" -> form="hex");
     # parse_packet would decode it to bytes, reading as "binary".  base64
     # is a transport encoding (not a form), so it decodes to binary.
-    if packet_hex is not None and packet_text is None and packet_b64 is None:
-        packet: bytes | str = packet_hex
+    elif packet_hex is not None and packet_text is None and packet_b64 is None:
+        packet = packet_hex
         detect_mode = "hex"
     else:
         packet = parse_packet(packet_hex, packet_text, packet_b64)

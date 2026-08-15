@@ -1656,10 +1656,16 @@ class TestVerbManifestDrift:
         description, and annotation byte-matches the snapshot captured
         from the last mcp 1.x build (tests/goldens/mcp_wire.json).
 
-        Two deliberate deltas are asserted explicitly instead of loosely:
-        the instructions gained Zig and Lua (a v0.29 sweep miss), and mcp
-        2.0's PromptArgument model added an optional ``title`` field
-        (additive; compared on the golden's own keys).
+Deliberate deltas are asserted explicitly instead of loosely, so the
+        snapshot keeps recording what 1.x actually shipped rather than being
+        regenerated whenever the wire moves on purpose:
+
+        - the instructions gained Zig and Lua (a v0.29 sweep miss);
+        - mcp 2.0's PromptArgument model added an optional ``title`` field
+          (additive; compared on the golden's own keys);
+        - ``crc_detect`` gained ``packets`` / ``packet_format``, checked as a
+          strict superset below: every 1.x property byte-identical, the
+          required set untouched, and exactly those two names added.
         """
         # Arrange
         import json as _json
@@ -1678,14 +1684,54 @@ class TestVerbManifestDrift:
         assert set(tools) == set(golden["tools"]), (
             f"tool set changed: {sorted(set(tools) ^ set(golden['tools']))}"
         )
+        # crc_detect grew a plural packet form after the golden was captured.
+        # A single frame often fits several catalogue algorithms by chance, so
+        # the singular-only surface could answer arbitrarily; the additions are
+        # checked as a strict superset rather than folded into the snapshot.
+        _ADDED = {"crc_detect": {"packets", "packet_format"}}
+
         for name, g in golden["tools"].items():
             t = tools[name]
-            assert t.input_schema == g["inputSchema"], (
-                f"{name}: inputSchema drifted from the 1.x golden"
-            )
-            assert t.description == g["description"], (
-                f"{name}: description drifted from the 1.x golden"
-            )
+            added = _ADDED.get(name, set())
+            if added:
+                actual_props = t.input_schema.get("properties", {})
+                golden_props = g["inputSchema"].get("properties", {})
+                assert set(actual_props) == set(golden_props) | added, (
+                    f"{name}: expected exactly {sorted(added)} added, got "
+                    f"{sorted(set(actual_props) ^ set(golden_props))}"
+                )
+                for key, spec in golden_props.items():
+                    assert actual_props[key] == spec, (
+                        f"{name}: existing parameter {key!r} drifted from the "
+                        "1.x golden; the addition must be purely additive"
+                    )
+                assert t.input_schema.get("required", []) == g["inputSchema"].get(
+                    "required", []
+                ), f"{name}: required set must not change"
+                # The description is rendered FROM the manifest (it embeds a
+                # generated parameter list and constraints footer), so the two
+                # new names necessarily appear inside it and a byte comparison
+                # would only restate the schema assertions above.  What is
+                # worth pinning is that the substantive 1.x prose survived and
+                # the footer learned the new form.
+                assert "IMPORTANT:" in t.description, (
+                    f"{name}: the crc_byte_order warning must survive"
+                )
+                for line in g["description"].splitlines():
+                    if line.startswith("- ") and "supply exactly one of" not in line:
+                        assert line in t.description, (
+                            f"{name}: 1.x parameter line vanished: {line!r}"
+                        )
+                assert "packet_b64 / packets" in t.description, (
+                    f"{name}: the constraints footer must list the new form"
+                )
+            else:
+                assert t.input_schema == g["inputSchema"], (
+                    f"{name}: inputSchema drifted from the 1.x golden"
+                )
+                assert t.description == g["description"], (
+                    f"{name}: description drifted from the 1.x golden"
+                )
             actual_ann = t.annotations.model_dump(mode="json", by_alias=True)
             assert actual_ann == g["annotations"], (
                 f"{name}: annotations drifted from the 1.x golden"

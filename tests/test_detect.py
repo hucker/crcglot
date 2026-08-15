@@ -7,12 +7,14 @@ and edge cases (width-8 endianness dedup, empty input, too-short packets).
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 import pytest
 
 from crcglot import (
     ALGORITHMS,
+    BinaryFormat,
     DetectResult,
     HexFormat,
     TextFormat,
@@ -20,6 +22,7 @@ from crcglot import (
     detect_iter,
 )
 from crcglot._detect import _PRIORITY, _ordered_algorithm_names
+from crcglot.catalogue import generic_crc
 
 
 # A canonical reveng input: every catalogue entry's ``check`` value is
@@ -1302,3 +1305,286 @@ class TestDetectMatchForm:
         assert result.matched, f"{expected}: packet should detect"
         actual = result.candidates[0].form
         assert actual == expected, f"form {actual!r} != expected {expected!r}"
+
+
+# Six Modbus-style frames: enough to clear the terminator search's frame floor,
+# and varied enough that a spurious model cannot survive all of them.
+_MODBUS_PAYLOADS = [
+    b"\x01\x03\x00\x00\x00\x01",
+    b"\x01\x03\x02\x00\x2a",
+    b"\x02\x06\x00\x10\x12\x34",
+    b"\x11\x03\x00\x6b\x00\x03",
+    b"\x0a\x01\x00\x13\x00\x25",
+    b"\x04\x04\x00\x08\x00\x01",
+]
+
+
+def _modbus_frames(order="little", trail=b"", payloads=None):
+    """Whole frames: payload, then the CRC-16/Modbus, then optional delimiter."""
+    algo = ALGORITHMS["crc16-modbus"]
+    return [
+        p + generic_crc(p, algo).to_bytes(2, order) + trail
+        for p in (payloads if payloads is not None else _MODBUS_PAYLOADS)
+    ]
+
+
+def _hit(result, name="crc16-modbus"):
+    """True when ``name`` is among the reported candidates."""
+    return bool(result) and name in [c.algorithm for c in result.candidates]
+
+
+def _trail_of(result, expected_type):
+    """The delimiter reported on the first candidate, with its record type checked.
+
+    Asserting the record type is part of the contract, not just a way to narrow
+    the union: a binary frame must report a ``BinaryFormat`` and a hex frame a
+    ``HexFormat``, because ``encode_match`` dispatches on exactly that.
+    """
+    padding = result.candidates[0].padding
+    assert isinstance(padding, expected_type), (
+        f"expected {expected_type.__name__} padding, got {padding!r}"
+    )
+    return padding.trail
+
+
+def _mixed_of(result):
+    """The ``mixed`` field set reported on the first candidate."""
+    padding = result.candidates[0].padding
+    assert isinstance(padding, (TextFormat, HexFormat)), (
+        f"expected a surface-format record, got {padding!r}"
+    )
+    return padding.mixed
+
+
+class TestTrailingDelimiter:
+    """Frames captured off a line-oriented transport keep the transport's
+    delimiter, and those bytes sit *after* the CRC rather than inside it.
+
+    Frames are built from crcglot's own ``generic_crc``, so the oracle is the
+    catalogue's parameters rather than a transcribed constant.  The opposite
+    layout, where the delimiter is covered by the CRC, is
+    ``TestDelimiterInsideTheCrcSpan``.
+    """
+
+    @pytest.mark.parametrize("order", ["little", "big"], ids=["le", "be"])
+    @pytest.mark.parametrize(
+        "trail", [b"\r\n", b"\n", b"\x03"], ids=["crlf", "lf", "etx"]
+    )
+    def test_a_delimiter_after_the_crc_is_set_aside(self, order, trail):
+        # Act
+        result = detect(_modbus_frames(order, trail))
+
+        # Assert -- the algorithm is found and the delimiter is reported, since
+        # the caller needs the layout to build the other end of the protocol.
+        assert _hit(result), f"{order}/{trail!r}: crc16-modbus should be found"
+        actual = _trail_of(result, BinaryFormat)
+        assert actual == trail, f"trail {actual!r} != expected {trail!r}"
+
+    @pytest.mark.parametrize("order", ["little", "big"], ids=["le", "be"])
+    def test_hex_frames_carry_the_delimiter_too(self, order):
+        # Arrange -- a whole frame hex-encoded, delimiter bytes included.
+        frames = [f.hex() for f in _modbus_frames(order, b"\r\n")]
+
+        # Act
+        result = detect(frames)
+
+        # Assert
+        assert _hit(result), f"{order}: hex frames with a delimiter should detect"
+        actual = _trail_of(result, HexFormat)
+        assert actual == b"\r\n", f"trail {actual!r} != expected CRLF"
+
+    def test_clean_frames_report_no_delimiter(self):
+        # Assert -- padding stays None for a plain binary frame, as before.
+        result = detect(_modbus_frames())
+        assert _hit(result), "clean frames should detect"
+        actual = result.candidates[0].padding
+        assert actual is None, f"clean frames must not gain padding, got {actual!r}"
+
+    def test_a_delimiter_on_only_some_frames_is_not_a_match(self):
+        """The same delimiter on every frame, or none at all.
+
+        Frames that disagree do not describe one layout, so picking one would
+        invent a frame shape the input never had.
+        """
+        # Arrange -- alternating delimiters.
+        frames = [
+            f + (b"\r\n" if i % 2 else b"\x00")
+            for i, f in enumerate(_modbus_frames())
+        ]
+
+        # Act
+        result = detect(frames)
+
+        # Assert
+        assert not _hit(result), "frames disagreeing on their delimiter must not match"
+
+    def test_below_the_frame_floor_no_delimiter_is_guessed(self):
+        # Arrange -- two frames is under MIN_TRAIL_FRAMES.
+        frames = _modbus_frames(trail=b"\r\n", payloads=_MODBUS_PAYLOADS[:2])
+
+        # Act
+        result = detect(frames)
+
+        # Assert -- too few frames to pay for the extra hypotheses.
+        assert not _hit(result), "must not search for a delimiter below the floor"
+
+
+class TestDelimiterInsideTheCrcSpan:
+    """``STX payload ETX BCC`` framings put the delimiter *inside* the CRC.
+
+    That layout needs no special handling: crcglot treats everything before the
+    CRC field as message.  These pin that the delimiter search cannot break it,
+    because frames-as-given is tried first and that attempt *is* this
+    hypothesis.
+    """
+
+    def test_a_delimiter_covered_by_the_crc_is_left_alone(self):
+        # Arrange -- ETX is part of the message the CRC covers.
+        algo = ALGORITHMS["crc16-modbus"]
+        frames = [
+            (p + b"\x03") + generic_crc(p + b"\x03", algo).to_bytes(2, "little")
+            for p in _MODBUS_PAYLOADS
+        ]
+
+        # Act
+        result = detect(frames)
+
+        # Assert -- found, and nothing was set aside to find it.
+        assert _hit(result), "a CRC covering its own ETX should still detect"
+        actual = result.candidates[0].padding
+        assert actual is None, f"nothing should be stripped here, got {actual!r}"
+
+    def test_a_covered_delimiter_and_a_trailing_one_coexist(self):
+        # Arrange -- ETX inside the CRC span, CRLF after it.
+        algo = ALGORITHMS["crc16-modbus"]
+        frames = [
+            (p + b"\x03")
+            + generic_crc(p + b"\x03", algo).to_bytes(2, "little")
+            + b"\r\n"
+            for p in _MODBUS_PAYLOADS
+        ]
+
+        # Act
+        result = detect(frames)
+
+        # Assert -- only the trailing CRLF is set aside; the ETX stays covered.
+        assert _hit(result), "both-delimiter frames should detect"
+        actual = _trail_of(result, BinaryFormat)
+        assert actual == b"\r\n", f"trail {actual!r} != expected CRLF"
+
+
+class TestMixedSurfaceForm:
+    """Packets that disagree on their surface shape still match, but the format
+    record says so instead of reporting one packet's value as though it were
+    every packet's.  ``encode_match`` is what refuses to rebuild from such a
+    record; that half is pinned in ``test_encode.py``.
+    """
+
+    def _text_frames(self, seps=None, leads=None):
+        algo = ALGORITHMS["crc16-xmodem"]
+        msgs = [b"HELLO", b"WORLD", b"THIRD", b"FOURTH"]
+        return [
+            f"{m.decode()}{(seps or [' '] * 4)[i]}"
+            f"{(leads or [''] * 4)[i]}{generic_crc(m, algo):04X}"
+            for i, m in enumerate(msgs)
+        ]
+
+    def test_uniform_packets_report_nothing_mixed(self):
+        result = detect(self._text_frames())
+        assert result.matched, "uniform text frames should detect"
+        actual = _mixed_of(result)
+        assert actual == frozenset(), f"nothing varied, got mixed={set(actual)}"
+
+    def test_a_varying_separator_is_named(self):
+        # Act -- half the frames use a tab.
+        result = detect(self._text_frames(seps=[" ", "\t", " ", "\t"]))
+
+        # Assert -- still a match, but the record admits the separator varied.
+        assert result.matched, "mixed separators should still detect"
+        actual = _mixed_of(result)
+        assert actual == {"separator"}, f"mixed {set(actual)} != {{'separator'}}"
+
+    def test_a_varying_hex_leader_is_named(self):
+        # Act
+        result = detect(self._text_frames(leads=["", "0x", "", "0x"]))
+
+        # Assert
+        assert result.matched, "mixed leaders should still detect"
+        actual = _mixed_of(result)
+        assert actual == {"prefix"}, f"mixed {set(actual)} != {{'prefix'}}"
+
+    def test_a_varying_hex_byte_separator_is_named(self):
+        # Arrange -- the same bytes, punctuated differently per packet.
+        algo = ALGORITHMS["crc16-xmodem"]
+        msgs = [b"HELLO", b"WORLD", b"THIRD", b"FOURTH"]
+        frames = [
+            (" " if i % 2 else ":").join(
+                f"{b:02X}" for b in m + generic_crc(m, algo).to_bytes(2, "big")
+            )
+            for i, m in enumerate(msgs)
+        ]
+
+        # Act
+        result = detect(frames)
+
+        # Assert
+        assert result.matched, "mixed hex separators should still detect"
+        actual = _mixed_of(result)
+        assert actual == {"separator"}, f"mixed {set(actual)} != {{'separator'}}"
+
+
+class TestMcpWireSerialization:
+    """The MCP boundary is JSON, so every format-record field has to survive it.
+
+    ``trail`` is ``bytes`` and ``mixed`` is a ``frozenset``; neither is JSON,
+    and the wire layer flattens a record with ``vars()``, so a new field
+    reaches the boundary whether or not anyone thought about it.  These pin the
+    two conversions and, more usefully, that ``json.dumps`` succeeds at all.
+    """
+
+    def test_a_trailing_delimiter_serializes_as_hex(self):
+        # Arrange
+        from crcglot._wire import detect_match_to_dict
+
+        match = detect(_modbus_frames(trail=b"\r\n")).candidates[0]
+
+        # Act
+        wire = detect_match_to_dict(match)
+
+        # Assert -- hex, matching how every other byte string crosses this line.
+        json.dumps(wire)  # raises if any value isn't JSON-serializable
+        actual = wire["padding"]["trail"]
+        assert actual == "0d0a", f"trail {actual!r} != expected '0d0a'"
+        assert wire["padding_kind"] == "binary", (
+            f"a binary frame stays 'binary', got {wire['padding_kind']!r}"
+        )
+
+    def test_a_mixed_field_set_serializes_as_a_sorted_list(self):
+        # Arrange -- packets that disagree on their separator.
+        from crcglot._wire import detect_match_to_dict
+
+        algo = ALGORITHMS["crc16-xmodem"]
+        msgs = [b"HELLO", b"WORLD", b"THIRD", b"FOURTH"]
+        frames = [
+            f"{m.decode()}{' ' if i % 2 else chr(9)}{generic_crc(m, algo):04X}"
+            for i, m in enumerate(msgs)
+        ]
+        match = detect(frames).candidates[0]
+
+        # Act
+        wire = detect_match_to_dict(match)
+
+        # Assert -- a list, sorted so the payload is stable between runs.
+        json.dumps(wire)
+        actual = wire["padding"]["mixed"]
+        assert actual == ["separator"], f"mixed {actual!r} != ['separator']"
+
+    def test_a_clean_binary_frame_is_unchanged(self):
+        # Assert -- no padding key at all, as before this landed.
+        from crcglot._wire import detect_match_to_dict
+
+        wire = detect_match_to_dict(detect(_modbus_frames()).candidates[0])
+        json.dumps(wire)
+        assert "padding" not in wire, (
+            f"a clean binary frame must not gain a padding dict: {wire}"
+        )

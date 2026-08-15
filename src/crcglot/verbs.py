@@ -197,6 +197,14 @@ _P_DATA_B64 = ParamSpec(
 )
 
 _G_PACKET = ExclusiveGroup(("packet_hex", "packet_text", "packet_b64"), required=True)
+# detect additionally takes a list.  A single frame frequently fits more than
+# one catalogue algorithm by coincidence -- the narrow entries especially, where
+# a 6-bit CRC matches random data 1 time in 64 -- so the plural form is the one
+# that actually answers the question, and the singular forms remain for the
+# cases where one frame is all there is.
+_G_PACKET_OR_PACKETS = ExclusiveGroup(
+    ("packet_hex", "packet_text", "packet_b64", "packets"), required=True
+)
 _G_ALGORITHM = ExclusiveGroup(("algorithm", "custom_params"), required=True)
 _G_DATA = ExclusiveGroup(("data_text", "data_b64"), required=True)
 
@@ -324,8 +332,16 @@ _register(
             "Identify which catalogue CRC matches a packet whose tail "
             "is a CRC.  Accepts the packet as packet_hex (any common "
             "formatting -- spaces, commas, colons, 0x prefixes all "
-            "tolerated), packet_text ('data <sep> hex'), or packet_b64 "
-            "(base64-encoded raw bytes).  Exactly one must be supplied.\n"
+            "tolerated), packet_text ('data <sep> hex'), packet_b64 "
+            "(base64-encoded raw bytes), or 'packets' (several frames, "
+            "encoded per packet_format).  Exactly one must be supplied.\n"
+            "\n"
+            "PREFER 'packets' WHEN YOU HAVE MORE THAN ONE FRAME.  A single "
+            "frame is often ambiguous: several algorithms fit it by "
+            "coincidence and which one is reported is then arbitrary.  Only "
+            "algorithms consistent with EVERY frame survive, so two or three "
+            "frames usually collapse the answer to one.  Same frames as "
+            "crc_reverse takes, so a miss here can be passed straight on.\n"
             "\n"
             "IMPORTANT: 'crc_byte_order' in the output describes the "
             "byte order of the CRC field within the packet -- NOT the "
@@ -359,6 +375,17 @@ _register(
             _P_PACKET_TEXT,
             _P_PACKET_B64,
             ParamSpec(
+                "packets", "array[string]", False,
+                "several frames, encoded per packet_format; STRONGLY PREFERRED "
+                "over the single-packet forms -- one frame often fits several "
+                "algorithms by chance and the answer is then arbitrary",
+            ),
+            ParamSpec(
+                "packet_format", "string", False,
+                "how each frame string in 'packets' is encoded",
+                default="hex", choices=_PACKET_FORMAT_CHOICES,
+            ),
+            ParamSpec(
                 "target_crc", "integer", False,
                 "known CRC value as a decimal integer (packet is then data only)",
             ),
@@ -391,7 +418,7 @@ _register(
             ),
         ),
         mutually_exclusive=(
-            _G_PACKET,
+            _G_PACKET_OR_PACKETS,
             ExclusiveGroup(("target_crc", "target_crc_hex"), required=False),
         ),
         result_fields=(

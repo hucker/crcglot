@@ -45,6 +45,25 @@ class UnknownVerbError(CrcglotError, ValueError):
     """
 
 
+class MixedFormatError(CrcglotError, ValueError):
+    """A format record describes packets that did not share one surface shape.
+
+    Raised by :func:`crcglot.encode_match` when the :class:`~crcglot.TextFormat`
+    or :class:`~crcglot.HexFormat` it was handed has a non-empty ``mixed``, so
+    its ``separator`` / ``prefix`` are one packet's values rather than every
+    packet's.  Rebuilding from such a record would emit a frame shape some of
+    the input never had, so it raises instead.  Also a ``ValueError``.
+    """
+
+
+class UnknownTerminatorError(CrcglotError, ValueError):
+    """A frame terminator name is not in the :data:`crcglot.TERMINATORS` registry.
+
+    Also a ``ValueError`` by convention.  The vocabulary is small and closed,
+    so the message lists all of it rather than guessing at a near match.
+    """
+
+
 class UnknownParamError(CrcglotError, TypeError):
     """A :func:`crcglot.call_verb` parameter is not in the verb's manifest.
 

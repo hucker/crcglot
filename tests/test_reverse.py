@@ -413,8 +413,14 @@ class TestReversePackets:
         with pytest.raises(ValueError, match="too short"):
             reverse_packets([b"\x01", b"\x02"], crc_bytes=2)
 
-    def test_non_text_frame_rejected(self):
-        with pytest.raises(ValueError, match="not a text frame"):
+    def test_str_frame_that_is_neither_text_nor_hex_is_rejected(self):
+        """A str frame has two readings; the error has to name both.
+
+        Renamed from ``test_non_text_frame_rejected`` when the hex-byte-string
+        reading was added: the input set widened, so a message naming only the
+        text shape would send a caller looking for the wrong fix.
+        """
+        with pytest.raises(ValueError, match="neither a text frame.*nor a hex"):
             reverse_packets(["no-trailing-hex-here!"], std_algo_only=False)
 
     @staticmethod
@@ -593,3 +599,183 @@ class TestNeverConfidentlyWrong:
         )
         polys = {c.poly for c in r10.candidates}
         assert 0xA097 in polys, f"expected poly 0xA097 among {polys}"
+
+
+_MODBUS_PAYLOADS = [
+    b"\x01\x03\x00\x00\x00\x01",
+    b"\x01\x03\x02\x00\x2a",
+    b"\x02\x06\x00\x10\x12\x34",
+    b"\x11\x03\x00\x6b\x00\x03",
+    b"\x0a\x01\x00\x13\x00\x25",
+    b"\x04\x04\x00\x08\x00\x01",
+]
+
+
+def _modbus_frames(order="little", trail=b"", payloads=None):
+    """Whole frames: payload, then the CRC-16/Modbus, then optional delimiter."""
+    algo = ALGORITHMS["crc16-modbus"]
+    return [
+        p + generic_crc(p, algo).to_bytes(2, order) + trail
+        for p in (payloads if payloads is not None else _MODBUS_PAYLOADS)
+    ]
+
+
+class TestReversePacketsAcceptsWhatDetectAccepts:
+    """A caller reaches ``reverse_packets`` when ``detect`` found nothing, so
+    an input shape ``detect`` takes has to be one ``reverse_packets`` takes.
+
+    Whole-frame hex used to raise ``ValueError`` here while detecting fine,
+    which put an exception on the exact step the workflow moves to next.
+    """
+
+    @pytest.mark.parametrize("order", ["little", "big"], ids=["le", "be"])
+    def test_a_whole_frame_hex_string_is_accepted(self, order):
+        # Arrange -- the same frames detect() takes, hex-encoded.
+        frames = [f.hex() for f in _modbus_frames(order)]
+
+        # Act
+        result = reverse_packets(frames)
+
+        # Assert
+        actual = result.catalogue_name
+        assert actual == "crc16-modbus", f"recovered {actual!r} from hex frames"
+
+    def test_text_frames_still_take_the_text_reading(self):
+        """Text is tried first, so nothing that resolved before resolves differently."""
+        # Arrange -- "data <sep> hexcrc", the shape that already worked.
+        algo = ALGORITHMS["crc16-xmodem"]
+        msgs = [b"HELLO", b"WORLD", b"THIRD", b"FOURTH", b"FIFTH!"]
+        frames = [f"{m.decode()} {generic_crc(m, algo):04X}" for m in msgs]
+
+        # Act
+        result = reverse_packets(frames)
+
+        # Assert
+        actual = result.catalogue_name
+        assert actual == "crc16-xmodem", f"text frames recovered {actual!r}"
+
+
+class TestReversePacketsTrailingDelimiter:
+    """Delimiter bytes after the CRC move the field reverse is looking for.
+
+    The guidance the failure used to emit ("supply more varied frames", "specify
+    crc_bytes") pointed away from the cause, which is worse for an agent than
+    for a person: an agent acts on the note.
+    """
+
+    @pytest.mark.parametrize("order", ["little", "big"], ids=["le", "be"])
+    def test_frames_with_a_delimiter_still_recover(self, order):
+        # Act
+        result = reverse_packets(_modbus_frames(order, b"\r\n"))
+
+        # Assert
+        actual = result.catalogue_name
+        assert actual == "crc16-modbus", f"recovered {actual!r} despite a CRLF"
+
+    def test_the_delimiter_is_named_in_the_note(self):
+        # Act
+        result = reverse_packets(_modbus_frames(trail=b"\r\n"))
+
+        # Assert -- a fact about the frame layout the caller has to build to.
+        assert "terminator" in result.note, f"note must name it: {result.note!r}"
+        assert "0D 0A" in result.note, f"note must show the bytes: {result.note!r}"
+
+    def test_hex_frames_with_a_delimiter_recover(self):
+        # Arrange -- captured as hex, delimiter bytes included.
+        frames = [f.hex() for f in _modbus_frames(trail=b"\r\n")]
+
+        # Act
+        result = reverse_packets(frames)
+
+        # Assert
+        actual = result.catalogue_name
+        assert actual == "crc16-modbus", f"recovered {actual!r} from dirty hex"
+
+    def test_clean_frames_gain_no_terminator_note(self):
+        # Assert -- the as-given reading wins and says nothing about delimiters.
+        result = reverse_packets(_modbus_frames())
+        assert "terminator" not in result.note, (
+            f"clean frames must not mention a terminator: {result.note!r}"
+        )
+
+    def test_a_delimiter_on_only_some_frames_is_not_recovered(self):
+        # Arrange -- frames that disagree describe no single layout.
+        frames = [
+            f + (b"\r\n" if i % 2 else b"\x00")
+            for i, f in enumerate(_modbus_frames())
+        ]
+
+        # Act
+        result = reverse_packets(frames)
+
+        # Assert
+        assert result.catalogue_name != "crc16-modbus", (
+            "frames disagreeing on their delimiter must not resolve"
+        )
+
+    def test_below_the_frame_floor_no_delimiter_is_guessed(self):
+        # Arrange -- two frames is under MIN_TRAIL_FRAMES.
+        frames = _modbus_frames(trail=b"\r\n", payloads=_MODBUS_PAYLOADS[:2])
+
+        # Act
+        result = reverse_packets(frames)
+
+        # Assert
+        assert result.catalogue_name != "crc16-modbus", (
+            "must not search for a delimiter below the frame floor"
+        )
+
+    def test_too_few_frames_says_what_more_frames_would_buy(self):
+        """Below the floor the caller gets an instruction, not a shrug.
+
+        A caller driving a live link can execute "capture one more frame"; it
+        cannot act on "no consistent model".  The count has to be concrete and
+        it has to say the payloads must differ, since the same reply captured
+        twice is one observation, not two.
+        """
+        # Arrange
+        frames = _modbus_frames(trail=b"\r\n", payloads=_MODBUS_PAYLOADS[:2])
+
+        # Act
+        note = reverse_packets(frames).note
+
+        # Assert -- names the delimiter, the shortfall, and the payload caveat.
+        assert "CRLF" in note, f"note must name the delimiter seen: {note!r}"
+        assert "capture 1 more" in note, f"note must give the shortfall: {note!r}"
+        assert "DIFFERENT payloads" in note, (
+            f"note must say repeat frames do not count: {note!r}"
+        )
+
+    def test_frames_sharing_no_delimiter_get_no_such_advice(self):
+        # Arrange -- nothing in common at the tail, so there is nothing to test.
+        frames = [b"\x01\x02\x03\x04\x05", b"\x06\x07\x08\x09\x0a"]
+
+        # Act
+        note = reverse_packets(frames).note
+
+        # Assert -- advice only when it names something concrete.
+        assert "terminator" not in note, (
+            f"must not ask for frames to test a delimiter that is not there: {note!r}"
+        )
+
+    def test_random_frames_carrying_no_crc_stay_unrecovered(self):
+        """The false-positive guard.
+
+        Every extra hypothesis costs accuracy on the catalogue's narrow
+        entries, so the search must not start finding CRCs in frames that have
+        none.  These end in a common CRLF, so the terminator retry does run.
+        """
+        # Arrange -- deterministic noise, CRLF-terminated, no CRC anywhere.
+        rng = random.Random(20260814)
+        frames = [
+            bytes(rng.randrange(256) for _ in range(12)) + b"\r\n"
+            for _ in range(6)
+        ]
+
+        # Act
+        result = reverse_packets(frames)
+
+        # Assert
+        assert result.status == "none", (
+            f"noise must not resolve, got {result.status}/{result.catalogue_name}"
+        )

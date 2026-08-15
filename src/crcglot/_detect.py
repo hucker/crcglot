@@ -26,11 +26,12 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from collections.abc import Iterable
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Iterator, Literal, cast
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field, fields, replace
+from typing import TYPE_CHECKING, Iterator, Literal, TypeVar, cast
 
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, generic_crc
+from crcglot._terminators import MIN_TRAIL_FRAMES, common_terminators
 
 if TYPE_CHECKING:
     from crcglot._formats import FormatMatch
@@ -156,14 +157,26 @@ class TextFormat:
     """The text-packet shape captured from the trailing whitespace + hex.
 
     Attributes:
-        separator: The literal whitespace between data and hex.
-        prefix: ``""``, ``"0x"``, or ``"0X"``.
+        separator: The literal whitespace between data and hex.  Taken from
+            the first packet; see :attr:`mixed`.
+        prefix: ``""``, ``"0x"``, or ``"0X"``.  Taken from the first packet;
+            see :attr:`mixed`.
         uppercase: ``True`` when the hex digits use upper-case A-F.
+        trail: Delimiter bytes found *after* the CRC field and common to
+            every packet (see :mod:`crcglot._terminators`); ``b""`` when the
+            packets carry none.
+        mixed: Names of the fields above whose value was **not** the same on
+            every packet, empty when all packets agreed.  Those fields then
+            hold the first packet's value, which is representative rather
+            than universal, so ``encode_match`` refuses to rebuild from such
+            a record instead of inventing a shape the input never had.
     """
 
     separator: str
     prefix: str
     uppercase: bool = False
+    trail: bytes = b""
+    mixed: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -183,12 +196,84 @@ class HexFormat:
             byte (``"0x12 0x34"``); ``False`` when the prefix appears
             once at the start of the whole string (``"0X1234"``).
         uppercase: ``True`` if hex digits use upper-case A-F.
+        trail: Delimiter bytes found *after* the CRC field and common to
+            every packet (see :mod:`crcglot._terminators`); ``b""`` when the
+            packets carry none.
+        mixed: Names of the fields above whose value was **not** the same on
+            every packet, empty when all packets agreed.  Same contract as
+            :attr:`TextFormat.mixed`.
     """
 
     separator: str
     prefix: str
     prefix_per_byte: bool
     uppercase: bool = False
+    trail: bytes = b""
+    mixed: frozenset[str] = frozenset()
+
+
+# The surface-format records :func:`_merge_formats` collapses.  Constrained to
+# the two concrete records rather than left open, so ``fields`` / ``replace``
+# see real dataclasses.
+_FormatT = TypeVar("_FormatT", TextFormat, HexFormat)
+
+
+@dataclass(frozen=True)
+class BinaryFormat:
+    """The shape of a raw-bytes packet that carried a trailing delimiter.
+
+    Binary packets have no surface formatting to record, so ``padding`` stays
+    ``None`` for them in the ordinary case.  This record exists only to carry
+    a :attr:`trail`, so that a match found by setting delimiter bytes aside
+    can say so.  That is a result rather than a diagnostic: it tells the
+    caller the frame layout is message, CRC, *then* delimiter, which is what
+    they need to write the other end of the protocol.
+
+    Attributes:
+        trail: The delimiter bytes that follow the CRC field, common to every
+            packet.  Never ``b""``; a binary packet with no trailing delimiter
+            carries ``padding=None`` as before.
+    """
+
+    trail: bytes
+
+
+# Fields :func:`_merge_formats` does not compare across packets.
+#
+# ``trail`` is uniform by construction (only a delimiter ending every packet is
+# ever admitted) and ``mixed`` is the output.  ``uppercase`` is excluded for a
+# different reason: it is *inferred* from the digits present, so a CRC value of
+# 0x1234 is indistinguishable from a lower-case producer while 0xAB12 from the
+# same producer reads as upper-case.  Comparing it would report a disagreement
+# on nearly every real capture and, since a non-empty ``mixed`` blocks
+# ``encode_match``, would refuse to rebuild packets that are in fact uniform.
+_MERGE_IGNORED = frozenset({"trail", "mixed", "uppercase"})
+
+
+def _merge_formats(formats: Sequence[_FormatT]) -> _FormatT:
+    """Collapse per-packet format records into one, flagging what varied.
+
+    The records are compared field by field, so a field added later is covered
+    without touching this function, except for the deliberate exclusions in
+    :data:`_MERGE_IGNORED`.
+
+    Args:
+        formats: One record per packet, at least one.
+
+    Returns:
+        The first record when every packet agreed, else that record with
+        :attr:`mixed` naming the fields that differed.
+    """
+    first = formats[0]
+    if len(formats) == 1:
+        return first
+    varied = frozenset(
+        f.name
+        for f in fields(first)
+        if f.name not in _MERGE_IGNORED
+        and len({getattr(rec, f.name) for rec in formats}) > 1
+    )
+    return replace(first, mixed=varied) if varied else first
 
 
 @dataclass(frozen=True)
@@ -201,6 +286,8 @@ class DetectMatch:
         endianness: Byte order of the trailing CRC in the packet.
         padding: The surface formatting that wrapped the bytes:
             ``None`` for a plain binary packet,
+            :class:`BinaryFormat` for a binary packet whose CRC was followed
+            by delimiter bytes,
             :class:`TextFormat` for a ``"data <sep> hex"`` text packet,
             :class:`HexFormat` for a hex-encoded byte string
             (``"0x12 0x34"`` and friends), or
@@ -213,7 +300,7 @@ class DetectMatch:
     algorithm: str
     info: AlgorithmInfo
     endianness: Endianness
-    padding: TextFormat | HexFormat | FormatMatch | None = None
+    padding: TextFormat | HexFormat | BinaryFormat | FormatMatch | None = None
 
     @property
     def form(self) -> str:
@@ -236,7 +323,7 @@ class DetectMatch:
             >>> detect('{"t":1234,"v":42,"crc":"1352"}').candidates[0].form
             'json'
         """
-        if self.padding is None:
+        if self.padding is None or isinstance(self.padding, BinaryFormat):
             return "binary"
         if isinstance(self.padding, HexFormat):
             return "hex"
@@ -820,10 +907,13 @@ def detect(
         decoded_bytes_explicit: list[Packet] = [
             p[0] for p in parsed if p is not None
         ]
-        hex_format = next((p[1] for p in parsed if p is not None), None)
-        result = _run_detect(
-            decoded_bytes_explicit, "binary", names, encoding, match, endian,
+        hex_formats = [p[1] for p in parsed if p is not None]
+        hex_format = _merge_formats(hex_formats) if hex_formats else None
+        result, trail = _run_detect_with_trail(
+            decoded_bytes_explicit, names, encoding, match, endian,
         )
+        if trail and hex_format is not None:
+            hex_format = replace(hex_format, trail=trail)
         return _with_trailer_hint(
             _attach_padding(result, hex_format), packets,
             mode=mode, encoding=encoding, endian=endian,
@@ -835,7 +925,8 @@ def detect(
             decoded_bytes: list[Packet] = [
                 p[0] for p in parsed if p is not None
             ]
-            hex_format = next((p[1] for p in parsed if p is not None), None)
+            hex_formats = [p[1] for p in parsed if p is not None]
+            hex_format = _merge_formats(hex_formats) if hex_formats else None
             # Decide hex-vs-text on the input's SHAPE, not on the caller's
             # algorithms / width filter: probe the FULL catalogue so a filter
             # can't flip a genuine hex frame into a text reinterpretation.  If
@@ -852,6 +943,24 @@ def detect(
                     decoded_bytes, "binary", names, encoding, match, endian,
                 )
                 return _attach_padding(hex_result, hex_format)
+            # The as-given probe found nothing.  Before falling through to a
+            # text reinterpretation, try the same bytes with a common trailing
+            # delimiter set aside -- a captured frame keeps the transport's
+            # line ending, and those bytes sit after the CRC, not inside it.
+            probe_trail, trail = _run_detect_with_trail(
+                decoded_bytes, _ordered_algorithm_names(None),
+                encoding, "first", endian,
+            )
+            if probe_trail.matched and trail:
+                hex_result, _ = _run_detect_with_trail(
+                    decoded_bytes, names, encoding, match, endian,
+                )
+                return _attach_padding(
+                    hex_result,
+                    replace(hex_format, trail=trail)
+                    if hex_format is not None
+                    else None,
+                )
         # Fall through to text mode for the original str packets.
 
     # Payload-form pre-pass: a single str packet may carry a CRC wrapped in a
@@ -867,7 +976,14 @@ def detect(
             return formed
 
     actual_mode = _resolve_mode(packets, mode)
-    result = _run_detect(packets, actual_mode, names, encoding, match, endian)
+    if actual_mode == "binary":
+        result, trail = _run_detect_with_trail(
+            packets, names, encoding, match, endian,
+        )
+        if trail:
+            result = _attach_padding(result, BinaryFormat(trail=trail))
+    else:
+        result = _run_detect(packets, actual_mode, names, encoding, match, endian)
     return _with_trailer_hint(
         result, packets, mode=mode, encoding=encoding, endian=endian,
     )
@@ -891,9 +1007,49 @@ def _run_detect(
     )
 
 
+def _run_detect_with_trail(
+    packets: list[Packet],
+    names: list[str],
+    encoding: str,
+    match: Literal["first", "all", "set"],
+    endian: EndianSelector,
+) -> tuple[DetectResult, bytes]:
+    """Binary scan, retried with a common trailing delimiter set aside.
+
+    The packets are scanned **exactly as given** first, and that reading wins
+    whenever it holds.  Frames-as-given *is* the hypothesis that a delimiter
+    sits inside the CRC span (``STX payload ETX BCC`` and friends), so trying
+    it first is the correct precedence and not merely the cheap path.
+
+    Args:
+        packets: Binary packets.
+        names: Scan order.
+        encoding: Unused for binary; carried for :func:`_run_detect`.
+        match: Match mode.
+        endian: CRC field byte order selector.
+
+    Returns:
+        ``(result, trail)``.  ``trail`` is ``b""`` when the as-given reading
+        won, so a caller can tell "no delimiter" from "delimiter set aside".
+    """
+    result = _run_detect(packets, "binary", names, encoding, match, endian)
+    if result.matched or len(packets) < MIN_TRAIL_FRAMES:
+        return result, b""
+
+    raw = [bytes(cast("bytes | bytearray", p)) for p in packets]
+    for term in common_terminators(raw):
+        stripped = cast(
+            "list[Packet]", [p[: -len(term.value)] for p in raw]
+        )
+        retried = _run_detect(stripped, "binary", names, encoding, match, endian)
+        if retried.matched:
+            return retried, term.value
+    return result, b""
+
+
 def _attach_padding(
     result: DetectResult,
-    padding: TextFormat | HexFormat | FormatMatch | None,
+    padding: TextFormat | HexFormat | BinaryFormat | FormatMatch | None,
 ) -> DetectResult:
     """Rebuild candidates with the given ``padding`` value.
 
@@ -1238,7 +1394,7 @@ def _detect_first(
     if len(hex_lens) > 1:
         return DetectResult(matched=False)
     hex_len = next(iter(hex_lens))
-    text_format = parsed_packets[0][1]
+    text_format = _merge_formats([pp[1] for pp in parsed_packets])
     for name in names:
         algo = ALGORITHMS[name]
         if _crc_nibble_len(algo.width) != hex_len:
@@ -1292,15 +1448,16 @@ def _detect_all_or_set(
             )
     else:
         text_packets = cast(list[str], packets)
+        per_format: list[TextFormat] = []
         for p in text_packets:
             parsed = _parse_text(p, encoding)
             if parsed is None:
                 return DetectResult(matched=False)
-            if text_format is None:
-                text_format = parsed[1]
+            per_format.append(parsed[1])
             per_packet.append(
                 _matches_for_text_packet(parsed, names, endian)
             )
+        text_format = _merge_formats(per_format)
 
     intersection = per_packet[0].copy()
     for m in per_packet[1:]:

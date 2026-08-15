@@ -21,6 +21,7 @@ from crcglot import (
     encode_int,
     encode_match,
     encode_text,
+    MixedFormatError,
     generic_crc,
     verify,
 )
@@ -487,3 +488,105 @@ class TestCompute:
         assert actual == algo.check, (
             f"compute over a custom algorithm: {actual:#x} != {algo.check:#x}"
         )
+
+
+_MODBUS_PAYLOADS = [
+    b"\x01\x03\x00\x00\x00\x01",
+    b"\x01\x03\x02\x00\x2a",
+    b"\x02\x06\x00\x10\x12\x34",
+    b"\x11\x03\x00\x6b\x00\x03",
+    b"\x0a\x01\x00\x13\x00\x25",
+    b"\x04\x04\x00\x08\x00\x01",
+]
+
+
+def _modbus_frames(trail=b""):
+    algo = ALGORITHMS["crc16-modbus"]
+    return [
+        p + generic_crc(p, algo).to_bytes(2, "little") + trail
+        for p in _MODBUS_PAYLOADS
+    ]
+
+
+class TestEncodeMatchRoundTripsATrailingDelimiter:
+    """``encode_match`` is the round-trip pair to ``detect``, so a frame that
+    detected with a delimiter has to rebuild *with* that delimiter.  Dropping
+    it would emit a frame the device would not accept.
+    """
+
+    def test_a_binary_frame_rebuilds_with_its_delimiter(self):
+        # Arrange
+        frames = _modbus_frames(b"\r\n")
+        match = detect(frames).candidates[0]
+
+        # Act
+        actual = encode_match(_MODBUS_PAYLOADS[0], match)
+
+        # Assert -- byte-identical to the frame that went in.
+        assert actual == frames[0], f"{actual!r} != original {frames[0]!r}"
+
+    def test_a_hex_frame_rebuilds_with_its_delimiter(self):
+        # Arrange -- the delimiter was inside the hex string on the way in.
+        frames = [f.hex() for f in _modbus_frames(b"\r\n")]
+        match = detect(frames).candidates[0]
+
+        # Act
+        actual = encode_match(_MODBUS_PAYLOADS[0], match)
+
+        # Assert
+        assert actual == frames[0], f"{actual!r} != original {frames[0]!r}"
+
+    def test_a_clean_frame_gains_nothing(self):
+        # Arrange
+        frames = _modbus_frames()
+        match = detect(frames).candidates[0]
+
+        # Act / Assert -- unchanged behaviour for a frame with no delimiter.
+        actual = encode_match(_MODBUS_PAYLOADS[0], match)
+        assert actual == frames[0], f"{actual!r} != original {frames[0]!r}"
+
+
+class TestEncodeMatchRefusesAMixedRecord:
+    """``detect`` reports the first packet's separator when packets disagree,
+    and names the disagreement in ``mixed``.  That is fine as a description,
+    but rebuilding from it would emit a shape part of the input never had, so
+    ``encode_match`` refuses rather than picking for the caller.
+    """
+
+    def _mixed_match(self):
+        algo = ALGORITHMS["crc16-xmodem"]
+        msgs = [b"HELLO", b"WORLD", b"THIRD", b"FOURTH"]
+        frames = [
+            f"{m.decode()}{' ' if i % 2 else chr(9)}{generic_crc(m, algo):04X}"
+            for i, m in enumerate(msgs)
+        ]
+        return detect(frames).candidates[0]
+
+    def test_rebuilding_from_a_mixed_record_raises(self):
+        # Arrange
+        match = self._mixed_match()
+        assert match.padding.mixed, "arrange failed: this record should be mixed"
+
+        # Act / Assert
+        with pytest.raises(MixedFormatError) as exc:
+            encode_match("HELLO", match)
+        message = str(exc.value)
+        assert "separator" in message, f"message must name the field: {message}"
+
+    def test_the_refusal_is_also_a_value_error(self):
+        # Assert -- house hierarchy: crcglot base AND the stdlib type.
+        with pytest.raises(ValueError):
+            encode_match("HELLO", self._mixed_match())
+
+    def test_a_uniform_record_still_rebuilds(self):
+        # Arrange -- same frames, one shape.
+        algo = ALGORITHMS["crc16-xmodem"]
+        msgs = [b"HELLO", b"WORLD", b"THIRD"]
+        frames = [f"{m.decode()} {generic_crc(m, algo):04X}" for m in msgs]
+        match = detect(frames).candidates[0]
+
+        # Act
+        actual = encode_match("HELLO", match)
+
+        # Assert
+        assert actual == frames[0], f"{actual!r} != original {frames[0]!r}"

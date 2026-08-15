@@ -31,6 +31,7 @@ from crcglot import (
     variant_info,
     verb_info,
 )
+from crcglot.catalogue import ALGORITHMS, generic_crc
 from crcglot.comments import COMMENT_STYLES, style_info
 
 # The capability-matrix order (docs/api.md) the manifest must present.
@@ -278,6 +279,106 @@ class TestCallVerb:
         # Act / Assert -- the same message the MCP tool raises.
         with pytest.raises(ValueError, match="exactly one of packet_hex"):
             call_verb("detect")
+
+
+class TestDetectTakesSeveralPackets:
+    """One frame frequently fits more than one catalogue algorithm by chance,
+    and which one gets reported is then arbitrary.  ``detect()`` has always
+    intersected across packets; the verb surface was singular, so the tool an
+    agent reaches for could not use that.
+
+    ``crc_reverse`` and ``crc_identify_trailer`` already take ``packets`` +
+    ``packet_format``, so the names and semantics here are theirs, not new
+    ones.
+    """
+
+    ALGO = "crc16-modbus"
+    PAYLOADS = [
+        b"\x01\x03\x00\x00\x00\x01",
+        b"\x01\x03\x02\x00\x2a",
+        b"\x02\x06\x00\x10\x12\x34",
+        b"\x11\x03\x00\x6b\x00\x03",
+        b"\x0a\x01\x00\x13\x00\x25",
+        b"\x04\x04\x00\x08\x00\x01",
+    ]
+
+    def _frames(self, trail=b""):
+        algo = ALGORITHMS[self.ALGO]
+        return [
+            p + generic_crc(p, algo).to_bytes(2, "little") + trail
+            for p in self.PAYLOADS
+        ]
+
+    def test_one_frame_is_ambiguous_and_several_are_not(self):
+        """The reason the plural form exists, pinned as a contrast.
+
+        The single-frame answer here is not a bug in the matcher: a 6-bit CRC
+        genuinely fits that frame.  It is the question that is underdetermined,
+        which is why the tool needs to accept the frames that settle it.
+        """
+        # Arrange
+        frames = self._frames()
+
+        # Act
+        one = call_verb("detect", packet_hex=frames[0].hex())
+        many = call_verb("detect", packets=[f.hex() for f in frames])
+
+        # Assert
+        assert one["candidates"][0]["algorithm"] != self.ALGO, (
+            "arrange assumption failed: one frame was expected to be ambiguous"
+        )
+        actual = many["candidates"][0]["algorithm"]
+        assert actual == self.ALGO, f"six frames should give {self.ALGO}, got {actual}"
+
+    def test_hex_frames_keep_reporting_form_hex(self):
+        # Assert -- the plural path must mean the same as packet_hex, so a
+        # consumer keying on ``form`` is not surprised by the arity.
+        actual = call_verb("detect", packets=[f.hex() for f in self._frames()])
+        assert actual["candidates"][0]["form"] == "hex", (
+            f"hex frames must report form='hex', got {actual['candidates'][0]}"
+        )
+
+    def test_base64_frames_are_decoded(self):
+        # Arrange -- base64 is a transport encoding, so it reads as binary.
+        import base64
+
+        frames = [base64.b64encode(f).decode() for f in self._frames()]
+
+        # Act
+        actual = call_verb("detect", packets=frames, packet_format="base64")
+
+        # Assert
+        assert actual["candidates"][0]["algorithm"] == self.ALGO, (
+            f"base64 frames should resolve, got {actual['candidates'][0]}"
+        )
+        assert actual["candidates"][0]["form"] == "binary", "base64 reads as binary"
+
+    def test_several_frames_reach_the_terminator_search(self):
+        """The arity change is what makes the delimiter work usable here.
+
+        A single packet is below the three-frame floor, so ``crc_detect`` could
+        never have set a delimiter aside no matter what the engine supported.
+        """
+        # Act
+        actual = call_verb("detect", packets=[f.hex() for f in self._frames(b"\r\n")])
+
+        # Assert
+        candidate = actual["candidates"][0]
+        assert candidate["algorithm"] == self.ALGO, (
+            f"CRLF-terminated frames should resolve, got {candidate}"
+        )
+        assert candidate["padding"]["trail"] == "0d0a", (
+            f"the delimiter must be reported, got {candidate.get('padding')}"
+        )
+
+    def test_an_empty_list_is_rejected(self):
+        with pytest.raises(ValueError, match="non-empty list of frames"):
+            call_verb("detect", packets=[])
+
+    def test_mixing_singular_and_plural_is_rejected(self):
+        # Assert -- the two forms are alternatives, not layers.
+        with pytest.raises(ValueError, match="either 'packets' or one of"):
+            call_verb("detect", packets=["00ff"], packet_hex="00ff")
 
 
 class TestCallVerbValidation:

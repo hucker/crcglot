@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### Fixed: a delimiter after the CRC no longer defeats detection
+
+A frame captured off a line-oriented transport keeps the transport's delimiter, and those bytes land after the CRC field. That moved the field `detect()` and `reverse_packets()` were looking for, so both came back empty on frames that were otherwise perfectly ordinary, in every input mode and for either byte order. Worse than the miss was the advice: the failure said "supply more varied frames" and "specify crc_bytes / crc_byte_order", which sends a caller hunting for more captures when the real problem is two bytes of line ending. That is a bad outcome for a person and a worse one for an agent, which will act on the note.
+
+Frames are now tried exactly as given first, and only if that finds nothing is a trailing delimiter reconsidered. The ordering matters for correctness, not just speed: frames-as-given *is* the hypothesis that a delimiter sits inside the CRC's span, which is how the `STX payload ETX BCC` framings work, and that reading has to keep winning. Those already worked and still do.
+
+A candidate delimiter has to be in the new `TERMINATORS` registry **and** end every frame, and there have to be at least three frames. Both limits buy accuracy rather than speed. Every extra candidate is another hypothesis, and the catalogue's narrow entries are cheap to match by accident: a 3-bit CRC fits random data one time in eight, so the expected count of spurious catalogue hits is already around 0.66 at a single frame before any delimiter is considered, and about 4 with them. At three frames it is roughly 0.03. Requiring the delimiter to end *every* frame does the rest, and it also removes any need for a length cap, since the CRC field differs frame to frame and a shared suffix therefore cannot reach back past it into the message.
+
+When a delimiter is set aside it is reported rather than silently dropped: `padding.trail` on the match, and named in `reverse`'s note. The caller needs that layout to build the other end of the protocol. Below three frames, a note says which delimiter was seen and how many more frames, **with different payloads**, would let it be tested. In a live-link workflow that is an instruction the caller can execute, unlike a confidence caveat.
+
+`TERMINATORS` / `TerminatorInfo` / `terminator_info()` follow the same record-plus-lookup shape as `TRAILERS` and `FORMATS`, so a consumer reads the vocabulary instead of keeping its own copy. Seeded with LF, CR, CRLF, NUL, ETX and EOT.
+
+Leading junk is deliberately not handled. A shared prefix is often real payload, an address or a function code, so stripping it would fail plausibly rather than obviously.
+
+### Fixed: `crc_detect` takes several packets
+
+`detect()` has always intersected its result across packets, and the CLI has always accepted several. The MCP tool took one, which meant the surface an agent reaches for could not use the engine's main defence against a coincidence. A single frame is frequently ambiguous: six Modbus frames identify as `crc16-modbus`, but any one of them on its own also fits `crc6-cdma2000-a`, and that is what the tool returned, with nothing to indicate the answer was arbitrary.
+
+`crc_detect` now accepts `packets` plus `packet_format`, the same names and semantics `crc_reverse` and `crc_identify_trailer` already use, so a frame set gathered for one passes to the other unchanged. The singular forms still work. This also makes the delimiter handling above reachable from `crc_detect`, which a single packet could never have used: three frames is the floor.
+
+### Fixed: `reverse_packets()` accepts the frame shapes `detect()` accepts
+
+A whole frame as a hex string detected fine but raised `ValueError` from `reverse_packets()`, which demanded `"data <sep> hexcrc"`. Reverse is exactly where a caller lands when detect finds nothing, so the one input shape that works for the first step threw an exception on the second. Both readings are now tried, text first so nothing that already resolved resolves differently.
+
+### Fixed: the format record no longer claims a shape the packets did not share
+
+`TextFormat` and `HexFormat` reported the first packet's `separator` and `prefix` as though they described every packet. Feeding `detect()` frames that differ (a space on some, a tab on others) still matched, and the record named one of them, so `encode_match()` would rebuild frames in a shape half the input never had.
+
+The match still stands, but a new `mixed` field names the fields that varied, and `encode_match()` raises `MixedFormatError` rather than invent a frame. `uppercase` is excluded from the comparison on purpose: it is inferred from the digits present, so a CRC value of `0x1234` is indistinguishable from a lower-case producer while `0xAB12` from the same producer reads as upper-case, and comparing it would flag nearly every real capture.
+
+### Added
+
+`BinaryFormat` (a `padding` record carrying a binary frame's trailing delimiter), `TERMINATORS` / `TerminatorInfo` / `terminator_info()`, `MixedFormatError`, and `UnknownTerminatorError`. All additive.
+
 ### Changed: the EXAMPLES.md gallery is three tours instead of a grid
 
 The gallery used to cross language against variant and render every cell for `crc32`: 27 blocks, plus 18 more crossing language against comment style. Most of that repeated itself. Seeing the same algorithm table-driven in eleven languages answers the language question eleven times and the variant question once, and Doxygen appeared three times in three languages saying nothing the first block did not.

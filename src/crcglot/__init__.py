@@ -93,8 +93,10 @@ from crcglot.catalogue import (
 )
 from crcglot.exceptions import (
     CrcglotError,
+    MixedFormatError,
     UnknownAlgorithmError,
     UnknownParamError,
+    UnknownTerminatorError,
     UnknownVerbError,
 )
 from crcglot.stream import CrcStream, crc_stream
@@ -104,6 +106,7 @@ if TYPE_CHECKING:
     # them without executing __getattr__.  Keep in sync with _LAZY.
     from crcglot._detect import (
         Attempt,
+        BinaryFormat,
         DetectMatch,
         DetectResult,
         HexFormat,
@@ -116,6 +119,11 @@ if TYPE_CHECKING:
         FormatInfo,
         FormatMatch,
         format_info,
+    )
+    from crcglot._terminators import (
+        TERMINATORS,
+        TerminatorInfo,
+        terminator_info,
     )
     from crcglot._invoke import call_verb
     from crcglot._encode import (
@@ -198,6 +206,7 @@ def _lazy_map() -> dict[str, str]:
         ),
         "crcglot._detect": (
             "Attempt",
+            "BinaryFormat",
             "DetectMatch",
             "DetectResult",
             "HexFormat",
@@ -210,6 +219,11 @@ def _lazy_map() -> dict[str, str]:
             "FormatInfo",
             "FormatMatch",
             "format_info",
+        ),
+        "crcglot._terminators": (
+            "TERMINATORS",
+            "TerminatorInfo",
+            "terminator_info",
         ),
         "crcglot._invoke": ("call_verb",),
         "crcglot._encode": (
@@ -322,18 +336,23 @@ __all__ = [
     "ATTRIBUTION",
     "FORMATS",
     "SELF_TEST_INPUTS",
+    "TERMINATORS",
     "TRAILERS",
     "Advisory",
     "AlgorithmInfo",
     "Attempt",
+    "BinaryFormat",
+    "TerminatorInfo",
     "TrailerInfo",
     "TrailerMatch",
     "TrailerResult",
     "Crc",
     "CrcStream",
     "CrcglotError",
+    "MixedFormatError",
     "UnknownAlgorithmError",
     "UnknownParamError",
+    "UnknownTerminatorError",
     "UnknownVerbError",
     "DetectMatch",
     "DetectResult",
@@ -368,6 +387,7 @@ __all__ = [
     "detect_iter",
     "format_info",
     "identify_trailer",
+    "terminator_info",
     "trailer_info",
     "self_test_vectors",
     "compute",
