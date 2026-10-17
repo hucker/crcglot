@@ -22,7 +22,10 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, Literal
 
+from mcp.server.mcpserver.exceptions import ToolError
+
 from crcglot import _invoke
+from crcglot.exceptions import CrcglotError
 from crcglot.verbs import VERBS, ParamSpec
 
 #: Verbs whose implementation takes a ``surface=`` keyword for the
@@ -99,7 +102,17 @@ def synthesize_tool(verb: str) -> Callable[..., dict[str, Any]]:
     def tool_fn(**kwargs: Any) -> dict[str, Any]:
         if pass_surface:
             kwargs["surface"] = "mcp"
-        return impl(**kwargs)
+        try:
+            return impl(**kwargs)
+        except (CrcglotError, ValueError, TypeError) as exc:
+            # Since mcp 2.1 the model sees only "Error executing tool <name>"
+            # for any exception except the SDK's own ToolError; the detail
+            # goes to the server log.  crcglot's input errors are written for
+            # the caller to act on (the value echoed, the valid options, a
+            # suggestion), so they are re-raised as the anticipated-failure
+            # type and arrive as ``is_error=True`` with the message in the
+            # content.  Anything else is a crash and keeps the SDK's handling.
+            raise ToolError(str(exc)) from exc
 
     tool_fn.__name__ = spec.mcp_tool
     tool_fn.__qualname__ = spec.mcp_tool

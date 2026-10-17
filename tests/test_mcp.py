@@ -23,6 +23,7 @@ import json
 import sys
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from crcglot import ALGORITHMS, LANGUAGES, VERBS, Crc, encode, generic_crc
 from crcglot.mcp.server import build_server
@@ -153,6 +154,32 @@ class TestCrcInfo:
         # Assert
         with pytest.raises(Exception, match="unknown algorithm"):
             _call("crc_info", {"name": "nope-not-a-crc"})
+
+
+class TestInputErrorsReachTheModel:
+    """crcglot's input errors arrive as the SDK's anticipated ``ToolError``.
+
+    mcp 2.1 started answering any exception other than its own ``ToolError``
+    with a bare "Error executing tool <name>", the detail going to the server
+    log.  crcglot's boundary errors are written for the caller to act on, so
+    ``_synth`` re-raises them as ``ToolError``.  mcp 2.0 wrapped every
+    exception with its message, so the contract holds across the extra's
+    whole ``>=2,<3`` range.  The ``match=`` tests above check the text; this
+    one checks the type, which is what decides whether the text is shown.
+    """
+
+    def test_a_catalogue_miss_is_a_plain_tool_error_carrying_its_message(self):
+        # Act
+        with pytest.raises(ToolError) as caught:
+            _call("crc_info", {"name": "nope-not-a-crc"})
+        # Assert -- the anticipated type itself, not the crash subclass.
+        actual_type = type(caught.value)
+        assert actual_type is ToolError, (
+            f"expected ToolError itself, got {actual_type.__name__}"
+        )
+        assert "unknown algorithm 'nope-not-a-crc'" in str(caught.value), (
+            f"crcglot's message must reach the client; got {caught.value}"
+        )
 
 
 # ---------------------------------------------------------------------------
