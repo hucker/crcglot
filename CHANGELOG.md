@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.32.0 — 2026-10-17
+
+This release is about startup cost.  Reading `LANGUAGES` or `VERBS` used to import all eleven code generators and every comment renderer, so a frontend that described crcglot's targets at startup paid for code it never ran, and `crcglot.__version__` went through `importlib.metadata`, a scan of every installed distribution that every generated file triggered.  Both are fixed.  No call returns anything different; the fast suite gained tests that hold the new import boundaries in place.
+
+### Changed: the registries no longer import the generators
+
+`targets.py` imported each `crcglot.lang.*` module at the top to bind its functions into `LanguageInfo`, and each of those modules imports `crcglot.comments`, which imports every renderer.  So the first read of `LANGUAGES` loaded 28 modules, and `VERBS`, `call_verb`, the CLI parser and the MCP server all build on `LANGUAGES`.  A `LanguageInfo` now carries the dotted path of its generator module, and `generator` / `generator_from_entry` / `combiner` are cached properties that import that one module on first read.  `LANGUAGES["c"].generator is crcglot.generate_c` still holds, and reading it leaves Rust cold.
+
+`compute()`, `encode()` and `verify()` on bytes stop loading the detection layer too.  `_encode.py` had imported it at module level for two `isinstance` checks and the text branch of `verify()`; those imports moved inside the functions.
+
+Measured in a fresh process, Python 3.14.2 on Windows, median of 21 runs, in a host that had already imported `typing`, `dataclasses`, `re` and `json`, which is what an application looks like.  The module count is the crcglot modules in `sys.modules` afterwards; on that machine each module file costs about 0.7 ms to open, so the count is most of the story:
+
+| Path | v0.31.0 | v0.32.0 |
+| --- | ---: | ---: |
+| `LANGUAGES` | 35 ms, 33 modules | 13 ms, 7 modules |
+| `VERBS` | 39 ms, 34 | 33 ms, 21 |
+| `call_verb` (bound, not called) | 65 ms, 43 | 59 ms, 31 |
+| `import crcglot.cli` | 47 ms, 39 | 44 ms, 27 |
+| `compute()` on bytes | 14 ms, 8 | 10 ms, 6 |
+
+In a bare interpreter the same paths go from 56 to 36 ms (`LANGUAGES`) and 96 to 58 ms (`VERBS`).  `VERBS` still loads `crcglot.comments` (12 modules, about 9 ms) to list the comment styles; making that registry cheap is a separate change.
+
+One shape change if you construct a `LanguageInfo` yourself or introspect its fields: the constructor takes `module=` instead of the three callables, and `dataclasses.fields(LanguageInfo)` no longer lists them.  Attribute reads are unchanged, and nothing outside `targets.py` constructed one.
+
+### Changed: the version is written once, in `_version.py`
+
+`crcglot.__version__` resolved through `importlib.metadata`, which walks every `dist-info` in `site-packages`: 62 ms in the host above, 170 ms in a bare interpreter, and more with a fuller `site-packages`.  Every generated file read it for the provenance block, so `generate_c("crc16-modbus")` took 80 ms of which the version lookup was most, and `crcglot version` paid it too.  The version now lives in `src/crcglot/_version.py`; `pyproject.toml` declares it dynamic and points setuptools at the attribute, which it reads statically, so the sdist, the wheels and the package carry the same string from one line.  `__version__` now costs 10 ms including `import crcglot`, and `generate_c()` 33 ms.
+
+For contributors: `release_prep.py` bumps `_version.py`, and `[tool.uv] cache-keys` lists it so uv rebuilds the editable install on a bump.  The test that compares `crcglot.__version__` with `importlib.metadata.version("crcglot")` used to compare the metadata with itself; it now guards drift between the stamp and the installed package.
+
+### Fixed: the custom polynomial example in docs/api.md
+
+It passed `table=True` to `generator_from_entry`, a kwarg that went away in v0.23; the example now reads `variant="table"`.
+
+### Other
+
+- CI builds wheels with cibuildwheel 4.2.0, off the deprecated Node 20 actions.
+- `tests/goldens/verbs_manifest.json` pins the verb manifest (every verb's params, choices, defaults and help) so a change to how it is built cannot move what it says; each import boundary above has a test in `tests/test_lazy_init.py` that runs in a fresh subprocess.
+- `DECISIONS.md` records the Python 3.15.0rc2 readiness run (the abi3 wheel loaded and matched all 113 check values; 3.15 does not join the wheel matrix) and the silent-fallback finding behind it, and the reasoning behind this release's import changes.
+
 ## v0.31.0 — 2026-08-14
 
 Frames captured off a serial link no longer defeat CRC identification.  A line-oriented transport appends its delimiter after the CRC field, which moved the field `detect()` and `reverse_packets()` look for, so both returned nothing on frames that were otherwise ordinary and printed advice that pointed away from the cause.
