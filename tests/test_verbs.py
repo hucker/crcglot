@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from pathlib import Path
 
 import pytest
 
@@ -235,6 +236,35 @@ class TestJsonSerializable:
         assert actual_params == expected_params, (
             f"{verb}: params lost in round trip"
         )
+
+
+class TestManifestSnapshot:
+    """The manifest is pinned to ``tests/goldens/verbs_manifest.json``.
+
+    termapy builds its typed commands from ``VERBS`` at plugin load, so a
+    change to any verb's params, choices, defaults or help is a change to
+    its command surface.  The golden was captured before the registries were
+    made lazy (v0.31.0), so a refactor that touches how the manifest is built
+    cannot move what it says without this test naming the verb.  Regenerate
+    the golden only for a deliberate manifest change, in the same commit.
+    """
+
+    _GOLDEN = Path(__file__).parent / "goldens" / "verbs_manifest.json"
+
+    def test_manifest_matches_the_golden(self):
+        # Arrange
+        expected = json.loads(self._GOLDEN.read_text(encoding="utf-8"))
+        # Act -- the same projection that produced the golden.
+        live = {name: dataclasses.asdict(spec) for name, spec in VERBS.items()}
+        actual = json.loads(json.dumps(live))
+        # Assert -- verb set first, then the first verb whose record moved.
+        assert set(actual) == set(expected), (
+            f"verb set changed: {sorted(set(actual) ^ set(expected))}"
+        )
+        for name in expected:
+            assert actual[name] == expected[name], (
+                f"verb {name!r} no longer matches goldens/verbs_manifest.json"
+            )
 
 
 class TestCallVerb:
