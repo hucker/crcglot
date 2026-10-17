@@ -23,9 +23,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from functools import cached_property
+from importlib import import_module
 from typing import TYPE_CHECKING, Callable, Literal, cast
 
-from crcglot._helpers import _func_name, _join_naming, combine_concat
+from crcglot._helpers import _func_name, _join_naming
 from crcglot.catalogue import (
     ALGORITHMS,
     AlgorithmInfo,
@@ -36,28 +38,6 @@ from crcglot.catalogue import (
 
 if TYPE_CHECKING:
     from crcglot.comments import StyleInfo
-from crcglot.lang.c import combine_c, generate_c, generate_c_from_entry
-from crcglot.lang.csharp import (
-    combine_csharp,
-    generate_csharp,
-    generate_csharp_from_entry,
-)
-from crcglot.lang.go import combine_go, generate_go, generate_go_from_entry
-from crcglot.lang.java import (
-    combine_java,
-    generate_java,
-    generate_java_from_entry,
-)
-from crcglot.lang.lua import combine_lua, generate_lua, generate_lua_from_entry
-from crcglot.lang.python import generate_python, generate_python_from_entry
-from crcglot.lang.rust import generate_rust, generate_rust_from_entry
-from crcglot.lang.typescript import (
-    generate_typescript,
-    generate_typescript_from_entry,
-)
-from crcglot.lang.verilog import generate_verilog, generate_verilog_from_entry
-from crcglot.lang.vhdl import generate_vhdl, generate_vhdl_from_entry
-from crcglot.lang.zig import generate_zig, generate_zig_from_entry
 
 
 VARIANT_ORDER: tuple[str, ...] = ("bitwise", "table", "slice8")
@@ -368,6 +348,13 @@ class LanguageInfo:
         default_naming: The idiomatic convention emitted when ``--naming``
             is not given -- snake for C / Rust / Python / Verilog / VHDL,
             pascal for Go / C#, camel for Java / TypeScript.
+        module: Dotted path of the language's generator module
+            (``"crcglot.lang.c"``).  It exports ``generate_<code>``,
+            ``generate_<code>_from_entry`` and ``combine_<code>``, reached
+            through the three properties below.  The module is imported on
+            the first read of any of them, so building ``LANGUAGES`` (and
+            everything derived from it: ``VERBS``, the CLI parser, the MCP
+            tool list) loads no generator.
         generator: Name-lookup generator -- ``generator(name, ...)``.
         generator_from_entry: Entry-dispatch generator --
             ``generator_from_entry(name, AlgorithmInfo, ...)``.
@@ -397,9 +384,7 @@ class LanguageInfo:
     variants: frozenset[str]
     naming: frozenset[str]
     default_naming: str
-    generator: Callable
-    generator_from_entry: Callable
-    combiner: Callable
+    module: str
     emoji: str
     display_name: str
     stdlib_crc32: str | None = None
@@ -407,6 +392,28 @@ class LanguageInfo:
     #: class).  ``"snake"`` for most targets; ``"pascal"`` for C# / Java, whose
     #: file is named after a PascalCase class.
     filename_case: Literal["snake", "pascal"] = "snake"
+
+    # The three generator callables resolve on first read and are then cached
+    # in the instance ``__dict__`` (``cached_property`` writes there directly,
+    # which a frozen dataclass permits).  Importing lazily is what keeps
+    # ``LANGUAGES`` cheap: a frontend builds its command set from the registry
+    # at startup and never generates code on that path.
+    @cached_property
+    def generator(self) -> Callable:
+        """The name-lookup generator; reading it imports the language module."""
+        return getattr(import_module(self.module), f"generate_{self.code}")
+
+    @cached_property
+    def generator_from_entry(self) -> Callable:
+        """The entry-dispatch generator; reading it imports the language module."""
+        return getattr(
+            import_module(self.module), f"generate_{self.code}_from_entry"
+        )
+
+    @cached_property
+    def combiner(self) -> Callable:
+        """The multi-output combiner; reading it imports the language module."""
+        return getattr(import_module(self.module), f"combine_{self.code}")
 
     def variants_for_width(self, width: int) -> tuple[str, ...]:
         """Implementation variants this language supports at a given width.
@@ -729,7 +736,7 @@ class LanguageInfo:
         if multi:
             outputs = [_gen(d, a) for d, a in items]
             if self.code == "java":
-                result = combine_java(outputs, stem=_pascal_base(file_base))
+                result = self.combiner(outputs, stem=_pascal_base(file_base))
             else:
                 result = self.combiner(outputs, file_base)
         else:
@@ -737,7 +744,7 @@ class LanguageInfo:
             if self.code == "java":
                 # Methods follow name= when given, else the algorithm; the class
                 # (and file) is the PascalCase file_base via the combiner.
-                result = combine_java(
+                result = self.combiner(
                     [_gen(disp, algo, nm=name)], stem=_pascal_base(file_base)
                 )
             elif symbol is not None:
@@ -747,8 +754,8 @@ class LanguageInfo:
             else:
                 result = _gen(disp, algo)
 
-        # The generator fields are typed only as ``Callable``, so the result is
-        # untyped here; it is a string (or a header/source pair for C).
+        # The generator properties are typed only as ``Callable``, so the result
+        # is untyped here; it is a string (or a header/source pair for C).
         result = cast("str | tuple[str, str]", result)
         stem = _pascal_base(file_base) if self.filename_case == "pascal" else file_base
         if self.filename_case == "pascal" and not _is_legal_class_identifier(stem):
@@ -923,9 +930,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         naming=_ALL_CASES,
         default_naming="snake",
-        generator=generate_c,
-        generator_from_entry=generate_c_from_entry,
-        combiner=combine_c,
+        module="crcglot.lang.c",
         emoji="\u2699\uFE0F",  # ⚙️ gear (U+2699 + VS16)
         display_name="C / C++",
         stdlib_crc32="zlib's `crc32()` (`<zlib.h>`)",
@@ -936,9 +941,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         naming=_PASCAL_CAMEL,
         default_naming="pascal",
-        generator=generate_csharp,
-        generator_from_entry=generate_csharp_from_entry,
-        combiner=combine_csharp,
+        module="crcglot.lang.csharp",
         emoji="#\uFE0F\u20E3",  # #️⃣ keycap number sign (was 💠 -- confusable with TypeScript's 🔷)
         display_name="C#",
         stdlib_crc32="`System.IO.Hashing.Crc32` (.NET 6+)",
@@ -950,9 +953,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         naming=_PASCAL_CAMEL,
         default_naming="pascal",
-        generator=generate_go,
-        generator_from_entry=generate_go_from_entry,
-        combiner=combine_go,
+        module="crcglot.lang.go",
         emoji="\U0001F6A6",  # 🚦 vertical traffic light
         display_name="Go",
         stdlib_crc32="the `hash/crc32` stdlib (`crc32.ChecksumIEEE`)",
@@ -963,9 +964,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         naming=_CAMEL_PASCAL,
         default_naming="camel",
-        generator=generate_java,
-        generator_from_entry=generate_java_from_entry,
-        combiner=combine_java,
+        module="crcglot.lang.java",
         emoji="\u2615",  # ☕ hot beverage (coffee)
         display_name="Java",
         stdlib_crc32="`java.util.zip.CRC32`",
@@ -977,9 +976,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE,  # no slice8: interpreter overhead, like Python
         naming=_SNAKE_CAMEL,
         default_naming="snake",  # the stdlib's own style (string.byte, ...)
-        generator=generate_lua,
-        generator_from_entry=generate_lua_from_entry,
-        combiner=combine_lua,
+        module="crcglot.lang.lua",
         emoji="\U0001F319",  # 🌙 crescent moon ("lua" is Portuguese for moon)
         display_name="Lua",
         # No stdlib_crc32: Lua ships no CRC in its standard library at all --
@@ -991,9 +988,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE,
         naming=_SNAKE_ONLY,
         default_naming="snake",
-        generator=generate_python,
-        generator_from_entry=generate_python_from_entry,
-        combiner=combine_concat,
+        module="crcglot.lang.python",
         emoji="\U0001F40D",  # 🐍 snake
         display_name="Python",
         stdlib_crc32="`zlib.crc32`",
@@ -1004,9 +999,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         naming=_SNAKE_ONLY,
         default_naming="snake",
-        generator=generate_rust,
-        generator_from_entry=generate_rust_from_entry,
-        combiner=combine_concat,
+        module="crcglot.lang.rust",
         emoji="\U0001F980",  # 🦀 crab
         display_name="Rust",
         stdlib_crc32="the `crc32fast` crate (`crc32fast::hash`)",
@@ -1017,9 +1010,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         naming=_CAMEL_PASCAL,  # snake_case is non-idiomatic in TS (ESLint flags it)
         default_naming="camel",
-        generator=generate_typescript,
-        generator_from_entry=generate_typescript_from_entry,
-        combiner=combine_concat,
+        module="crcglot.lang.typescript",
         emoji="\U0001F537",  # 🔷 large blue diamond
         display_name="TypeScript",
         stdlib_crc32="the `crc-32` npm package (`CRC32.buf`)",
@@ -1030,9 +1021,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_ONLY,
         naming=_SNAKE_ONLY,
         default_naming="snake",
-        generator=generate_verilog,
-        generator_from_entry=generate_verilog_from_entry,
-        combiner=combine_concat,
+        module="crcglot.lang.verilog",
         emoji="\U0001F527",  # 🔧 wrench
         display_name="Verilog",
     ),
@@ -1042,9 +1031,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_ONLY,
         naming=_SNAKE_ONLY,
         default_naming="snake",
-        generator=generate_vhdl,
-        generator_from_entry=generate_vhdl_from_entry,
-        combiner=combine_concat,
+        module="crcglot.lang.vhdl",
         emoji="\U0001F50C",  # 🔌 electric plug
         display_name="VHDL",
     ),
@@ -1054,9 +1041,7 @@ LANGUAGES: dict[str, LanguageInfo] = {
         variants=_BITWISE_TABLE_SLICE8,
         naming=_CAMEL_SNAKE,
         default_naming="camel",  # Zig style guide: functions are camelCase
-        generator=generate_zig,
-        generator_from_entry=generate_zig_from_entry,
-        combiner=combine_concat,
+        module="crcglot.lang.zig",
         emoji="\u26A1",  # ⚡ high voltage (the Zig logo's lightning bolt)
         display_name="Zig",
         # No stdlib_crc32: std.hash.Crc32 exists but is portable software

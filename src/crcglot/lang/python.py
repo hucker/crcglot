@@ -36,6 +36,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    combine_concat,
     resolve_variant,
     crc_function_names,
 )
@@ -355,3 +356,9 @@ def generate_python_from_entry(
     # ``_crcglot_table_<symbol>`` at this single assembly point.
     module = module.replace("_TABLE", f"_crcglot_table_{base}")
     return module
+
+
+# The registry reaches every language's combiner as ``combine_python``.
+# Python bundles by plain concatenation: per-symbol tables already keep
+# several algorithms in one file collision-free.
+combine_python = combine_concat

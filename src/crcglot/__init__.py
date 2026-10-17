@@ -67,10 +67,13 @@ Import cost: ``import crcglot`` eagerly loads only the compute core
 (the catalogue + engine and the streaming API).  Everything else --
 the per-language generators, detection, reverse-engineering, checksum
 identification -- resolves on first attribute access (PEP 562), so a
-consumer that only computes CRCs never pays for the rest.  The public
-surface is identical either way; the one observable difference is that
-an ``ImportError`` from an unused layer would surface at first use
-rather than at ``import crcglot``.
+consumer that only computes CRCs never pays for the rest.  The
+registries are cheap too: ``LANGUAGES`` and ``VERBS`` describe every
+target without importing a generator; a language's module loads on the
+first read of its ``LanguageInfo.generator`` (or of a ``generate_*``
+name here).  The public surface is identical either way; the one
+observable difference is that an ``ImportError`` from an unused layer
+would surface at first use rather than at ``import crcglot``.
 """
 
 from __future__ import annotations

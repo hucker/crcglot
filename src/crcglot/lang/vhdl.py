@@ -37,7 +37,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from crcglot._helpers import _func_name, _variant_to_flags, resolve_variant, crc_function_names
+from crcglot._helpers import (
+    _func_name,
+    _variant_to_flags,
+    combine_concat,
+    resolve_variant,
+    crc_function_names,
+)
 from crcglot._vectors import goldens_for
 from crcglot.catalogue import ALGORITHMS, AlgorithmInfo, _reflect
 from crcglot.comments import (
@@ -408,3 +414,9 @@ def generate_vhdl_from_entry(
     lines.append(f"end package body;")
 
     return "\n".join(lines)
+
+
+# The registry reaches every language's combiner as ``combine_vhdl``.
+# VHDL bundles by plain concatenation: per-symbol tables already keep
+# several algorithms in one file collision-free.
+combine_vhdl = combine_concat

@@ -13,18 +13,21 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from crcglot.catalogue import ALGORITHMS, Crc, generic_crc, unknown_algorithm_error
-from crcglot._detect import (
-    BinaryFormat,
-    DetectMatch,
-    Endianness,
-    HexFormat,
-    TextFormat,
-    _parse_text,
-    _read_hex_crc,
-)
 from crcglot.exceptions import MixedFormatError
 
-if TYPE_CHECKING:  # avoids a cycle: _formats imports _detect, which _encode uses
+if TYPE_CHECKING:
+    # ``_detect`` is the detection layer (1,500 lines, six dataclasses).  It is
+    # named here for annotations only and imported inside the two functions
+    # that need it at run time, so ``compute()`` / ``encode()`` / ``verify()``
+    # on bytes never load it.  ``_formats`` stays out of the top level to
+    # avoid a cycle: it imports ``_detect``, which ``_encode`` uses.
+    from crcglot._detect import (
+        BinaryFormat,
+        DetectMatch,
+        Endianness,
+        HexFormat,
+        TextFormat,
+    )
     from crcglot._formats import FormatMatch
 
 
@@ -204,6 +207,8 @@ def encode_match(
         >>> encode_match("123456789", m)
         '123456789 cbf43926'
     """
+    from crcglot._detect import BinaryFormat, HexFormat
+
     _reject_mixed(match.padding)
     if match.padding is None:
         if not isinstance(data, (bytes, bytearray)):
@@ -419,6 +424,8 @@ def verify(
     """
     algo = _lookup(algorithm)
     if isinstance(packet, str):
+        from crcglot._detect import _parse_text, _read_hex_crc
+
         parsed = _parse_text(packet, encoding)
         if parsed is None:
             raise ValueError(

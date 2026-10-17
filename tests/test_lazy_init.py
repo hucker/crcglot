@@ -178,3 +178,87 @@ class TestSurfaceIntrospection:
         # importing them must fail loudly, not silently half-work.
         with pytest.raises(ModuleNotFoundError):
             import crcglot.detect  # type: ignore[import-not-found]  # noqa: F401  # ty: ignore[unresolved-import]
+
+
+class TestRegistriesLoadNoGenerators:
+    """The registries describe every target without importing one.
+
+    termapy builds its command set from ``LANGUAGES`` / ``VERBS`` at plugin
+    load and only generates code when a command runs, so the registry path
+    must stay free of ``crcglot.lang.*`` (and the vectors module every
+    generator pulls in).  A language's module loads on the first read of its
+    ``LanguageInfo.generator``.  The compute verbs get the same treatment:
+    ``compute()`` / ``verify()`` on bytes must not drag in the detection
+    layer.  Fresh subprocess per claim, as above.
+    """
+
+    _LEAK = (
+        "leaked = sorted(m for m in sys.modules"
+        " if m.startswith(('crcglot.lang', 'crcglot._vectors')));"
+    )
+
+    def test_languages_registry_loads_no_generator(self):
+        # Act -- build the registry and read the metadata a UI reads.
+        out = _run(
+            "import sys, crcglot;"
+            "rows = [(i.extensions, i.variants, i.display_name, i.naming_infos)"
+            " for i in crcglot.LANGUAGES.values()];"
+            + self._LEAK
+            + "print(bool(rows), leaked)"
+        )
+        # Assert
+        assert out == "True []", (
+            f"LANGUAGES must not load a generator (got {out!r})"
+        )
+
+    def test_verb_manifest_loads_no_generator(self):
+        # Act -- project every spec (params, choices, defaults, help) to data.
+        out = _run(
+            "import sys, dataclasses, crcglot;"
+            "n = sum(len(dataclasses.asdict(s)) for s in crcglot.VERBS.values());"
+            + self._LEAK
+            + "print(n > 0, leaked)"
+        )
+        # Assert
+        assert out == "True []", (
+            f"VERBS must not load a generator (got {out!r})"
+        )
+
+    def test_reading_a_generator_loads_only_that_language(self):
+        # Act
+        out = _run(
+            "import sys, crcglot;"
+            "g = crcglot.LANGUAGES['c'].generator;"
+            "print(g is crcglot.generate_c,"
+            " 'crcglot.lang.c' in sys.modules,"
+            " 'crcglot.lang.rust' in sys.modules)"
+        )
+        # Assert -- the real function, its module, and no sibling.
+        assert out == "True True False", (
+            f"LANGUAGES['c'].generator must bind lang.c alone (got {out!r})"
+        )
+
+    def test_compute_and_verify_on_bytes_load_no_detection(self):
+        # Act -- the common one-call uses, bytes in and out.
+        out = _run(
+            "import sys, crcglot;"
+            "v = crcglot.compute(b'123456789', 'crc16-modbus');"
+            "ok = crcglot.verify(b'123456789\\x4b\\x37', 'crc16-modbus').valid;"
+            "print(hex(v), ok, 'crcglot._detect' in sys.modules)"
+        )
+        # Assert
+        assert out == "0x4b37 True False", (
+            f"compute/verify on bytes must not load _detect (got {out!r})"
+        )
+
+    def test_verify_on_text_loads_detection_and_still_verifies(self):
+        # Act -- the str form parses a "data <sep> hexcrc" frame via _detect.
+        out = _run(
+            "import sys, crcglot;"
+            "ok = crcglot.verify('123456789 4b37', 'crc16-modbus').valid;"
+            "print(ok, 'crcglot._detect' in sys.modules)"
+        )
+        # Assert
+        assert out == "True True", (
+            f"text verify must parse via _detect (got {out!r})"
+        )

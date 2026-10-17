@@ -116,6 +116,7 @@ class TestLanguageMetadata:
         assert callable(info.generator_from_entry), (
             f"{code}: generator_from_entry not callable"
         )
+        assert callable(info.combiner), f"{code}: combiner not callable"
 
     def test_c_has_two_extensions_others_one(self):
         # Assert -- C is the only target that emits two files (.h + .c).

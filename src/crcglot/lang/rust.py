@@ -39,6 +39,7 @@ from crcglot._helpers import (
     _hex,
     _mask,
     _variant_to_flags,
+    combine_concat,
     resolve_variant,
     crc_function_names,
 )
@@ -580,3 +581,9 @@ def generate_rust_from_entry(
     module = module.replace("CRC_SLICE_TABLES", f"CRCGLOT_SLICE_{sym}")
     module = module.replace("CRC_TABLE", f"CRCGLOT_TABLE_{sym}")
     return module
+
+
+# The registry reaches every language's combiner as ``combine_rust``.
+# Rust bundles by plain concatenation: per-symbol tables already keep
+# several algorithms in one file collision-free.
+combine_rust = combine_concat

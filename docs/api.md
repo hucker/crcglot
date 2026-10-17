@@ -68,6 +68,7 @@ Each entry is a frozen `LanguageInfo` dataclass with:
 - `generator(name, ...)`: name-lookup callable (returns source string, or `(header, source)` tuple for C)
 - `generator_from_entry(name, algo, ...)`: bypass the catalogue with a custom `AlgorithmInfo`
 - `combiner(outputs, stem)`: merge several generator outputs into one file (powers multi-algorithm bundling); per-symbol tables keep the merge collision-free
+- `module`: dotted path of the language's generator module.  The three callables above are read-only properties that import it on first access, so `LANGUAGES` itself (and everything built from it: `VERBS`, the CLI parser, the MCP tool list) loads no generator.  A frontend can describe every target at startup and pays for a language only when it generates code
 - `emoji`: single-grapheme pictographic identifier for terminals / docs
 - `display_name`: human-readable name (e.g. `"C / C++"`, `"TypeScript"`), distinct from `code`
 - UI helpers: `generate_files(...)` returns ready-to-write `GeneratedFile`s; `format_name(stem, kind)` / `format_filename(stem)` case a stem to the identifier or filename crcglot will emit; `validate_symbol(stem)` pre-checks a name (identifier shape only — it does not know any target's keywords, so a `symbol=` that collides with one is emitted verbatim and fails at compile time); module-level `default_stem(algorithm)` gives crcglot's default stem (the algorithm name, or `crc_bundle` for a bundle).  A UI reads its name field from these instead of hardcoding per-language rules
@@ -148,7 +149,7 @@ from crcglot import LANGUAGES, custom_algorithm
 
 algo = custom_algorithm(width=16, poly=0x1234, init=0xFFFF,
                         refin=True, refout=True, desc="My custom CRC-16")
-code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, table=True)
+code = LANGUAGES["rust"].generator_from_entry("my_crc16", algo, variant="table")
 ```
 
 This is the Python twin of the CLI's `--custom width=... poly=...` tokens and the MCP tools' `custom_params` argument; all three build their entries through the same helper.  (The pieces stay public if you need them: `Crc` is the bare parameter set, `generic_crc(b"123456789", spec)` computes a check value, and `AlgorithmInfo` can be constructed field by field.)
