@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.32.1 — 2026-10-17
+
+The first build of the 0.32 line to reach PyPI.  v0.32.0 was tagged earlier today; its wheels built and passed their in-wheel tests, but the release gate failed on the MCP tests described below, so nothing was uploaded.  Everything in the v0.32.0 entry ships here, plus one fix.
+
+### Fixed: MCP tool errors reach the model again under mcp 2.1 and later
+
+Since mcp 2.1.0 the SDK answers any exception other than its own `ToolError` with a bare `Error executing tool <name>` and keeps the detail in the server log.  crcglot's tools raised their errors straight through, so every input error written for the caller (the value echoed, the valid options, a suggestion) had stopped reaching the model on any current SDK: a client asking `crc_info` about a misspelled algorithm saw only that the tool failed.  The `crcglot[mcp]` extra allows `mcp>=2,<3` and the project's lockfile is not committed, so a fresh install resolved 2.3.0 while the development box still had 2.0.0, which wrapped every exception together with its message.  That is how the suite passed locally and failed in CI.
+
+The server now re-raises crcglot's input errors (`CrcglotError`, `ValueError` and `TypeError` at the tool boundary) as `ToolError` with the original message, so the call comes back flagged as an error with the text in its content, which is what the SDK does for failures a tool anticipates.  Anything else is a crash and keeps the SDK's handling.  Checked under mcp 2.3.0 and 2.0.0.  A new test pins the exception type, because the existing tests only matched the text and would pass on 2.0 either way.
+
 ## v0.32.0 — 2026-10-17
 
 This release is about startup cost.  Reading `LANGUAGES` or `VERBS` used to import all eleven code generators and every comment renderer, so a frontend that described crcglot's targets at startup paid for code it never ran, and `crcglot.__version__` went through `importlib.metadata`, a scan of every installed distribution that every generated file triggered.  Both are fixed.  No call returns anything different; the fast suite gained tests that hold the new import boundaries in place.
