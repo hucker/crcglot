@@ -11,7 +11,7 @@ Usage:
 What it does:
     1. Sanity-check git state (on main, clean, synced) + lint gate (ruff, ty)
     2. Cut rel/v<version> branch from main
-    3. Bump version in pyproject.toml
+    3. Bump version in src/crcglot/_version.py (pyproject declares it dynamic)
     4. Regenerate EXAMPLES.md (the generated gallery)
     5. Run the FULL pytest suite; refresh the README test-count + coverage badges
     6. Insert a CHANGELOG stub (raw git-log bullets + a TODO marker)
@@ -79,20 +79,26 @@ def assert_zero_lint() -> None:
 # ── version bumping ──────────────────────────────────────────────────────────────
 
 
-def bump_pyproject(version: str) -> None:
-    path = REPO_ROOT / "pyproject.toml"
+def bump_version_file(version: str) -> None:
+    """Rewrite the one ``__version__ = "..."`` line in src/crcglot/_version.py.
+
+    pyproject.toml declares the version dynamic and points setuptools at this
+    attribute, so this file is the only place the number is written.
+    """
+    rel = "src/crcglot/_version.py"
+    path = REPO_ROOT / rel
     text = path.read_text(encoding="utf-8")
     new_text, n = re.subn(
-        r'^version = "[^"]+"',
-        f'version = "{version}"',
+        r'^__version__ = "[^"]+"',
+        f'__version__ = "{version}"',
         text,
         count=1,
         flags=re.MULTILINE,
     )
     if n != 1:
-        die('could not find a single `version = "..."` line in pyproject.toml')
+        die(f'could not find a single `__version__ = "..."` line in {rel}')
     path.write_text(new_text, encoding="utf-8")
-    ok(f"pyproject.toml -> {version}")
+    ok(f"{rel} -> {version}")
 
 
 # ── generated docs ──────────────────────────────────────────────────────────────
@@ -320,7 +326,7 @@ def commit_release(version: str) -> None:
     fail ``git add``.
     """
     files = [
-        "pyproject.toml",
+        "src/crcglot/_version.py",
         "EXAMPLES.md",
         "README.md",
         "CHANGELOG.md",
@@ -365,7 +371,7 @@ def main() -> None:
     cut_release_branch(version)
 
     step(3, "Bumping version...")
-    bump_pyproject(version)
+    bump_version_file(version)
 
     step(4, "Regenerating EXAMPLES.md...")
     regenerate_examples()

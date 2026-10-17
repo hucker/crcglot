@@ -314,15 +314,11 @@ def __getattr__(name: str) -> object:
     if name in _LAZY_SUBMODULES:
         return import_module(f"crcglot.{name}")
     if name == "__version__":
-        # Resolved on demand: importlib.metadata scans every dist-info in
-        # site-packages (~70 ms here) -- by far the most expensive part of
-        # the old eager import, and most consumers never read it.
-        try:
-            from importlib.metadata import version
+        # One small module, read on demand so the base import stays as it
+        # is.  It replaced an importlib.metadata lookup that scanned every
+        # installed distribution (60-170 ms on a typical site-packages).
+        from crcglot._version import __version__ as ver
 
-            ver = version("crcglot")
-        except Exception:  # pragma: no cover - source tree without metadata
-            ver = "0.0.0+unknown"
         globals()["__version__"] = ver
         return ver
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

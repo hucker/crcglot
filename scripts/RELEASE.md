@@ -67,7 +67,8 @@ green.
 python scripts/release_prep.py 0.8.0      # bare version, no leading 'v'
 ```
 
-This cuts `rel/v0.8.0`, bumps `pyproject.toml`, refreshes `uv.lock`,
+This cuts `rel/v0.8.0`, bumps `src/crcglot/_version.py` (the one place the
+version is written; `pyproject.toml` declares it dynamic),
 regenerates `EXAMPLES.md`, runs the full suite, refreshes the README
 test-count + coverage badges, and inserts a CHANGELOG stub.  It stops on
 the release branch with an uncommitted-to-final commit already made.

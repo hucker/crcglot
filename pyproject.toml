@@ -1,6 +1,6 @@
 [project]
 name = "crcglot"
-version = "0.31.0"
+dynamic = ["version"]
 description = "Deterministic CRC toolkit: compute, detect, reverse-engineer, verify, and generate execution-verified code (C/C++, C#, Go, Java, Lua, Python, Rust, TypeScript, Zig, Verilog, VHDL). Catalogue-driven, zero-dependency core, optional MCP server for AI assistants."
 license = "MIT"
 requires-python = ">=3.11"
@@ -68,6 +68,11 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# The version is written once, in src/crcglot/_version.py; setuptools reads
+# the attribute statically, so a build does not import the package.
+[tool.setuptools.dynamic]
+version = { attr = "crcglot._version.__version__" }
 
 # Declare the C extension.  ``py-limited-api = true`` + Py_LIMITED_API
 # macro builds against CPython's *Stable ABI* pinned at 3.11: one wheel
@@ -163,6 +168,14 @@ show_missing = true
 # tests exec()ing generated Python).  Adopting new rule families is a
 # deliberate decision to make here, not upstream's release schedule.
 select = ["E4", "E7", "E9", "F"]
+
+# uv rebuilds the editable install when one of these files changes.  Its
+# default key is pyproject.toml alone, so without _version.py listed a
+# version bump would leave the installed metadata stale until the next
+# explicit sync, and the test pinning crcglot.__version__ to
+# importlib.metadata would fail inside release_prep.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/crcglot/_version.py" }]
 
 [dependency-groups]
 dev = [

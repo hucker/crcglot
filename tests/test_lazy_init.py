@@ -116,10 +116,18 @@ class TestLazyResolution:
         assert out == "True True True", f"star import incomplete (got {out!r})"
 
     def test_version_resolves_lazily(self):
-        # Assert -- __version__ is real despite not loading at import time.
-        assert crcglot.__version__, "__version__ must resolve on demand"
-        assert crcglot.__version__ != "0.0.0+unknown" or True, (
-            "smoke: attribute access must not raise"
+        # Act -- fresh interpreter: the stamp module must not load on bare
+        # import, and the attribute must read it.
+        out = _run(
+            "import sys, crcglot;"
+            "before = 'crcglot._version' in sys.modules;"
+            "v = crcglot.__version__;"
+            "from crcglot._version import __version__ as stamp;"
+            "print(before, v == stamp, bool(v))"
+        )
+        # Assert
+        assert out == "False True True", (
+            f"__version__ must resolve on demand from _version.py (got {out!r})"
         )
 
 
