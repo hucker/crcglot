@@ -7,4 +7,4 @@ and ``crcglot.__version__`` resolves to it, so the package, the wheel and
 where ``importlib.metadata`` scanned every installed distribution.
 """
 
-__version__ = "0.33.0"
+__version__ = "0.33.1"

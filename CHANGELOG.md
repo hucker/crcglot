@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.33.1 — 2026-10-20
+
+The first build of the 0.33 line to reach PyPI.  v0.33.0 was tagged earlier today; its Windows and macOS wheels built and passed their in-wheel tests, but both Linux wheel jobs failed in cibuildwheel's post-repair `abi3audit --strict` on the new `cp315-abi3.abi3t` wheel, so the publish job never ran and nothing was uploaded.  Everything in the v0.33.0 entry ships here, plus the one fix below.
+
+### Fixed: the abi3t wheel passes its audit on Linux
+
+abi3audit 0.0.26 predates PEP 793.  On ELF wheels it inspects exported symbols as well as imports, so it reported the module's own `PyModExport__c` entry point as a symbol outside the stable ABI; the Windows and macOS wheels of the same source passed because only imports are inspected there, and the `cp311-abi3` wheels audit clean everywhere.  The audit stays on: for the `cp315t` builds cibuildwheel now runs `scripts/abi3t_audit.py`, which invokes the same `abi3audit --strict --report` and passes only when every reported violation is that one export, failing on any other symbol or any version mismatch as before.  A dispatched wheel build on the fix was green on every platform, including the new job that installs the abi3t wheel into a GIL 3.15.  The wrapper goes away once abi3audit learns PEP 793.
+
 ## v0.33.0 — 2026-10-20
 
 This release is about free-threaded CPython.  crcglot now installs there with the C accelerator, on 3.14t and 3.15t from wheels and on 3.13t from the sdist, and a new `backend()` reports which engine a process got.  GIL users get the same single abi3 wheel as before, rebuilt from the same source; the one behavioral change there is the extension's multi-phase module init.  Python 3.15 joins the test matrix and the classifiers.
