@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15", "3.14t", "3.15t"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -118,6 +118,30 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  abi3t_crosscheck:
+    # The cp315-abi3.abi3t wheel is built on a free-threaded interpreter,
+    # and that is where cibuildwheel tests it.  PEP 803 says the same file
+    # also loads on a GIL 3.15, which is the point of shipping one wheel
+    # for both; this job is the only place that half of the claim runs.
+    name: abi3t wheel on GIL 3.15
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheels-ubuntu-latest
+          path: wheelhouse
+      - name: Install the abi3t wheel into a GIL 3.15 and run the extension tests
+        run: |
+          uv venv gil315 --python 3.15
+          uv pip install --python gil315/bin/python wheelhouse/crcglot-*-cp315-abi3.abi3t-manylinux*_x86_64.whl pytest
+          gil315/bin/python -c "import crcglot, sys; print(crcglot.__file__, crcglot.backend()); sys.exit(crcglot.backend() != 'c')"
+          gil315/bin/python -m pytest tests/test_c_extension.py -o addopts= -q
+
   publish:
     name: Publish to PyPI
     # Only on a version-tag push -- never on a PR or a manual dispatch, so
@@ -125,7 +149,7 @@ jobs:
     # fast-suite gate, every wheel job, AND the sdist to go green first, so a
     # failing test blocks the upload rather than racing it.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, build_wheels, build_sdist]
+    needs: [test, build_wheels, abi3t_crosscheck, build_sdist]
     runs-on: ubuntu-latest
     permissions:
       id-token: write   # OIDC: required for PyPI trusted publishing

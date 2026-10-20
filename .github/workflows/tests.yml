@@ -14,19 +14,31 @@ jobs:
       # see whether a break is Windows-only, macOS-only, or everywhere.
       fail-fast: false
       matrix:
-        # Version axis on Linux (cheap, fast): every supported Python.
-        # OS axis on Windows + macOS: one representative interpreter each.
-        # OS-specific bugs (path separators, filename case, line endings)
-        # don't vary by Python version, so the full 3x4 cross-product would
-        # be redundant runner time.  Bump the pinned version when the newest
-        # stable Python rolls over.
+        # Version axis on Linux (cheap, fast): every supported Python,
+        # free-threaded builds included (a t suffix; uv fetches them).
+        # OS axis on Windows + macOS: one representative GIL interpreter
+        # and one free-threaded.  OS-specific bugs (path separators,
+        # filename case, line endings) don't vary by Python version, so
+        # the full cross-product would be redundant runner time.  Bump
+        # the pinned version when the newest stable Python rolls over.
         os: [ubuntu-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15", "3.14t", "3.15t"]
         include:
           - os: windows-latest
             python-version: "3.15"
           - os: macos-14
             python-version: "3.15"
+          - os: macos-14
+            python-version: "3.15t"
+          - os: windows-latest
+            python-version: "3.15t"
+            # mcp pulls in pywin32, which ships no free-threaded wheels, so
+            # the MCP layer is out of this job's reach; it is covered on the
+            # Linux and macOS free-threaded jobs and on every GIL job.  The
+            # point of this job is the C extension and the core under free
+            # threading on Windows.
+            uv-args: --no-group mcp-dev
+            pytest-args: --ignore=tests/test_mcp.py --ignore=tests/test_mcp_stdio.py
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -50,7 +62,7 @@ jobs:
           # Derandomized: a release gate must mean the same thing on every
           # run.  Discovery happens in the default 'dev' profile locally.
           HYPOTHESIS_PROFILE: ci
-        run: uv run --python ${{ matrix.python-version }} pytest -m "not slow"
+        run: uv run ${{ matrix.uv-args }} --python ${{ matrix.python-version }} pytest -m "not slow" ${{ matrix.pytest-args }}
 
   audit:
     runs-on: ubuntu-latest
