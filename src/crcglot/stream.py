@@ -205,6 +205,10 @@ class CrcStream:
     the keyword constructor is the low-level path for custom CRCs (its
     signature matches the C extension's ``CrcStream``).
 
+    A stream is single-owner, like a hashlib object: feed one stream from
+    one thread at a time and build one per thread.  Independent streams
+    share nothing, so on a free-threaded build they run in parallel.
+
     Example:
         >>> s = CrcStream.from_name("crc16-modbus")
         >>> s.update(b"123456789")

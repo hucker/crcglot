@@ -28,13 +28,20 @@
  *
  * ---- CPython API notes for the C-extension-curious ----
  *
- * - We target Python's *Stable ABI* (Py_LIMITED_API).  Pin to 3.11
- *   (``0x030B0000``); one wheel per platform then works for every
- *   future CPython 3.x without rebuilds.  3.11 (not 3.9) is the floor
- *   because the buffer protocol (Py_buffer, PyObject_GetBuffer,
- *   PyBuffer_Release, and the "y*" arg format) only entered the
- *   Stable ABI in 3.11.  crcglot's requires-python is >=3.11 anyway,
- *   so this costs nothing.
+ * - ABI targets.  setup.py compiles this one file three ways; nothing
+ *   here chooses, the code only adapts:
+ *     - GIL builds: the *Stable ABI* (Py_LIMITED_API) pinned at 3.11, so
+ *       one ``cp311-abi3`` wheel per platform serves every CPython 3.11+
+ *       without rebuilds.  3.11 (not 3.9) is the floor because the buffer
+ *       protocol (Py_buffer, PyObject_GetBuffer, PyBuffer_Release, the
+ *       "y*" arg format) only entered the Stable ABI in 3.11.
+ *     - Free-threaded 3.15+: the free-threaded Stable ABI (abi3t, PEP
+ *       803), where PyObject and PyModuleDef are opaque; one
+ *       ``cp315-abi3.abi3t`` wheel loads on GIL and free-threaded 3.15+.
+ *     - Free-threaded 3.13 / 3.14: no Stable ABI exists, so the full C
+ *       API and a version-specific wheel (``cp314-cp314t``).
+ *   The two places that differ are marked: the CrcStream instance layout
+ *   and the module entry point.
  *
  * - Functions that build a Python value from C return ``PyObject*``.
  *   Returning ``NULL`` signals an exception was set (via
@@ -53,8 +60,9 @@
  * call; ``CrcStream`` builds one at construction and holds it for the
  * object's lifetime; ``c_crc_many`` builds one for the whole batch.  So the
  * extension carries no shared mutable state -- it is thread-safe by
- * construction, with no lock, on GIL and free-threaded builds alike, and
- * the CRC loop runs with the GIL released for large buffers.  Reuse is the
+ * construction, with no lock, on GIL and free-threaded builds alike (the module declares itself
+ * GIL-free via Py_mod_gil, so a free-threaded interpreter keeps the GIL
+ * off), and the CRC loop runs with the GIL released for large buffers.  Reuse is the
  * caller's choice: a bare one-shot rebuilds its table each call (cheap
  * relative to anything but a tight small-buffer loop); for reuse, hold a
  * CrcStream (build once, update many) -- and N independent streams across N
@@ -65,7 +73,8 @@
  * thread.
  */
 
-#define Py_LIMITED_API 0x030B0000
+/* No Py_LIMITED_API here: setup.py sets the ABI target per interpreter
+ * (see the ABI-targets note above). */
 #include <Python.h>
 
 #include <stdint.h>
@@ -578,10 +587,19 @@ error:
 /*                                                                     */
 /* NOT thread-safe for concurrent mutation of a single object (same as */
 /* hashlib).  One stream per thread.                                   */
+/*                                                                     */
+/* Instance layout.  The per-stream fields live in CrcStreamData; how  */
+/* that struct sits inside the Python object depends on the ABI:       */
+/*   - abi3 pinned at 3.11 (the GIL wheel) predates PEP 697, so the     */
+/*     data is embedded after PyObject_HEAD, classic CPython style.     */
+/*   - everything newer (full C API 3.12+, and abi3t / PEP 803, where   */
+/*     PyObject is opaque and PyObject_HEAD does not exist) uses PEP    */
+/*     697: a negative basicsize asks the interpreter for that many     */
+/*     bytes after the base object and PyObject_GetTypeData finds them. */
+/* crcstream_data() hides the difference; nothing else knows.          */
 /* ------------------------------------------------------------------ */
 
 typedef struct {
-    PyObject_HEAD
     int width;
     uint64_t poly;
     uint64_t init_state;   /* pre-reflected init; reset() restores this */
@@ -591,13 +609,30 @@ typedef struct {
     uint64_t crc;          /* running state */
     CrcEngine engine;      /* bitwise / table / slice8 */
     uint64_t (*tables)[256];  /* NULL for bitwise; else owned by this stream */
-} CrcStreamObject;
+} CrcStreamData;
 
-/* Populate the engine choice + tables for an instance whose width /
- * poly / refin are already set.  The stream builds and owns its own
- * tables (no shared cache), freed in dealloc.  Returns 0 on success, -1
- * on OOM (no Python error set -- caller raises). */
-static int crcstream_setup_engine(CrcStreamObject *s) {
+#if defined(Py_LIMITED_API) && Py_LIMITED_API < 0x030C0000
+typedef struct {
+    PyObject_HEAD
+    CrcStreamData data;
+} CrcStreamObject;
+#define CRCSTREAM_BASICSIZE ((int)sizeof(CrcStreamObject))
+static CrcStreamData *crcstream_data(PyObject *self, PyTypeObject *tp) {
+    (void)tp;
+    return &((CrcStreamObject *)self)->data;
+}
+#else
+#define CRCSTREAM_BASICSIZE (-(int)sizeof(CrcStreamData))
+static CrcStreamData *crcstream_data(PyObject *self, PyTypeObject *tp) {
+    return (CrcStreamData *)PyObject_GetTypeData(self, tp);
+}
+#endif
+
+/* Populate the engine choice + tables for a stream whose width / poly /
+ * refin are already set.  The stream builds and owns its own tables (no
+ * shared cache), freed in dealloc.  Returns 0 on success, -1 on OOM (no
+ * Python error set -- caller raises). */
+static int crcstream_setup_engine(CrcStreamData *s) {
     s->engine = pick_engine(s->width);
     s->tables = NULL;
     if (s->engine == ENGINE_BITWISE) {
@@ -615,7 +650,7 @@ static int crcstream_setup_engine(CrcStreamObject *s) {
 static int
 CrcStream_init(PyObject *self, PyObject *args, PyObject *kwds)
 {
-    CrcStreamObject *s = (CrcStreamObject *)self;
+    CrcStreamData *s = crcstream_data(self, Py_TYPE(self));
     static char *kwlist[] = {
         "width", "poly", "init", "refin", "refout", "xorout", NULL
     };
@@ -636,7 +671,8 @@ CrcStream_init(PyObject *self, PyObject *args, PyObject *kwds)
     }
 
     /* If __init__ is called twice on the same object, release the
-     * previously-built tables before rebinding. */
+     * previously-built tables before rebinding.  (The allocator zero-fills
+     * the instance, so a fresh object sees NULL here.) */
     if (s->tables != NULL) {
         PyMem_Free(s->tables);
         s->tables = NULL;
@@ -660,11 +696,11 @@ CrcStream_init(PyObject *self, PyObject *args, PyObject *kwds)
 static void
 CrcStream_dealloc(PyObject *self)
 {
-    CrcStreamObject *s = (CrcStreamObject *)self;
+    PyTypeObject *tp = Py_TYPE(self);
+    CrcStreamData *s = crcstream_data(self, tp);
     if (s->tables != NULL) {
         PyMem_Free(s->tables);
     }
-    PyTypeObject *tp = Py_TYPE(self);
     freefunc free_self = (freefunc)PyType_GetSlot(tp, Py_tp_free);
     free_self(self);
     Py_DECREF(tp);  /* heap-type instances hold a ref to their type */
@@ -678,7 +714,7 @@ PyDoc_STRVAR(crcstream_update_doc,
 static PyObject *
 CrcStream_update(PyObject *self, PyObject *args)
 {
-    CrcStreamObject *s = (CrcStreamObject *)self;
+    CrcStreamData *s = crcstream_data(self, Py_TYPE(self));
     Py_buffer view;
     if (!PyArg_ParseTuple(args, "y*", &view)) {
         return NULL;
@@ -705,7 +741,7 @@ PyDoc_STRVAR(crcstream_digest_doc,
 static PyObject *
 CrcStream_digest(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
-    CrcStreamObject *s = (CrcStreamObject *)self;
+    CrcStreamData *s = crcstream_data(self, Py_TYPE(self));
     uint64_t v = crc_finalize(s->crc, s->width, s->refin, s->refout, s->xorout);
     return PyLong_FromUnsignedLongLong((unsigned long long)v);
 }
@@ -719,7 +755,7 @@ PyDoc_STRVAR(crcstream_reset_doc,
 static PyObject *
 CrcStream_reset(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
-    CrcStreamObject *s = (CrcStreamObject *)self;
+    CrcStreamData *s = crcstream_data(self, Py_TYPE(self));
     s->crc = s->init_state;
     Py_RETURN_NONE;
 }
@@ -734,13 +770,14 @@ PyDoc_STRVAR(crcstream_copy_doc,
 static PyObject *
 CrcStream_copy(PyObject *self, PyObject *Py_UNUSED(ignored))
 {
-    CrcStreamObject *s = (CrcStreamObject *)self;
     PyTypeObject *tp = Py_TYPE(self);
+    CrcStreamData *s = crcstream_data(self, tp);
     allocfunc alloc = (allocfunc)PyType_GetSlot(tp, Py_tp_alloc);
-    CrcStreamObject *c = (CrcStreamObject *)alloc(tp, 0);
-    if (c == NULL) {
+    PyObject *obj = alloc(tp, 0);
+    if (obj == NULL) {
         return NULL;
     }
+    CrcStreamData *c = crcstream_data(obj, tp);
     c->width = s->width;
     c->poly = s->poly;
     c->init_state = s->init_state;
@@ -751,10 +788,10 @@ CrcStream_copy(PyObject *self, PyObject *Py_UNUSED(ignored))
     /* The copy builds and owns its own tables (independent of the
      * original), so the two free separately. */
     if (crcstream_setup_engine(c) != 0) {
-        Py_DECREF(c);
+        Py_DECREF(obj);
         return PyErr_NoMemory();
     }
-    return (PyObject *)c;
+    return obj;
 }
 
 static PyMethodDef crcstream_methods[] = {
@@ -786,7 +823,7 @@ static PyType_Slot crcstream_slots[] = {
 
 static PyType_Spec crcstream_spec = {
     "crcglot._c.CrcStream",      /* name */
-    sizeof(CrcStreamObject),     /* basicsize */
+    CRCSTREAM_BASICSIZE,         /* basicsize (see the layout note above) */
     0,                           /* itemsize */
     Py_TPFLAGS_DEFAULT,          /* flags */
     crcstream_slots,             /* slots */
@@ -795,6 +832,16 @@ static PyType_Spec crcstream_spec = {
 
 /* ------------------------------------------------------------------ */
 /* Module definition                                                   */
+/*                                                                     */
+/* Multi-phase init (PEP 489): the exec step creates the CrcStream     */
+/* type.  Two entry points share it:                                   */
+/*   - PyInit__c, the classic one, used by the cp311-abi3 wheel and by  */
+/*     the version-specific free-threaded builds (3.13t, 3.14t).  On    */
+/*     3.13+ it declares the module GIL-free (Py_mod_gil); without that */
+/*     a free-threaded interpreter re-enables the GIL on import.        */
+/*   - PyModExport__c (PEP 793), used by the abi3t wheel (PEP 803, 3.15+)*/
+/*     where PyModuleDef itself is opaque and the module is described   */
+/*     by a slot array alone.  Py_mod_abi is mandatory there.           */
 /* ------------------------------------------------------------------ */
 
 static PyMethodDef crcglot_c_methods[] = {
@@ -812,37 +859,78 @@ PyDoc_STRVAR(module_doc,
 "its table across updates.  Optional; the pure-Python fallback in\n"
 "crcglot.catalogue is always present.\n"
 "\n"
-"Ships in the prebuilt wheel (``pip install crcglot`` / ``uv add\n"
-"crcglot``); source installs without a compiler use the pure-Python\n"
-"fallback.\n");
+"Ships in the prebuilt wheels (``pip install crcglot`` / ``uv add\n"
+"crcglot``), for GIL and free-threaded interpreters alike; source\n"
+"installs without a compiler use the pure-Python fallback.\n");
+
+static int
+crcglot_c_exec(PyObject *module)
+{
+    PyObject *crcstream_type = PyType_FromSpec(&crcstream_spec);
+    if (crcstream_type == NULL) {
+        return -1;
+    }
+    int rc = PyModule_AddObjectRef(module, "CrcStream", crcstream_type);
+    Py_DECREF(crcstream_type);
+    return rc;
+}
+
+#ifdef Py_TARGET_ABI3T
+
+PyABIInfo_VAR(crcglot_c_abi);
+
+static PySlot crcglot_c_export_slots[] = {
+    PySlot_STATIC_DATA(Py_mod_abi, &crcglot_c_abi),
+    PySlot_STATIC_DATA(Py_mod_name, "crcglot._c"),
+    PySlot_STATIC_DATA(Py_mod_doc, (void *)module_doc),
+    PySlot_STATIC_DATA(Py_mod_methods, crcglot_c_methods),
+    PySlot_FUNC(Py_mod_exec, crcglot_c_exec),
+    PySlot_PTR(Py_mod_gil, Py_MOD_GIL_NOT_USED),
+    PySlot_END
+};
+
+PyMODEXPORT_FUNC
+PyModExport__c(void)
+{
+    return crcglot_c_export_slots;
+}
+
+/* Never reached: the interpreter prefers PyModExport_ when both exist.
+ * It is here because distutils exports PyInit_<name> from every Windows
+ * .pyd unconditionally, and the link fails without the symbol. */
+PyMODINIT_FUNC
+PyInit__c(void)
+{
+    PyErr_SetString(PyExc_SystemError,
+                    "crcglot._c was built for abi3t; the interpreter should "
+                    "have used PyModExport__c");
+    return NULL;
+}
+
+#else  /* classic entry point: abi3 (GIL) and version-specific builds */
+
+static PyModuleDef_Slot crcglot_c_slots[] = {
+    {Py_mod_exec, (void *)crcglot_c_exec},
+#ifdef Py_MOD_GIL_NOT_USED  /* usable: full API 3.13+, or limited API 3.13+ */
+    {Py_mod_gil, Py_MOD_GIL_NOT_USED},
+#endif
+    {0, NULL}
+};
 
 static struct PyModuleDef crcglot_c_module = {
     PyModuleDef_HEAD_INIT,
     "crcglot._c",
     module_doc,
-    -1,
+    0,
     crcglot_c_methods,
-    NULL, NULL, NULL, NULL,
+    crcglot_c_slots,
+    NULL, NULL, NULL,
 };
 
 PyMODINIT_FUNC
 PyInit__c(void)
 {
-    PyObject *module = PyModule_Create(&crcglot_c_module);
-    if (module == NULL) {
-        return NULL;
-    }
-
-    PyObject *crcstream_type = PyType_FromSpec(&crcstream_spec);
-    if (crcstream_type == NULL) {
-        Py_DECREF(module);
-        return NULL;
-    }
-    if (PyModule_AddObject(module, "CrcStream", crcstream_type) < 0) {
-        Py_DECREF(crcstream_type);
-        Py_DECREF(module);
-        return NULL;
-    }
-
-    return module;
+    return PyModuleDef_Init(&crcglot_c_module);
 }
+
+#endif  /* Py_TARGET_ABI3T */

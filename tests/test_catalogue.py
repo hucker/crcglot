@@ -1370,3 +1370,38 @@ class TestBufferNormalization:
         )
         with pytest.raises(ValueError, match="not C-contiguous"):
             s.update(memoryview(bytes(range(16)))[::2])
+
+
+class TestBackend:
+    """``backend()`` is the public fact behind the silent C-or-Python
+    fallback: the one way an environment can assert it got the accelerator
+    without naming the private ``crcglot._c``.  The oracle is that private
+    import, used here once so the public answer is checked against it on
+    whichever build runs the suite.
+    """
+
+    def test_backend_matches_whether_the_extension_loaded(self):
+        # Arrange
+        try:
+            import crcglot._c  # noqa: F401
+
+            expected = "c"
+        except ImportError:
+            expected = "python"
+
+        # Act
+        import crcglot
+
+        actual = crcglot.backend()
+
+        # Assert
+        assert actual == expected, (
+            f"backend() returned {actual!r} but the extension import "
+            f"{'succeeded' if expected == 'c' else 'failed'}"
+        )
+
+    def test_backend_is_a_public_name(self):
+        import crcglot
+
+        # Assert
+        assert "backend" in crcglot.__all__, "backend is missing from crcglot.__all__"

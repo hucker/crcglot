@@ -37,6 +37,26 @@ except ImportError:
     _c_crc_many = None  # type: ignore[assignment]
 
 
+def backend() -> str:
+    """Report which engine ``compute`` and ``generic_crc`` run on.
+
+    ``"c"`` means the ``crcglot._c`` accelerator loaded; ``"python"`` means
+    the pure-Python loop is in use, because no wheel carried an extension
+    for this interpreter or the sdist was built without a C compiler.  The
+    fallback is silent by design (a slow answer is still a correct one), so
+    this is the one place an environment can check the fact rather than
+    infer it from speed.  IEEE CRC-32 and JAMCRC take ``zlib`` either way.
+
+    Returns:
+        ``"c"`` or ``"python"``.
+
+    Examples:
+        >>> backend() in {"c", "python"}
+        True
+    """
+    return "python" if _c_generic_crc is None else "c"
+
+
 # zlib hardware fast-paths.  CPython's ``zlib.crc32`` is hardware-
 # accelerated on modern CPUs (PCLMULQDQ / VPCLMULQDQ on x86, PMULL /
 # crc32 instructions on ARM), reaching tens of GB/s -- ~30x faster

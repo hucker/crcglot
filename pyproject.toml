@@ -61,7 +61,10 @@ Issues = "https://github.com/hucker/crcglot/issues"
 # pure-Python only.  setuptools is the most-documented PEP 517
 # backend for native extensions and abi3 wheel-building; cibuildwheel
 # tooling assumes it; mountains of examples online use it.
-requires = ["setuptools>=64"]
+# >=84: the first release that tags abi3t wheels (PEP 803) and names
+# free-threaded extension files; older versions reject the free-threaded
+# limited-API build outright.
+requires = ["setuptools>=84"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -75,34 +78,21 @@ where = ["src"]
 [tool.setuptools.dynamic]
 version = { attr = "crcglot._version.__version__" }
 
-# Declare the C extension.  ``py-limited-api = true`` + Py_LIMITED_API
-# macro builds against CPython's *Stable ABI* pinned at 3.11: one wheel
-# per platform that works for every CPython 3.x from 3.11 onward,
-# including future versions.  3.11 (not 3.9) because the buffer
-# protocol the extension uses only entered the Stable ABI in 3.11 --
-# and crcglot's requires-python is >=3.11 regardless.  Crucial here
-# because the CRC algorithms are mathematically settled forever -- pay
-# the build matrix cost once, never rebuild on new Python releases.
-[[tool.setuptools.ext-modules]]
-name = "crcglot._c"
-sources = ["src/crcglot/_c.c"]
-define-macros = [["Py_LIMITED_API", "0x030B0000"]]
-py-limited-api = true
-
-# Tag the built wheel ``cp311-abi3`` (not ``cpXYZ-cpXYZ``).  The
-# ext-module's ``py-limited-api`` compiles against the Stable ABI; this
-# tells ``bdist_wheel`` to *tag* the wheel abi3 so pip on any CPython
-# 3.11+ accepts the single artifact.  Both must agree on cp311.
-[tool.distutils.bdist_wheel]
-py-limited-api = "cp311"
+# The C extension is declared in setup.py, not here: one source compiles
+# three ways (abi3 for GIL builds, abi3t for free-threaded 3.15+, version-
+# specific for free-threaded 3.13 / 3.14) and a static TOML table cannot
+# vary by interpreter.  setup.py also sets the wheel's ABI tag per mode.
 
 [tool.cibuildwheel]
-# Build ONE abi3 wheel per platform on CPython 3.11.  Because the
-# extension is py-limited-api (Py_LIMITED_API=3.11), that single wheel
-# tagged ``cp311-abi3`` satisfies 3.11, 3.12, 3.13, 3.14, ... -- no
-# per-version builds.  cibuildwheel auto-detects the abi3 tag and
-# won't rebuild for cp312+.
-build = "cp311-*"
+# Three wheels per platform, chosen so no interpreter needs a rebuild on a
+# new CPython release where its ABI allows it (setup.py picks the compile
+# mode for each):
+#   cp311-*  -> cp311-abi3        every GIL build from 3.11 on
+#   cp315t-* -> cp315-abi3.abi3t  every build, GIL or free-threaded, from
+#                                 3.15 on (PEP 803; GIL 3.15 ships python3t)
+#   cp314t-* -> cp314-cp314t      free-threaded 3.14, which has no stable ABI
+# cibuildwheel 4.3 has no cp313t identifier; 3.13t installs from the sdist.
+build = ["cp311-*", "cp314t-*", "cp315t-*"]
 # Stays "build".  build-frontend = "build[uv]" was tried and failed on
 # Windows + macOS with cibuildwheel 2.21.3: `uv venv` could not create an env
 # from cibuildwheel's bundled (nuget / framework) Python.  Left alone at the
@@ -129,18 +119,18 @@ manylinux-aarch64-image = "manylinux2014"
 # covered by piwheels building from the sdist.
 skip = ["*_i686", "*-win32"]
 # Run the C-extension parity suite inside each freshly-built wheel,
-# against the INSTALLED extension (not the source tree).  Override the
-# project's addopts (which pull in pytest-cov / pytest-xdist) so the
-# isolated test venv only needs pytest.  cibuildwheel also re-runs this
-# on cp312/cp313 to prove the abi3 wheel works across versions.
+# against the INSTALLED extension (not the source tree).  The first
+# command refuses silence: pytest would report the whole file as skipped
+# if the extension failed to load, and cibuildwheel does not fail on
+# skips, so crcglot.backend() is asserted to be "c" before pytest runs.
 test-requires = "pytest"
 # Clear the project's addopts (which pull in pytest-cov / pytest-xdist,
 # absent from this minimal test env) with an UNQUOTED empty value.
 # ``addopts=''`` would be bash-only -- cmd.exe on the Windows runners
 # keeps the quotes literal, mangling the invocation so pytest mis-scopes
 # and trips cibuildwheel's {project} sentinel.  ``addopts=`` is portable
-# across sh and cmd.
-test-command = "python -m pytest {project}/tests/test_c_extension.py -o addopts= -q"
+# across sh and cmd, as is the && between the two commands.
+test-command = "python -c \"import crcglot, sys; sys.exit(crcglot.backend() != 'c')\" && python -m pytest {project}/tests/test_c_extension.py -o addopts= -q"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -176,15 +166,28 @@ select = ["E4", "E7", "E9", "F"]
 # explicit sync, and the test pinning crcglot.__version__ to
 # importlib.metadata would fail inside release_prep.
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/crcglot/_version.py" }]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "setup.py" },
+    { file = "src/crcglot/_c.c" },
+    { file = "src/crcglot/_version.py" },
+]
+default-groups = ["dev", "mcp-dev"]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    "setuptools>=84",  # only so editors and ty resolve setup.py; builds use isolated envs
     "pytest-cov>=7.0",
     "pytest-xdist>=3.8",
-    "mcp>=2,<3",  # keep in lockstep with the [mcp] extra above
     "anycrc>=2.0.0",
     "crccheck>=1.3.1",
     "hypothesis>=6.100",
+]
+# The MCP server dependency sits in its own group so the free-threaded
+# Windows CI job can leave it out: mcp pulls in pywin32, which ships no
+# free-threaded wheels.  default-groups (under [tool.uv]) keeps a plain
+# `uv sync` installing both groups, so nothing changes locally.
+mcp-dev = [
+    "mcp>=2,<3",  # keep in lockstep with the [mcp] extra above
 ]

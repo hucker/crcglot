@@ -23,12 +23,14 @@ Two layers:
 
 from __future__ import annotations
 
+import sys
+import sysconfig
 import threading
 from typing import TYPE_CHECKING
 
 import pytest
 
-from crcglot import ALGORITHMS
+from crcglot import ALGORITHMS, backend
 from crcglot.catalogue import _generic_crc_python
 
 # TYPE_CHECKING sees the module unconditionally: every use below is
@@ -551,3 +553,78 @@ class TestCExtensionConcurrency:
 
         # Assert
         assert not errors, f"concurrent CRC errors: {errors[:5]}"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Free threading: the module declares itself GIL-free, and backend() says so
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestFreeThreadedBuild:
+    """A free-threaded interpreter re-enables the GIL on import of any
+    extension that does not declare ``Py_mod_gil``, with only a
+    RuntimeWarning to show for it; the suite would still pass, slowly, and
+    nothing else would notice.  These tests pin the declaration, the public
+    ``backend()`` fact the in-wheel check relies on, and hashlib's
+    one-stream-per-thread contract under real parallelism.  They run on
+    every build rather than skipping on GIL ones: there the GIL is simply
+    reported enabled, so the first test asserts consistency between the
+    two facts instead of a build-specific value.
+    """
+
+    def test_gil_state_matches_the_build(self):
+        # Arrange -- a GIL build always reports True; a free-threaded build
+        # reports False only if crcglot._c declared Py_mod_gil.
+        free_threaded_build = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+        expected = not free_threaded_build
+        is_gil_enabled = getattr(sys, "_is_gil_enabled", lambda: True)
+
+        # Act
+        actual = is_gil_enabled()
+
+        # Assert
+        assert actual == expected, (
+            f"GIL enabled={actual} on a build with Py_GIL_DISABLED="
+            f"{free_threaded_build}: crcglot._c re-enabled the GIL on import"
+        )
+
+    def test_backend_reports_the_c_engine(self):
+        # Act
+        actual = backend()
+
+        # Assert
+        assert actual == "c", f"backend() returned {actual!r} with _c importable"
+
+    def test_one_stream_per_thread_stays_correct(self):
+        # Arrange -- each thread owns its streams (hashlib's contract), feeds
+        # the check input in 3-byte chunks and compares with the check
+        # value; on a free-threaded build the updates genuinely overlap.
+        errors: list = []
+
+        def worker() -> None:
+            try:
+                for name in _C_EXT_ALGOS:
+                    a = ALGORITHMS[name]
+                    s = _c.CrcStream(
+                        width=a.width, poly=a.poly, init=a.init,
+                        refin=a.refin, refout=a.refout, xorout=a.xorout,
+                    )
+                    for _ in range(20):
+                        s.reset()
+                        for i in range(0, len(_CHECK_INPUT), 3):
+                            s.update(_CHECK_INPUT[i:i + 3])
+                        if s.digest() != a.check:
+                            errors.append((name, hex(s.digest()), hex(a.check)))
+                            break
+            except Exception as exc:  # noqa: BLE001 - report, don't hang
+                errors.append(exc)
+
+        # Act
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # Assert
+        assert not errors, f"per-thread CrcStream errors: {errors[:5]}"
