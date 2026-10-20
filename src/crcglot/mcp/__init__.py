@@ -20,6 +20,9 @@ actionable message instead of a bare ``ModuleNotFoundError``.
 
 from __future__ import annotations
 
+import sys
+import sysconfig
+
 
 def main() -> None:
     """Entry point for the ``crcglot-mcp`` script.
@@ -28,7 +31,10 @@ def main() -> None:
     required at the moment the server is actually started -- not at
     bare-package import time.  When the ``[mcp]`` extra is not installed,
     the import fails; catch that one case and exit with the install
-    instructions rather than a bare ``ModuleNotFoundError``.
+    instructions rather than a bare ``ModuleNotFoundError``.  On a
+    free-threaded build of Python on Windows the instructions cannot
+    work yet (the SDK needs pywin32, which ships no free-threaded
+    wheels), so the message says that too and points at a GIL build.
     """
     try:
         from crcglot.mcp.server import main as _server_main
@@ -37,10 +43,19 @@ def main() -> None:
         # our own code (or a broken mcp install) must still surface.
         if (e.name or "").split(".")[0] != "mcp":
             raise
+        note = ""
+        if sys.platform == "win32" and sysconfig.get_config_var("Py_GIL_DISABLED"):
+            note = (
+                "\n  note: this is a free-threaded build of Python on Windows, where the\n"
+                "  extra cannot be installed yet: the SDK needs pywin32, which ships no\n"
+                "  free-threaded wheels.  Run the server under a GIL build instead:\n"
+                "  uvx --python 3.15 --from 'crcglot[mcp]' crcglot-mcp"
+            )
         raise SystemExit(
             "crcglot-mcp needs the MCP SDK, which ships with the 'mcp' extra.\n"
             "  install:  pip install 'crcglot[mcp]'   (or  uv add 'crcglot[mcp]')\n"
             "  or run without installing:  uvx --from 'crcglot[mcp]' crcglot-mcp"
+            + note
         ) from e
     _server_main()
 

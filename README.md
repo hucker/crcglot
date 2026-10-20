@@ -40,7 +40,7 @@ uv tool install crcglot      # the CLI on PATH
 uv add crcglot               # as a library in your project
 ```
 
-Python 3.11+ (free-threaded 3.14 and 3.15 builds included), zero runtime dependencies: `crcglot` imports nothing beyond the standard library.  (The prebuilt wheels bundle an optional C accelerator for runtime CRC computation, covered in [docs/api.md](docs/api.md), so the package is not "pure Python" in the packaging sense, but it runs fully, on any platform, without it.)  Per-target toolchains (`gcc`, `rustc`, `tsx`, `iverilog`, etc.) only matter if you want to *run* the generated code; the generator produces source either way.
+Python 3.11+ (free-threaded 3.14 and 3.15 builds included, except the MCP extra on Windows; see [docs/MCP.md](docs/MCP.md)), zero runtime dependencies: `crcglot` imports nothing beyond the standard library.  (The prebuilt wheels bundle an optional C accelerator for runtime CRC computation, covered in [docs/api.md](docs/api.md), so the package is not "pure Python" in the packaging sense, but it runs fully, on any platform, without it.)  Per-target toolchains (`gcc`, `rustc`, `tsx`, `iverilog`, etc.) only matter if you want to *run* the generated code; the generator produces source either way.
 
 ## What you get per language
 

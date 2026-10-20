@@ -18,6 +18,8 @@ uv tool install 'crcglot[mcp]'
 
 The `mcp` SDK only ships with the extra; the base `pip install crcglot` stays pure-stdlib.
 
+One platform cannot take the extra yet: a free-threaded build of CPython on Windows.  The SDK depends on pywin32 there, which ships no free-threaded wheels, so the resolver refuses the install up front, naming pywin32 and the ABI tags it found.  The core works on that interpreter; for the server, use a GIL build until pywin32 ships them, for example `uvx --python 3.15 --from 'crcglot[mcp]' crcglot-mcp`.  `crcglot-mcp` says the same when started on such a build without the SDK.
+
 ## Connect
 
 ### Claude Desktop
