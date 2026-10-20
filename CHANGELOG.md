@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.33.0 — 2026-10-20
+
+This release is about free-threaded CPython.  crcglot now installs there with the C accelerator, on 3.14t and 3.15t from wheels and on 3.13t from the sdist, and a new `backend()` reports which engine a process got.  GIL users get the same single abi3 wheel as before, rebuilt from the same source; the one behavioral change there is the extension's multi-phase module init.  Python 3.15 joins the test matrix and the classifiers.
 
 ### Added: free-threaded CPython, accelerator included
 
