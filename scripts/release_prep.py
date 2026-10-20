@@ -210,12 +210,13 @@ def coverage_badge_color(percent: int) -> str:
 def update_readme_badges(fast_passed: int, cov_percent: int) -> None:
     """Refresh the per-Python-version tooltips and coverage shield in README.md.
 
-    The per-version badges (Py 3.11 ... Py 3.14) advertise the CI fast-tier count
-    in their hover tooltips (the markdown image ``title``), floored to the
-    thousand ("6,000+") so the claim stays true between releases and under any
-    counting convention; it only ratchets up.  The coverage shield uses the
-    full-suite percentage.  The ruff + ty badges are static ``passing`` shields
-    gated by assert_zero_lint(), so they need no per-release rewrite.
+    The per-version badges (one per CPython in the CI matrix, Py 3.11 upward)
+    advertise the CI fast-tier count in their hover tooltips (the markdown
+    image ``title``), floored to the thousand ("6,000+") so the claim stays
+    true between releases and under any counting convention; it only ratchets
+    up.  The coverage shield uses the full-suite percentage.  The ruff + ty
+    badges are static ``passing`` shields gated by assert_zero_lint(), so they
+    need no per-release rewrite.
     """
     path = REPO_ROOT / "README.md"
     text = path.read_text(encoding="utf-8")

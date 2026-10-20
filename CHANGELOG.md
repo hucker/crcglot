@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added: Python 3.15 in the test matrix and the classifiers
+
+CPython 3.15.0 is final.  The fast-suite matrices in `tests.yml` and the release gate in `wheels.yml` now run on it, the Windows and macOS jobs moved their one pinned interpreter from 3.14 to 3.15, and the package carries the `Programming Language :: Python :: 3.15` classifier.  No code changed.  On the Windows reference box the full suite, every target toolchain included, passed on 3.15.0: 9530 passed, 0 skipped, with the C accelerator loaded in-process (it did not fall back to pure Python).  The wheel build stays as it is on purpose.  The single `cp311-abi3` wheel already covers 3.15, which the 3.15.0rc2 run in `DECISIONS.md` found, and a cp315 wheel would only compete with it.
+
+Nothing changed at the low end either.  crcglot has required Python 3.11 or newer since its first commit, and the abi3 wheel is built against the 3.11 stable ABI, so there was no 3.10 support to retire.
+
 ## v0.32.1 — 2026-10-17
 
 The first build of the 0.32 line to reach PyPI.  v0.32.0 was tagged earlier today; its wheels built and passed their in-wheel tests, but the release gate failed on the MCP tests described below, so nothing was uploaded.  Everything in the v0.32.0 entry ships here, plus one fix.

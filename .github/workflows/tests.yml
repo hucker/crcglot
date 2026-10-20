@@ -21,12 +21,12 @@ jobs:
         # be redundant runner time.  Bump the pinned version when the newest
         # stable Python rolls over.
         os: [ubuntu-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
         include:
           - os: windows-latest
-            python-version: "3.14"
+            python-version: "3.15"
           - os: macos-14
-            python-version: "3.14"
+            python-version: "3.15"
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
