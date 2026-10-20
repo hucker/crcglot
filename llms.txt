@@ -26,7 +26,7 @@ Three typed registries are the entry points for tooling: `ALGORITHMS` (`dict[str
 
 ## Install
 
-- `uv tool install crcglot` (CLI on PATH) or `uv add crcglot` (library). Python 3.11+.
+- `uv tool install crcglot` (CLI on PATH) or `uv add crcglot` (library). Python 3.11+, free-threaded 3.14t and 3.15t included.
 - `uv tool install 'crcglot[mcp]'` for the MCP server, then run `crcglot-mcp` (stdio); the MCP server self-describes via its `instructions` and per-tool descriptions, so an MCP client needs no extra context.
 
 ## Optional

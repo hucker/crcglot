@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added: free-threaded CPython, accelerator included
+
+Until now crcglot could not be installed on a free-threaded interpreter at all.  uv and pip reject an `abi3` wheel for a free-threaded build, the sdist's C compile then failed, and the extension was not declared optional, so the install failed even though the package runs without it.  This release ships three wheels per platform instead of one, all from the same `_c.c`:
+
+| Wheel | Serves |
+| --- | --- |
+| `cp311-abi3` | GIL builds, 3.11 and later, as before |
+| `cp315-abi3.abi3t` | 3.15 and later, GIL and free-threaded alike (PEP 803) |
+| `cp314-cp314t` | free-threaded 3.14, which has no stable ABI |
+
+The extension declares itself GIL-free (`Py_mod_gil`), so a free-threaded interpreter keeps the GIL off after `import crcglot`, and independent calls and `CrcStream` objects run in parallel.  A single stream stays single-owner, like a hashlib object.  Free-threaded 3.13 gets no wheel, since cibuildwheel 4 has no identifier for it; its sdist build compiles the extension when a C compiler is present and falls back to pure Python when not.
+
+Two things changed inside the extension to make this possible, neither visible from Python: the `CrcStream` instance no longer embeds the object header (PEP 697 relative layout, which the free-threaded stable ABI requires because `PyObject` is opaque there), and the module uses multi-phase init with a second entry point, `PyModExport__c` (PEP 793), for the `abi3t` build.  The compile mode is chosen per interpreter by a new `setup.py`; the rest of the packaging stays in `pyproject.toml`.
+
+For contributors: the test matrix gained free-threaded 3.14 and 3.15 on Linux and free-threaded 3.15 on Windows and macOS.  The wheel workflow builds and tests the two new wheels, and it also installs the `abi3t` wheel into a GIL 3.15, the half of PEP 803 that cibuildwheel's own test does not reach.  The `mcp` test dependency moved into its own `mcp-dev` group, installed by default, because `pywin32`, which `mcp` needs on Windows, ships no free-threaded wheels.
+
+### Added: `crcglot.backend()`
+
+The C-or-Python fallback has always been silent, on purpose: a slow answer is still a correct one.  That left no supported way to find out which engine a process got.  `backend()` returns `"c"` or `"python"`, so a deployment can assert the accelerator once at startup.  The in-wheel test now does the same before running anything else, so a wheel whose extension fails to load can no longer pass as a skip.
+
 ### Added: Python 3.15 in the test matrix and the classifiers
 
 CPython 3.15.0 is final.  The fast-suite matrices in `tests.yml` and the release gate in `wheels.yml` now run on it, the Windows and macOS jobs moved their one pinned interpreter from 3.14 to 3.15, and the package carries the `Programming Language :: Python :: 3.15` classifier.  No code changed.  On the Windows reference box the full suite, every target toolchain included, passed on 3.15.0: 9530 passed, 0 skipped, with the C accelerator loaded in-process (it did not fall back to pure Python).  The wheel build stays as it is on purpose.  The single `cp311-abi3` wheel already covers 3.15, which the 3.15.0rc2 run in `DECISIONS.md` found, and a cp315 wheel would only compete with it.

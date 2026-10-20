@@ -176,7 +176,15 @@ The extension ships in the prebuilt wheels; `uv add crcglot` gets it on common p
 pip install --no-binary crcglot crcglot
 ```
 
-It's a single abi3 wheel per platform (CPython 3.11+), and crcglot stays fully functional in pure Python if no wheel matches your platform.
+Three wheels per platform cover every CPython from 3.11 on, free-threaded builds included: a `cp311-abi3` wheel for GIL builds, a `cp315-abi3.abi3t` wheel that GIL and free-threaded 3.15+ interpreters both load (PEP 803), and a version-specific `cp314t` wheel for free-threaded 3.14.  The extension declares itself GIL-free, so a free-threaded interpreter keeps the GIL off after `import crcglot`, and independent calls and streams run in parallel; a single `CrcStream` is still single-owner, like a hashlib object.  Free-threaded 3.13 has no wheel (cibuildwheel no longer builds for it): the sdist compiles the extension there when a C compiler is present and falls back to pure Python when not.  crcglot stays fully functional in pure Python wherever no wheel matches, and `backend()` tells you which engine you got:
+
+```python
+import crcglot
+
+crcglot.backend()   # "c" with the accelerator loaded, "python" on the pure fallback
+```
+
+A deployment that relies on the speed can assert `crcglot.backend() == "c"` once at startup instead of discovering a slow path later.  IEEE CRC-32 and JAMCRC go through `zlib` either way.
 
 ```python
 from crcglot import Crc, generic_crc
@@ -203,7 +211,7 @@ s.digest()        # 0xCBF43926 (an int; non-destructive, call it again)
 s.hexdigest()     # 'cbf43926'
 ```
 
-`crc_stream` takes the same three-tier dispatch as `generic_crc`: stdlib `zlib.crc32` for IEEE crc32 / jamcrc, the C extension when built, pure-Python otherwise.  For a custom (non-catalogue) CRC, build it from a `Crc` value object (or its raw keyword parameters), or from an `AlgorithmInfo`:
+`crc_stream` takes the same three-tier dispatch as `generic_crc`: stdlib `zlib.crc32` for IEEE crc32 / jamcrc, the C extension when built, pure-Python otherwise.  A stream is single-owner, like a hashlib object: feed one stream from one thread at a time and build one per thread.  Independent streams share nothing, so on a free-threaded build they run in parallel.  For a custom (non-catalogue) CRC, build it from a `Crc` value object (or its raw keyword parameters), or from an `AlgorithmInfo`:
 
 ```python
 from crcglot import CrcStream, Crc, ALGORITHMS
