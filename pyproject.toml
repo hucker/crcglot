@@ -132,6 +132,18 @@ test-requires = "pytest"
 # across sh and cmd, as is the && between the two commands.
 test-command = "python -c \"import crcglot, sys; sys.exit(crcglot.backend() != 'c')\" && python -m pytest {project}/tests/test_c_extension.py -o addopts= -q"
 
+# The abi3t wheel is abi3-tagged, so cibuildwheel runs ``abi3audit --strict``
+# on it.  abi3audit 0.0.26 predates PEP 793 and, on ELF wheels where it also
+# inspects exported symbols, reports the module's ``PyModExport__c`` entry
+# point as a symbol outside the stable ABI; Windows and macOS pass because
+# only imports are inspected there.  That failed both Linux jobs of the
+# v0.33.0 build.  The wrapper runs the same audit and tolerates exactly that
+# one export, failing on anything else.  Retire it once abi3audit learns PEP
+# 793.
+[[tool.cibuildwheel.overrides]]
+select = "cp315t-*"
+audit-command = "python {project}/scripts/abi3t_audit.py {abi3_wheel}"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --cov=crcglot --cov-report=term-missing -n auto"
